@@ -802,51 +802,65 @@ func summarizeCrawlResults(output string) string {
 		return output
 	}
 
-	// Results may be nested under "results" key
+	// Results are nested under "results" key
 	results := data
 	if r, ok := data["results"].(map[string]interface{}); ok {
 		results = r
 	}
 
-	// Count pages
+	// Extract metrics (nested under results.metrics)
 	pages := 0
-	if p, ok := results["pages"]; ok {
-		if arr, ok := p.([]interface{}); ok {
-			pages = len(arr)
+	testCount := 0
+	if metrics, ok := results["metrics"].(map[string]interface{}); ok {
+		if p, ok := metrics["pages_crawled"].(float64); ok {
+			pages = int(p)
 		}
-	}
-	if p, ok := results["pages_crawled"]; ok {
-		if n, ok := p.(float64); ok {
-			pages = int(n)
+		if t, ok := metrics["tests_generated"].(float64); ok {
+			testCount = int(t)
 		}
 	}
 
-	// Count test cases and collect IDs
-	testCount := 0
-	var testIDs []string
-	if tcs, ok := results["test_cases"]; ok {
-		if arr, ok := tcs.([]interface{}); ok {
-			testCount = len(arr)
-			for _, tc := range arr {
-				if m, ok := tc.(map[string]interface{}); ok {
-					if id, ok := m["id"]; ok {
-						testIDs = append(testIDs, fmt.Sprintf("%v", id))
+	// Fallback: count generated_tests array
+	var testNames []string
+	if tests, ok := results["generated_tests"].([]interface{}); ok {
+		if testCount == 0 {
+			testCount = len(tests)
+		}
+		for _, t := range tests {
+			if m, ok := t.(map[string]interface{}); ok {
+				if name, ok := m["name"].(string); ok {
+					testNames = append(testNames, name)
+				}
+			}
+		}
+	}
+
+	// Test case ID
+	testCaseID := results["test_case_id"]
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Crawl complete: %d pages, %d tests generated.", pages, testCount))
+	if testCaseID != nil {
+		sb.WriteString(fmt.Sprintf(" Test case ID: %v.", testCaseID))
+	}
+	if len(testNames) > 0 {
+		sb.WriteString(" Scripts: " + strings.Join(testNames, ", "))
+	}
+
+	// Quality score
+	if tests, ok := results["generated_tests"].([]interface{}); ok {
+		for _, t := range tests {
+			if m, ok := t.(map[string]interface{}); ok {
+				if meta, ok := m["metadata"].(map[string]interface{}); ok {
+					if score, ok := meta["fanatical_quality_score"].(float64); ok {
+						sb.WriteString(fmt.Sprintf(" Quality: %d/100.", int(score)))
 					}
 				}
 			}
 		}
 	}
-	if tc, ok := results["test_count"]; ok {
-		if n, ok := tc.(float64); ok {
-			testCount = int(n)
-		}
-	}
 
-	result := fmt.Sprintf("Crawl complete: %d pages, %d tests generated.", pages, testCount)
-	if len(testIDs) > 0 {
-		result += " Test case IDs: " + strings.Join(testIDs, ", ")
-	}
-	return result
+	return sb.String()
 }
 
 func summarizeCrawlJobs(output string) string {
