@@ -207,7 +207,7 @@ func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx co
 	switch name {
 	// --- qmax CLI wrappers ---
 	case "list_projects":
-		return runQMax(sctx, ctx, "projects")
+		return runQMax(sctx, ctx, "projects", "--json")
 
 	case "list_test_cases":
 		args := []string{"test", "cases", "--json", "--project-id", intArg(input, "project_id", sctx.ProjectID)}
