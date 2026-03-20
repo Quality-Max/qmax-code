@@ -37,7 +37,7 @@ func BuildToolDefs() []ToolDef {
 		},
 		{
 			Name:        "list_scripts",
-			Description: "List automation scripts (Playwright tests) for a project.",
+			Description: "List automation scripts for a project. IMPORTANT: Check the 'framework' field — only 'playwright' scripts can run on the cloud runner. pytest scripts need local execution.",
 			InputSchema: obj(props(
 				prop("project_id", "integer", "Project ID", true),
 				prop("limit", "integer", "Max results (default 50)", false),
@@ -53,7 +53,7 @@ func BuildToolDefs() []ToolDef {
 		},
 		{
 			Name:        "run_test",
-			Description: "Execute a single Playwright test script. Returns execution ID and waits for completion.",
+			Description: "Execute a single Playwright test script on the cloud runner. IMPORTANT: Only works with playwright/cypress scripts. Check the framework first with list_scripts.",
 			InputSchema: obj(props(
 				prop("script_id", "integer", "Script ID to execute", true),
 				prop("headless", "boolean", "Run headless (default true)", false),
@@ -63,7 +63,7 @@ func BuildToolDefs() []ToolDef {
 		},
 		{
 			Name:        "run_tests_batch",
-			Description: "Execute multiple test scripts in batch.",
+			Description: "Execute multiple Playwright test scripts in batch. IMPORTANT: Filter script IDs to only include playwright/cypress scripts. pytest scripts will fail.",
 			InputSchema: obj(props(
 				prop("script_ids", "string", "Comma-separated script IDs", true),
 				prop("base_url", "string", "Base URL override", false),
@@ -408,6 +408,334 @@ func intArg(input map[string]interface{}, key string, fallback int) string {
 		return fmt.Sprintf("%d", fallback)
 	}
 	return "0"
+}
+
+// ToolCost classifies tools by cost impact.
+func ToolCost(name string) string {
+	switch name {
+	case "list_projects", "list_test_cases", "list_scripts", "check_test_status",
+		"crawl_status", "crawl_results", "list_crawl_jobs", "list_repos",
+		"repo_coverage", "repo_quality", "read_file", "run_command":
+		return "free" // read-only, no cost
+	case "generate_test_code":
+		return "low" // AI generation, small cost
+	case "run_test", "run_tests_batch":
+		return "medium" // execution credits
+	case "start_crawl", "review_repo":
+		return "high" // significant AI + execution cost
+	case "import_repo", "import_document", "create_pr":
+		return "medium"
+	default:
+		return "free"
+	}
+}
+
+// SummarizeToolResult parses common JSON responses and returns human-readable summaries.
+// The summary is shown in the terminal AND sent to the LLM to save tokens.
+func SummarizeToolResult(name, output string) string {
+	// Check for error responses first
+	if strings.HasPrefix(output, `{"error"`) {
+		var errData map[string]interface{}
+		if err := json.Unmarshal([]byte(output), &errData); err == nil {
+			if msg, ok := errData["error"]; ok {
+				return fmt.Sprintf("Error: %v", msg)
+			}
+		}
+		return output
+	}
+
+	// Try to extract "detail" field (common API error format)
+	var singleObj map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &singleObj); err == nil {
+		if detail, ok := singleObj["detail"]; ok {
+			return fmt.Sprintf("Error: %v", detail)
+		}
+	}
+
+	switch name {
+	case "list_projects":
+		return summarizeProjects(output)
+	case "list_test_cases":
+		return summarizeTestCases(output)
+	case "list_scripts":
+		return summarizeScripts(output)
+	case "run_test", "check_test_status":
+		return summarizeExecution(output)
+	case "run_tests_batch":
+		return summarizeBatchExecution(output)
+	default:
+		// For unknown tools, try to pretty-print JSON; otherwise return as-is
+		var data interface{}
+		if err := json.Unmarshal([]byte(output), &data); err == nil {
+			pretty, err := json.MarshalIndent(data, "", "  ")
+			if err == nil && len(pretty) < len(output) {
+				return string(pretty)
+			}
+		}
+		return output
+	}
+}
+
+func summarizeProjects(output string) string {
+	var projects []map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &projects); err != nil {
+		// Try wrapped format: {"projects": [...]}
+		var wrapped map[string]interface{}
+		if err2 := json.Unmarshal([]byte(output), &wrapped); err2 != nil {
+			return output
+		}
+		if arr, ok := wrapped["projects"]; ok {
+			data, _ := json.Marshal(arr)
+			if err := json.Unmarshal(data, &projects); err != nil {
+				return output
+			}
+		} else {
+			return output
+		}
+	}
+
+	if len(projects) == 0 {
+		return "No projects found."
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%d projects:\n", len(projects)))
+	// Show up to 20 projects
+	limit := len(projects)
+	if limit > 20 {
+		limit = 20
+	}
+	for i := 0; i < limit; i++ {
+		p := projects[i]
+		id := p["id"]
+		name := p["name"]
+		sb.WriteString(fmt.Sprintf("  #%v %v\n", id, name))
+	}
+	if len(projects) > 20 {
+		sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(projects)-20))
+	}
+	return sb.String()
+}
+
+func summarizeTestCases(output string) string {
+	var cases []map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &cases); err != nil {
+		var wrapped map[string]interface{}
+		if err2 := json.Unmarshal([]byte(output), &wrapped); err2 != nil {
+			return output
+		}
+		if arr, ok := wrapped["test_cases"]; ok {
+			data, _ := json.Marshal(arr)
+			if err := json.Unmarshal(data, &cases); err != nil {
+				return output
+			}
+		} else {
+			return output
+		}
+	}
+
+	if len(cases) == 0 {
+		return "No test cases found."
+	}
+
+	automated := 0
+	manual := 0
+	categories := map[string]int{}
+	for _, tc := range cases {
+		if hasScript, ok := tc["has_script"]; ok && hasScript == true {
+			automated++
+		} else if isAutomated, ok := tc["is_automated"]; ok && isAutomated == true {
+			automated++
+		} else {
+			manual++
+		}
+		if cat, ok := tc["category"]; ok && cat != nil && cat != "" {
+			categories[fmt.Sprintf("%v", cat)]++
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%d test cases (%d automated, %d manual)\n", len(cases), automated, manual))
+
+	if len(categories) > 0 {
+		sb.WriteString("  Categories: ")
+		first := true
+		for cat, count := range categories {
+			if !first {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(fmt.Sprintf("%s(%d)", cat, count))
+			first = false
+		}
+		sb.WriteString("\n")
+	}
+
+	// List up to 15 test cases
+	limit := len(cases)
+	if limit > 15 {
+		limit = 15
+	}
+	for i := 0; i < limit; i++ {
+		tc := cases[i]
+		id := tc["id"]
+		title := tc["title"]
+		sb.WriteString(fmt.Sprintf("  #%v %v\n", id, title))
+	}
+	if len(cases) > 15 {
+		sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(cases)-15))
+	}
+	return sb.String()
+}
+
+func summarizeScripts(output string) string {
+	var scripts []map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &scripts); err != nil {
+		var wrapped map[string]interface{}
+		if err2 := json.Unmarshal([]byte(output), &wrapped); err2 != nil {
+			return output
+		}
+		if arr, ok := wrapped["scripts"]; ok {
+			data, _ := json.Marshal(arr)
+			if err := json.Unmarshal(data, &scripts); err != nil {
+				return output
+			}
+		} else {
+			return output
+		}
+	}
+
+	if len(scripts) == 0 {
+		return "No scripts found."
+	}
+
+	// Group by framework
+	groups := map[string][]map[string]interface{}{}
+	for _, s := range scripts {
+		fw := "unknown"
+		if f, ok := s["framework"]; ok && f != nil && f != "" {
+			fw = strings.ToLower(fmt.Sprintf("%v", f))
+		}
+		groups[fw] = append(groups[fw], s)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%d scripts:\n", len(scripts)))
+
+	for fw, items := range groups {
+		canRun := ""
+		switch fw {
+		case "playwright", "cypress":
+			canRun = " — can run on cloud"
+		case "pytest", "unittest":
+			canRun = " — local execution only"
+		}
+
+		ids := make([]string, 0, len(items))
+		for _, s := range items {
+			ids = append(ids, fmt.Sprintf("#%v", s["id"]))
+		}
+		fwLabel := strings.ToUpper(fw[:1]) + fw[1:]
+		sb.WriteString(fmt.Sprintf("  %s (%d): %s%s\n", fwLabel, len(items), strings.Join(ids, ", "), canRun))
+	}
+
+	// List scripts with titles
+	sb.WriteString("\n")
+	for _, s := range scripts {
+		id := s["id"]
+		title := s["title"]
+		if title == nil || title == "" {
+			title = s["name"]
+		}
+		fw := ""
+		if f, ok := s["framework"]; ok && f != nil {
+			fw = fmt.Sprintf(" [%v]", f)
+		}
+		sb.WriteString(fmt.Sprintf("  #%v %v%s\n", id, title, fw))
+	}
+	return sb.String()
+}
+
+func summarizeExecution(output string) string {
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return output
+	}
+
+	var sb strings.Builder
+
+	// Extract execution info
+	if execID, ok := data["execution_id"]; ok {
+		sb.WriteString(fmt.Sprintf("Execution: %v\n", execID))
+	} else if id, ok := data["id"]; ok {
+		sb.WriteString(fmt.Sprintf("Execution: %v\n", id))
+	}
+
+	if status, ok := data["status"]; ok {
+		sb.WriteString(fmt.Sprintf("  Status: %v\n", status))
+	}
+
+	if result, ok := data["result"]; ok {
+		sb.WriteString(fmt.Sprintf("  Result: %v\n", result))
+	}
+
+	if duration, ok := data["duration"]; ok {
+		sb.WriteString(fmt.Sprintf("  Duration: %vs\n", duration))
+	} else if dur, ok := data["duration_seconds"]; ok {
+		sb.WriteString(fmt.Sprintf("  Duration: %vs\n", dur))
+	}
+
+	// Pass/fail counts
+	if passed, ok := data["passed"]; ok {
+		sb.WriteString(fmt.Sprintf("  Passed: %v\n", passed))
+	}
+	if failed, ok := data["failed"]; ok {
+		sb.WriteString(fmt.Sprintf("  Failed: %v\n", failed))
+	}
+
+	// Error message
+	if errMsg, ok := data["error"]; ok && errMsg != nil && errMsg != "" {
+		sb.WriteString(fmt.Sprintf("  Error: %v\n", errMsg))
+	}
+	if errMsg, ok := data["error_message"]; ok && errMsg != nil && errMsg != "" {
+		sb.WriteString(fmt.Sprintf("  Error: %v\n", errMsg))
+	}
+
+	if sb.Len() == 0 {
+		return output
+	}
+	return sb.String()
+}
+
+func summarizeBatchExecution(output string) string {
+	// Could be an array of executions or a wrapper object
+	var executions []map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &executions); err != nil {
+		var wrapped map[string]interface{}
+		if err2 := json.Unmarshal([]byte(output), &wrapped); err2 != nil {
+			return output
+		}
+		if arr, ok := wrapped["executions"]; ok {
+			data, _ := json.Marshal(arr)
+			if err := json.Unmarshal(data, &executions); err != nil {
+				return output
+			}
+		} else {
+			// Single execution object
+			return summarizeExecution(output)
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%d executions started:\n", len(executions)))
+	for _, exec := range executions {
+		id := exec["execution_id"]
+		if id == nil {
+			id = exec["id"]
+		}
+		status := exec["status"]
+		sb.WriteString(fmt.Sprintf("  %v — %v\n", id, status))
+	}
+	return sb.String()
 }
 
 // =============================================================================

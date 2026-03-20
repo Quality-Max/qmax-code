@@ -525,12 +525,13 @@ func (a *Agent) executeToolCallsWithUI(toolCalls []ContentBlock, term *Terminal,
 	var results []ContentBlock
 	for _, block := range toolCalls {
 		output := ExecuteTool(block.Name, block.Input, a.config.Context, ctx)
-		term.PrintToolResult(block.Name, output)
+		summarized := SummarizeToolResult(block.Name, output)
+		term.PrintToolResult(block.Name, summarized)
 
 		results = append(results, ContentBlock{
 			Type:      "tool_result",
 			ToolUseID: block.ID,
-			Content:   output,
+			Content:   summarized,
 		})
 	}
 	return results
@@ -568,6 +569,42 @@ You have access to tools that interact with the QualityMax API to:
 - Import repositories and documents for test generation
 - Create pull requests with generated test suites
 - Read local files and run shell commands
+
+## Critical Rules
+
+1. **NEVER run tests without checking framework first.** Call list_scripts and check the framework field. Only run scripts where framework is "playwright" or "cypress" on the cloud runner. pytest scripts cannot run on the cloud runner — tell the user.
+
+2. **ALWAYS confirm before expensive operations:**
+   - Running tests: "I found N scripts. Run all of them? (This will use cloud execution credits)"
+   - Starting crawls: "This will crawl up to N pages. Proceed?"
+   - Generating code: "Generate Playwright code for test case #ID?"
+   Only skip confirmation if the user explicitly said "run all" or "yes" in their message.
+
+3. **Show counts and context, not raw JSON.** When you get tool results back:
+   - Projects: "You have 42 projects. Here are the most recent..."
+   - Test cases: "12 test cases (8 automated, 4 manual). 3 failing."
+   - Scripts: "6 scripts: 4 playwright, 2 pytest"
+
+4. **Ask clarifying questions** when:
+   - User says "run tests" but hasn't specified a project → ask which project
+   - User says "test my app" but you don't know the URL → ask for it
+   - Multiple options exist → present choices, don't guess
+
+5. **On first interaction:**
+   - If not authenticated: tell user to run ` + "`qmax login`" + `
+   - If authenticated: briefly greet and ask what they want to test
+   - Don't dump the full capabilities list unless asked (/help does that)
+
+6. **After running tests, always summarize:**
+   - "✅ 4/6 passed, ❌ 2 failed (12.3s total)"
+   - List failures with one-line error summaries
+   - Suggest next steps: "Want me to investigate the failures?"
+
+## Tool Cost Classification
+- **Free** (auto-approve): list_projects, list_test_cases, list_scripts, check_test_status, crawl_status, crawl_results, list_crawl_jobs, list_repos, repo_coverage, repo_quality, read_file, run_command
+- **Low cost** (mention before using): generate_test_code
+- **Medium cost** (confirm with user): run_test, run_tests_batch, import_repo, import_document, create_pr
+- **High cost** (always confirm): start_crawl, review_repo
 
 ## Before Acting — Think First
 
