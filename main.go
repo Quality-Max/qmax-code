@@ -55,12 +55,21 @@ func main() {
 	// Discover qmax binary
 	qmaxBin := discoverQMaxBinary()
 
+	// Detect project from cwd if not set via flag
+	detectedProjectID := *projectID
+	var projectFile string
+	if detectedProjectID == 0 {
+		detectedProjectID, projectFile = detectProjectFromCwd()
+	}
+
 	// Build session context
 	ctx := &SessionContext{
-		ProjectID: *projectID,
-		QMaxCfg:   qmaxCfg,
-		QMaxBin:   qmaxBin,
-		QMaxInfo:  probeQMaxStatus(qmaxBin),
+		ProjectID:   detectedProjectID,
+		QMaxCfg:     qmaxCfg,
+		QMaxBin:     qmaxBin,
+		QMaxInfo:    probeQMaxStatus(qmaxBin),
+		GitInfo:     detectGitInfo(),
+		ProjectFile: projectFile,
 	}
 
 	// Build agent with smart model routing
@@ -134,6 +143,14 @@ func runREPL(agent *Agent) {
 		lastSigTime time.Time
 	)
 
+	saveAndExit := func() {
+		if len(agent.history) > 0 {
+			if err := SaveSession(agent.history, agent.config.Context.ProjectID, agent.usage); err == nil {
+				fmt.Println("Session saved.")
+			}
+		}
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -147,7 +164,8 @@ func runREPL(agent *Agent) {
 				// Double Ctrl+C within 1 second: exit
 				if now.Sub(lastSigTime) < time.Second {
 					sigMu.Unlock()
-					fmt.Println("\nGoodbye!")
+					saveAndExit()
+					fmt.Println("Goodbye!")
 					term.Close()
 					os.Exit(0)
 				}
@@ -155,7 +173,8 @@ func runREPL(agent *Agent) {
 			} else {
 				// SIGTERM: exit
 				sigMu.Unlock()
-				fmt.Println("\nGoodbye!")
+				saveAndExit()
+				fmt.Println("Goodbye!")
 				term.Close()
 				os.Exit(0)
 			}
@@ -169,6 +188,7 @@ func runREPL(agent *Agent) {
 	for {
 		input, err := term.ReadLine()
 		if err != nil {
+			saveAndExit()
 			break // EOF or error
 		}
 
@@ -180,6 +200,7 @@ func runREPL(agent *Agent) {
 		// Built-in commands
 		switch {
 		case input == "/quit" || input == "/exit" || input == "/q":
+			saveAndExit()
 			fmt.Println("Goodbye!")
 			return
 		case input == "/help":
@@ -208,6 +229,27 @@ func runREPL(agent *Agent) {
 		case input == "/cost":
 			term.PrintCostSummary(agent.usage, agent.config.Model)
 			continue
+		case input == "/resume":
+			session, err := LoadLastSession()
+			if err != nil {
+				term.PrintError(fmt.Sprintf("No saved session found: %v", err))
+			} else {
+				agent.history = session.Messages
+				agent.usage = session.Usage
+				if session.ProjectID > 0 {
+					agent.config.Context.ProjectID = session.ProjectID
+				}
+				term.PrintSystem(fmt.Sprintf("Resumed session from %s (%d messages, project #%d)",
+					session.UpdatedAt.Format("2006-01-02 15:04"), len(session.Messages), session.ProjectID))
+			}
+			continue
+		case input == "/save":
+			if err := SaveSession(agent.history, agent.config.Context.ProjectID, agent.usage); err != nil {
+				term.PrintError(fmt.Sprintf("Failed to save session: %v", err))
+			} else {
+				term.PrintSystem("Session saved.")
+			}
+			continue
 		}
 
 		// Run through the LLM agent with streaming
@@ -230,6 +272,8 @@ Commands:
   /context       Show current session context
   /status        Show qmax auth + session info
   /cost          Show session token usage and estimated cost
+  /save          Save current session
+  /resume        Resume last saved session
   /clear         Clear conversation history
   /help          Show this help
   /quit          Exit
@@ -254,6 +298,9 @@ Examples:
 
 func printContext(ctx *SessionContext, term *Terminal) {
 	term.PrintSystem(fmt.Sprintf("Project: #%d", ctx.ProjectID))
+	if ctx.ProjectFile != "" {
+		term.PrintSystem(fmt.Sprintf("Detected from: %s", ctx.ProjectFile))
+	}
 	if ctx.QMaxCfg.CloudURL != "" {
 		term.PrintSystem(fmt.Sprintf("Cloud: %s", ctx.QMaxCfg.CloudURL))
 	}
@@ -261,4 +308,15 @@ func printContext(ctx *SessionContext, term *Terminal) {
 		term.PrintSystem(fmt.Sprintf("qmax binary: %s", ctx.QMaxBin))
 	}
 	term.PrintSystem(fmt.Sprintf("Authenticated: %v", ctx.QMaxCfg.Token != ""))
+	if gi := ctx.GitInfo; gi != nil {
+		if gi.Branch != "" {
+			term.PrintSystem(fmt.Sprintf("Git branch: %s", gi.Branch))
+		}
+		if gi.RemoteURL != "" {
+			term.PrintSystem(fmt.Sprintf("Git remote: %s", gi.RemoteURL))
+		}
+		if len(gi.ChangedFiles) > 0 {
+			term.PrintSystem(fmt.Sprintf("Changed files: %d", len(gi.ChangedFiles)))
+		}
+	}
 }

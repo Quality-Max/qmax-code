@@ -665,12 +665,56 @@ Bad examples (too forced):
 - Ask clarifying questions before performing destructive operations (deleting tests, force-regenerating code, etc.)
 `
 
+	// Conciseness rules
+	prompt += `
+
+## Conciseness Rules
+- Lead with the answer, not the reasoning
+- When user asks for a URL, give the URL. Don't explain what URLs are.
+- When user asks "is it ready?", check status and say "Yes" or "Not yet (X%)"
+- Don't repeat information the user already knows
+- Don't offer 5 options when 1 obvious action exists
+- Maximum 3-4 lines for simple answers
+`
+
+	// Dashboard URLs
+	cloudURL := a.config.Context.QMaxCfg.CloudURL
+	if cloudURL != "" {
+		prompt += fmt.Sprintf(`
+## Dashboard URLs
+When the user asks for a link, construct it from the API URL:
+- Project: {api_url}/#/projects/{project_id}
+- Test case: {api_url}/#/projects/{project_id}/test-cases/{test_case_id}
+- Execution: {api_url}/#/executions/{execution_id}
+- Crawl results: {api_url}/#/crawl/{crawl_id}
+
+The API URL is: %s
+`, cloudURL)
+	}
+
 	// Add session context
 	if a.config.Context.ProjectID > 0 {
 		prompt += fmt.Sprintf("\n## Active Session\n- Project ID: %d\n", a.config.Context.ProjectID)
 	}
-	if a.config.Context.QMaxCfg.CloudURL != "" {
-		prompt += fmt.Sprintf("- QualityMax API: %s\n", a.config.Context.QMaxCfg.CloudURL)
+	if cloudURL != "" {
+		prompt += fmt.Sprintf("- QualityMax API: %s\n", cloudURL)
+	}
+
+	// Git context
+	if gi := a.config.Context.GitInfo; gi != nil {
+		prompt += "\n## Git Context\n"
+		if gi.Branch != "" {
+			prompt += fmt.Sprintf("Branch: %s\n", gi.Branch)
+		}
+		if gi.RemoteURL != "" {
+			prompt += fmt.Sprintf("Remote: %s\n", gi.RemoteURL)
+		}
+		if gi.RecentCommits != "" {
+			prompt += fmt.Sprintf("Recent commits:\n%s\n", gi.RecentCommits)
+		}
+		if len(gi.ChangedFiles) > 0 {
+			prompt += fmt.Sprintf("Changed files: %s\n", strings.Join(gi.ChangedFiles, ", "))
+		}
 	}
 
 	return prompt

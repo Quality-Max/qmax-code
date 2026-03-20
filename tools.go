@@ -463,6 +463,12 @@ func SummarizeToolResult(name, output string) string {
 		return summarizeExecution(output)
 	case "run_tests_batch":
 		return summarizeBatchExecution(output)
+	case "crawl_status":
+		return summarizeCrawlStatus(output)
+	case "crawl_results":
+		return summarizeCrawlResults(output)
+	case "start_crawl":
+		return summarizeStartCrawl(output)
 	default:
 		// For unknown tools, try to pretty-print JSON; otherwise return as-is
 		var data interface{}
@@ -736,6 +742,110 @@ func summarizeBatchExecution(output string) string {
 		sb.WriteString(fmt.Sprintf("  %v — %v\n", id, status))
 	}
 	return sb.String()
+}
+
+func summarizeCrawlStatus(output string) string {
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return output
+	}
+
+	id := data["id"]
+	if id == nil {
+		id = data["crawl_id"]
+	}
+	if id == nil {
+		id = data["job_id"]
+	}
+	status := data["status"]
+	progress := data["progress"]
+	if progress == nil {
+		progress = data["progress_percent"]
+	}
+	if progress == nil {
+		progress = 0
+	}
+
+	if id != nil && status != nil {
+		return fmt.Sprintf("Crawl %v: %v (%v%%)", id, status, progress)
+	}
+	return output
+}
+
+func summarizeCrawlResults(output string) string {
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return output
+	}
+
+	// Count pages
+	pages := 0
+	if p, ok := data["pages"]; ok {
+		if arr, ok := p.([]interface{}); ok {
+			pages = len(arr)
+		}
+	}
+	if p, ok := data["pages_crawled"]; ok {
+		if n, ok := p.(float64); ok {
+			pages = int(n)
+		}
+	}
+
+	// Count test cases and collect IDs
+	testCount := 0
+	var testIDs []string
+	if tcs, ok := data["test_cases"]; ok {
+		if arr, ok := tcs.([]interface{}); ok {
+			testCount = len(arr)
+			for _, tc := range arr {
+				if m, ok := tc.(map[string]interface{}); ok {
+					if id, ok := m["id"]; ok {
+						testIDs = append(testIDs, fmt.Sprintf("%v", id))
+					}
+				}
+			}
+		}
+	}
+	if tc, ok := data["test_count"]; ok {
+		if n, ok := tc.(float64); ok {
+			testCount = int(n)
+		}
+	}
+
+	result := fmt.Sprintf("Crawl complete: %d pages, %d tests generated.", pages, testCount)
+	if len(testIDs) > 0 {
+		result += " Test case IDs: " + strings.Join(testIDs, ", ")
+	}
+	return result
+}
+
+func summarizeStartCrawl(output string) string {
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return output
+	}
+
+	crawlID := data["crawl_id"]
+	if crawlID == nil {
+		crawlID = data["id"]
+	}
+	if crawlID == nil {
+		crawlID = data["job_id"]
+	}
+
+	estTime := data["estimated_time"]
+	if estTime == nil {
+		estTime = data["estimated_seconds"]
+	}
+
+	if crawlID != nil {
+		result := fmt.Sprintf("Crawl started: %v", crawlID)
+		if estTime != nil {
+			result += fmt.Sprintf(". Estimated time: %vs", estTime)
+		}
+		return result
+	}
+	return output
 }
 
 // =============================================================================
