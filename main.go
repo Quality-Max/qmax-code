@@ -23,6 +23,7 @@ func main() {
 	apiKey := flag.String("api-key", "", "Anthropic API key (or set ANTHROPIC_API_KEY)")
 	cloudURL := flag.String("cloud-url", "", "QualityMax cloud URL (or use qmax login)")
 	oneShot := flag.String("p", "", "Run a single prompt and exit (non-interactive)")
+	resumeID := flag.String("resume", "", "Resume a previous session by ID (or 'last')")
 	verbose := flag.Bool("verbose", false, "Show tool calls and raw responses")
 	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
 	showVersion := flag.Bool("version", false, "Show version")
@@ -136,6 +137,27 @@ func main() {
 		return
 	}
 
+	// Handle --resume flag
+	if *resumeID != "" {
+		var session *Session
+		var loadErr error
+		if *resumeID == "last" {
+			session, loadErr = LoadLastSession()
+		} else {
+			session, loadErr = LoadSession(*resumeID)
+		}
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "Cannot resume session %q: %v\n", *resumeID, loadErr)
+			os.Exit(1)
+		}
+		agent.history = session.Messages
+		agent.usage = session.Usage
+		if session.ProjectID > 0 {
+			agent.config.Context.ProjectID = session.ProjectID
+		}
+		fmt.Printf("Resumed session %s (%d turns)\n", session.ID, session.Turns)
+	}
+
 	// Interactive REPL
 	runREPL(agent)
 }
@@ -158,17 +180,25 @@ func runREPL(agent *Agent) {
 	term := NewTerminal()
 	defer term.Close()
 
+	// Session ID for this conversation
+	sessionID := generateSessionID()
+
 	// Graceful interrupt handling
 	var (
 		sigMu       sync.Mutex
 		lastSigTime time.Time
 	)
 
-	saveAndExit := func() {
+	autoSave := func() {
 		if len(agent.history) > 0 && (agent.appConfig == nil || agent.appConfig.AutoSave) {
-			if err := SaveSession(agent.history, agent.config.Context.ProjectID, agent.usage); err == nil {
-				fmt.Println("Session saved.")
-			}
+			_ = SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
+		}
+	}
+
+	saveAndExit := func() {
+		autoSave()
+		if len(agent.history) > 0 {
+			fmt.Printf("Session %s saved.\n", sessionID)
 		}
 	}
 
@@ -205,6 +235,7 @@ func runREPL(agent *Agent) {
 
 	// Welcome
 	term.PrintBanner(Version, agent.config.Context)
+	fmt.Printf("  %sSession: %s%s\n\n", colorDim, sessionID, colorReset)
 
 	for {
 		input, err := term.ReadLine()
@@ -250,25 +281,55 @@ func runREPL(agent *Agent) {
 		case input == "/cost":
 			term.PrintCostSummary(agent.usage, agent.config.Model)
 			continue
-		case input == "/resume":
-			session, err := LoadLastSession()
-			if err != nil {
-				term.PrintError(fmt.Sprintf("No saved session found: %v", err))
+		case input == "/resume" || strings.HasPrefix(input, "/resume "):
+			resumeTarget := strings.TrimPrefix(input, "/resume ")
+			resumeTarget = strings.TrimSpace(resumeTarget)
+			var session *Session
+			var loadErr error
+			if resumeTarget == "" || resumeTarget == "/resume" || resumeTarget == "last" {
+				session, loadErr = LoadLastSession()
+			} else {
+				session, loadErr = LoadSession(resumeTarget)
+			}
+			if loadErr != nil {
+				term.PrintError(fmt.Sprintf("Cannot resume: %v", loadErr))
+				term.PrintSystem("Use /sessions to see available sessions")
 			} else {
 				agent.history = session.Messages
 				agent.usage = session.Usage
+				sessionID = session.ID
 				if session.ProjectID > 0 {
 					agent.config.Context.ProjectID = session.ProjectID
 				}
-				term.PrintSystem(fmt.Sprintf("Resumed session from %s (%d messages, project #%d)",
-					session.UpdatedAt.Format("2006-01-02 15:04"), len(session.Messages), session.ProjectID))
+				term.PrintSystem(fmt.Sprintf("Resumed session %s (%d turns, project #%d)",
+					session.ID, session.Turns, session.ProjectID))
+			}
+			continue
+		case input == "/sessions":
+			sessions, err := ListSessions(10)
+			if err != nil || len(sessions) == 0 {
+				term.PrintSystem("No saved sessions.")
+			} else {
+				fmt.Println()
+				fmt.Printf("  %-10s  %-18s  %-6s  %-8s  %s\n", "ID", "Updated", "Turns", "Tokens", "Project")
+				fmt.Printf("  %-10s  %-18s  %-6s  %-8s  %s\n", "----------", "------------------", "------", "--------", "-------")
+				for _, s := range sessions {
+					marker := " "
+					if s.ID == sessionID {
+						marker = "*"
+					}
+					fmt.Printf(" %s%-10s  %-18s  %-6d  %-8d  #%d\n",
+						marker, s.ID, s.UpdatedAt.Format("2006-01-02 15:04"), s.Turns, s.Tokens, s.ProjectID)
+				}
+				fmt.Println()
+				term.PrintSystem("Resume with: /resume <id>")
 			}
 			continue
 		case input == "/save":
-			if err := SaveSession(agent.history, agent.config.Context.ProjectID, agent.usage); err != nil {
-				term.PrintError(fmt.Sprintf("Failed to save session: %v", err))
+			if err := SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model); err != nil {
+				term.PrintError(fmt.Sprintf("Failed to save: %v", err))
 			} else {
-				term.PrintSystem("Session saved.")
+				term.PrintSystem(fmt.Sprintf("Session %s saved.", sessionID))
 			}
 			continue
 		case input == "/config":
@@ -283,12 +344,16 @@ func runREPL(agent *Agent) {
 		result, err := agent.RunStreaming(input, term)
 		if err != nil {
 			term.PrintError(err.Error())
+			autoSave() // save even on error — preserves context
 			continue
 		}
 
 		if result != "" {
 			fmt.Println()
 		}
+
+		// Auto-save after every exchange for crash safety
+		autoSave()
 	}
 }
 
@@ -302,7 +367,8 @@ Commands:
   /config        Show current config settings
   /set <k> <v>   Update config (model, project, professional, autosave, budget)
   /save          Save current session
-  /resume        Resume last saved session
+  /sessions      List recent sessions
+  /resume [id]   Resume a session (default: last)
   /clear         Clear conversation history
   /help          Show this help
   /quit          Exit

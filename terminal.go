@@ -125,15 +125,11 @@ func (t *Terminal) ReadLine() (string, error) {
 // PrintBanner shows the startup banner — fun, geeky, and cat-themed.
 func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 	banner := fmt.Sprintf(`
-%s%s    ____  __  __    _    __  __     %s
-%s%s   / __ \|  \/  |  / \   \ \/ /     %s  %s/\_/\%s
-%s%s  | |  | | |\/| | / _ \   \  /      %s  %s( o.o )%s
-%s%s  | |__| | |  | |/ ___ \  /  \      %s  %s > ^ <%s
-%s%s   \___\_\_|  |_/_/   \_\/_/\_\     %s  %s/|   |\%s
-%s%s                          code %s    %s  %s(_|   |_) meow.%s
+%s%s  ╔═╗ ╔╦╗ ╔═╗ ═╗ ╔   %s%s/\_/\%s
+%s%s  ║ ║ ║║║ ╠═╣  ╠╣    %s%s( o.o )%s
+%s%s  ╚═╝ ╩ ╩ ╩ ╩ ═╝╚   %s%s > ^ <%s
+%s%s            code %s   %s%s(_|_|_) meow.%s
 `,
-		colorBold, colorCyan, colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, colorReset,
 		colorBold, colorCyan, colorReset, colorYellow, colorReset,
 		colorBold, colorCyan, colorReset, colorYellow, colorReset,
 		colorBold, colorCyan, colorReset, colorYellow, colorReset,
