@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,9 +111,5 @@ func probeQMaxStatus(binary string) string {
 
 // formatQMaxInstallHint returns install instructions when qmax is missing.
 func formatQMaxInstallHint() string {
-	return fmt.Sprintf(`qmax CLI not found. Install it:
-
-  curl -fsSL https://get.qualitymax.io/cli | sh
-
-Or download from: https://docs.qualitymax.io/cli`)
+	return "qmax CLI not found. Install it:\n\n  curl -fsSL https://get.qualitymax.io/cli | sh\n\nOr download from: https://docs.qualitymax.io/cli"
 }

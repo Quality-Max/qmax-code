@@ -65,14 +65,13 @@ func main() {
 
 	// Build agent with smart model routing
 	autoRoute := *model == "auto"
-	baseModel := *model
-	chatModel := ModelHaiku
+	var baseModel, chatModel string
 	if autoRoute {
-		baseModel = ModelSonnet // sonnet for tool loops
-		chatModel = ModelHaiku  // haiku for chat
+		baseModel = ModelSonnet
+		chatModel = ModelHaiku
 	} else {
 		baseModel = resolveModel(*model)
-		chatModel = baseModel // no routing — use same model for everything
+		chatModel = baseModel
 	}
 
 	agent := NewAgent(AgentConfig{

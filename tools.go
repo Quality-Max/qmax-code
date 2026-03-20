@@ -201,7 +201,7 @@ func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx co
 		input = v
 	default:
 		data, _ := json.Marshal(rawInput)
-		json.Unmarshal(data, &input)
+		_ = json.Unmarshal(data, &input)
 	}
 
 	switch name {
