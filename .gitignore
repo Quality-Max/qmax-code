@@ -1,4 +1,5 @@
 qmax-code
+build/
 *.exe
 *.dll
 *.so

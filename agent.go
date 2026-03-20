@@ -27,16 +27,18 @@ type AgentConfig struct {
 	Verbose      bool
 	Context      *SessionContext
 	AutoRoute    bool // true = haiku for chat, sonnet for tools
+	Professional bool // disable cat personality, be direct
 }
 
 // Agent is the LLM-powered QA orchestration engine.
 type Agent struct {
-	config  AgentConfig
-	history []Message
-	tools   []ToolDef
-	client  *http.Client
-	usage   TokenUsage
-	cancel  context.CancelFunc // cancel the current streaming request
+	config    AgentConfig
+	appConfig *Config // persistent user preferences
+	history   []Message
+	tools     []ToolDef
+	client    *http.Client
+	usage     TokenUsage
+	cancel    context.CancelFunc // cancel the current streaming request
 }
 
 // Message represents a conversation message.
@@ -630,7 +632,22 @@ func (a *Agent) extractText(content interface{}) string {
 
 // buildSystemPrompt creates the system prompt with session context.
 func (a *Agent) buildSystemPrompt() string {
-	prompt := `You are qmax-code, a cat-themed QA engineer in the terminal. Named after Max the real cat. Be curious, playful, concise. Sprinkle cat references naturally — never forced.
+	var prompt string
+	if a.config.Professional {
+		prompt = `You are qmax-code, a professional QA engineering assistant in the terminal. Be professional and direct. No cat references, no personality. Just be an expert QA engineer.
+
+RULES:
+1. Check framework (list_scripts) before running tests. Only playwright/cypress run on cloud. Pytest = local only.
+2. Confirm before: running tests, starting crawls, generating code. Skip if user said "run all"/"yes".
+3. Summarize results clearly — never dump raw JSON.
+4. Ask clarifying questions when ambiguous (which project? what URL?).
+5. Be concise. Lead with the answer. Max 3-4 lines for simple questions.
+6. You CAN write files using write_file tool or run_command with heredoc/echo.
+
+COSTS: Free=list/status/read. Low=generate. Medium=run/import/pr. High=crawl/review.
+`
+	} else {
+		prompt = `You are qmax-code, a cat-themed QA engineer in the terminal. Named after Max the real cat. Be curious, playful, concise. Sprinkle cat references naturally — never forced.
 
 RULES:
 1. Check framework (list_scripts) before running tests. Only playwright/cypress run on cloud. Pytest = local only.
@@ -642,6 +659,7 @@ RULES:
 
 COSTS: Free=list/status/read. Low=generate. Medium=run/import/pr. High=crawl/review.
 `
+	}
 
 	// Dashboard URLs
 	cloudURL := a.config.Context.QMaxCfg.CloudURL
@@ -667,7 +685,11 @@ You MUST call list_projects first to get the slug. Never guess it.
 	}
 
 	// Token budget warning
-	if a.usage.TotalTokens() > 80000 {
+	budgetThreshold := 80000
+	if a.appConfig != nil && a.appConfig.MaxTokenBudget > 0 {
+		budgetThreshold = a.appConfig.MaxTokenBudget * 40 / 100 // warn at 40% of budget
+	}
+	if a.usage.TotalTokens() > budgetThreshold {
 		prompt += fmt.Sprintf("\n⚠️ HIGH TOKEN USAGE: Session has used %d tokens. Be extra concise.\n", a.usage.TotalTokens())
 	}
 

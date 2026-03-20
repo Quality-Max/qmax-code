@@ -19,11 +19,12 @@ const (
 func main() {
 	// Flags
 	projectID := flag.Int("project-id", 0, "Default project ID for this session")
-	model := flag.String("model", "auto", "Claude model: auto (haiku+sonnet), sonnet, opus, haiku, or full ID")
+	model := flag.String("model", "", "Claude model: auto (haiku+sonnet), sonnet, opus, haiku, or full ID")
 	apiKey := flag.String("api-key", "", "Anthropic API key (or set ANTHROPIC_API_KEY)")
 	cloudURL := flag.String("cloud-url", "", "QualityMax cloud URL (or use qmax login)")
 	oneShot := flag.String("p", "", "Run a single prompt and exit (non-interactive)")
 	verbose := flag.Bool("verbose", false, "Show tool calls and raw responses")
+	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
 	showVersion := flag.Bool("version", false, "Show version")
 	flag.Parse()
 
@@ -32,8 +33,23 @@ func main() {
 		return
 	}
 
-	// Resolve model shorthand
-	*model = resolveModel(*model)
+	// Load persistent user config
+	appConfig := LoadQMaxCodeConfig()
+
+	// Apply --professional flag (CLI flag overrides saved config)
+	if *professional {
+		appConfig.Professional = true
+	}
+
+	// Resolve model: CLI flag > saved config > "auto"
+	effectiveModel := *model
+	if effectiveModel == "" {
+		effectiveModel = appConfig.DefaultModel
+	}
+	if effectiveModel == "" {
+		effectiveModel = "auto"
+	}
+	effectiveModel = resolveModel(effectiveModel)
 
 	// Resolve Anthropic API key
 	anthropicKey := *apiKey
@@ -55,11 +71,14 @@ func main() {
 	// Discover qmax binary
 	qmaxBin := discoverQMaxBinary()
 
-	// Detect project from cwd if not set via flag
+	// Detect project from cwd if not set via flag; fall back to saved config
 	detectedProjectID := *projectID
 	var projectFile string
 	if detectedProjectID == 0 {
 		detectedProjectID, projectFile = detectProjectFromCwd()
+	}
+	if detectedProjectID == 0 && appConfig.DefaultProject > 0 {
+		detectedProjectID = appConfig.DefaultProject
 	}
 
 	// Build session context
@@ -73,13 +92,13 @@ func main() {
 	}
 
 	// Build agent with smart model routing
-	autoRoute := *model == "auto"
+	autoRoute := effectiveModel == "auto"
 	var baseModel, chatModel string
 	if autoRoute {
 		baseModel = ModelSonnet
 		chatModel = ModelHaiku
 	} else {
-		baseModel = resolveModel(*model)
+		baseModel = resolveModel(effectiveModel)
 		chatModel = baseModel
 	}
 
@@ -90,7 +109,9 @@ func main() {
 		Verbose:      *verbose,
 		Context:      ctx,
 		AutoRoute:    autoRoute,
+		Professional: appConfig.Professional,
 	})
+	agent.appConfig = appConfig
 
 	// One-shot mode
 	if *oneShot != "" {
@@ -144,7 +165,7 @@ func runREPL(agent *Agent) {
 	)
 
 	saveAndExit := func() {
-		if len(agent.history) > 0 {
+		if len(agent.history) > 0 && (agent.appConfig == nil || agent.appConfig.AutoSave) {
 			if err := SaveSession(agent.history, agent.config.Context.ProjectID, agent.usage); err == nil {
 				fmt.Println("Session saved.")
 			}
@@ -250,6 +271,12 @@ func runREPL(agent *Agent) {
 				term.PrintSystem("Session saved.")
 			}
 			continue
+		case input == "/config":
+			printConfigInfo(agent.appConfig, term)
+			continue
+		case strings.HasPrefix(input, "/set "):
+			handleSetCommand(input, agent, term)
+			continue
 		}
 
 		// Run through the LLM agent with streaming
@@ -272,11 +299,20 @@ Commands:
   /context       Show current session context
   /status        Show qmax auth + session info
   /cost          Show session token usage and estimated cost
+  /config        Show current config settings
+  /set <k> <v>   Update config (model, project, professional, autosave, budget)
   /save          Save current session
   /resume        Resume last saved session
   /clear         Clear conversation history
   /help          Show this help
   /quit          Exit
+
+Config examples:
+  /set model sonnet         Change default model
+  /set project 42           Change default project
+  /set professional true    Disable cat personality
+  /set autosave false       Disable auto-save on exit
+  /set budget 100000        Set max token budget warning
 
 Shortcuts:
   Ctrl+C         Cancel current operation (double-tap to exit)
@@ -287,6 +323,9 @@ Models (--model flag):
   opus            Claude Opus (most capable, all requests)
   haiku           Claude Haiku (cheapest, all requests)
 
+Flags:
+  --professional  Disable cat personality for this session
+
 Examples:
   "test the login flow"
   "what's our test coverage?"
@@ -294,6 +333,107 @@ Examples:
   "run all tests and show failures"
   "import https://github.com/user/repo and review it"
   "create a PR with the generated tests"`)
+}
+
+func printConfigInfo(cfg *Config, term *Terminal) {
+	if cfg == nil {
+		term.PrintSystem("No config loaded (using defaults).")
+		return
+	}
+	fmt.Println()
+	fmt.Printf("  %s\n", "qmax-code Config (~/.qmax-code/config.json)")
+	fmt.Printf("  %-20s %s\n", "Default model:", cfg.DefaultModel)
+	fmt.Printf("  %-20s %d\n", "Default project:", cfg.DefaultProject)
+	fmt.Printf("  %-20s %v\n", "Professional:", cfg.Professional)
+	fmt.Printf("  %-20s %v\n", "Auto-save:", cfg.AutoSave)
+	fmt.Printf("  %-20s %d\n", "Token budget:", cfg.MaxTokenBudget)
+	fmt.Println()
+}
+
+func handleSetCommand(input string, agent *Agent, term *Terminal) {
+	parts := strings.Fields(input)
+	if len(parts) < 3 {
+		term.PrintError("Usage: /set <key> <value>")
+		term.PrintSystem("Keys: model, project, professional, autosave, budget")
+		return
+	}
+	key := strings.ToLower(parts[1])
+	value := parts[2]
+	cfg := agent.appConfig
+	if cfg == nil {
+		cfg = defaultConfig()
+		agent.appConfig = cfg
+	}
+
+	switch key {
+	case "model":
+		validModels := map[string]bool{"auto": true, "sonnet": true, "opus": true, "haiku": true}
+		if !validModels[strings.ToLower(value)] {
+			term.PrintError("Valid models: auto, sonnet, opus, haiku")
+			return
+		}
+		cfg.DefaultModel = strings.ToLower(value)
+		term.PrintSystem(fmt.Sprintf("Default model set to: %s", cfg.DefaultModel))
+
+	case "project":
+		var pid int
+		if _, err := fmt.Sscanf(value, "%d", &pid); err != nil || pid < 0 {
+			term.PrintError("Project ID must be a non-negative integer.")
+			return
+		}
+		cfg.DefaultProject = pid
+		agent.config.Context.ProjectID = pid
+		term.PrintSystem(fmt.Sprintf("Default project set to: #%d", pid))
+
+	case "professional":
+		switch strings.ToLower(value) {
+		case "true", "1", "yes", "on":
+			cfg.Professional = true
+			agent.config.Professional = true
+			term.PrintSystem("Professional mode enabled. Cat personality disabled.")
+		case "false", "0", "no", "off":
+			cfg.Professional = false
+			agent.config.Professional = false
+			term.PrintSystem("Professional mode disabled. Cat personality restored.")
+		default:
+			term.PrintError("Value must be true or false.")
+			return
+		}
+
+	case "autosave":
+		switch strings.ToLower(value) {
+		case "true", "1", "yes", "on":
+			cfg.AutoSave = true
+			term.PrintSystem("Auto-save enabled.")
+		case "false", "0", "no", "off":
+			cfg.AutoSave = false
+			term.PrintSystem("Auto-save disabled.")
+		default:
+			term.PrintError("Value must be true or false.")
+			return
+		}
+
+	case "budget":
+		var budget int
+		if _, err := fmt.Sscanf(value, "%d", &budget); err != nil || budget < 0 {
+			term.PrintError("Budget must be a non-negative integer (token count).")
+			return
+		}
+		cfg.MaxTokenBudget = budget
+		term.PrintSystem(fmt.Sprintf("Token budget set to: %d", budget))
+
+	default:
+		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
+		term.PrintSystem("Keys: model, project, professional, autosave, budget")
+		return
+	}
+
+	// Persist to disk
+	if err := cfg.Save(); err != nil {
+		term.PrintError(fmt.Sprintf("Config updated in memory but failed to save: %v", err))
+	} else {
+		term.PrintSystem("Config saved to ~/.qmax-code/config.json")
+	}
 }
 
 func printContext(ctx *SessionContext, term *Terminal) {
