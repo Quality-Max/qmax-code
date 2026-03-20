@@ -118,7 +118,7 @@ func resolveModel(m string) string {
 	case "opus":
 		return "claude-opus-4-20250514"
 	case "haiku":
-		return "claude-haiku-3-5-20241022"
+		return "claude-haiku-4-5-20251001"
 	default:
 		return m
 	}

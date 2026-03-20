@@ -14,7 +14,7 @@ import (
 
 // Model IDs for smart routing
 const (
-	ModelHaiku  = "claude-haiku-3-5-20241022"
+	ModelHaiku  = "claude-haiku-4-5-20251001"
 	ModelSonnet = "claude-sonnet-4-20250514"
 	ModelOpus   = "claude-opus-4-20250514"
 )
