@@ -1,20 +1,32 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+)
+
+// Model IDs for smart routing
+const (
+	ModelHaiku  = "claude-haiku-3-5-20241022"
+	ModelSonnet = "claude-sonnet-4-20250514"
+	ModelOpus   = "claude-opus-4-20250514"
 )
 
 // AgentConfig holds configuration for the LLM agent.
 type AgentConfig struct {
 	AnthropicKey string
-	Model        string
+	Model        string // base model (used for tool execution loops)
+	ChatModel    string // cheaper model for conversational responses
 	Verbose      bool
 	Context      *SessionContext
+	AutoRoute    bool // true = haiku for chat, sonnet for tools
 }
 
 // Agent is the LLM-powered QA orchestration engine.
@@ -23,12 +35,14 @@ type Agent struct {
 	history []Message
 	tools   []ToolDef
 	client  *http.Client
+	usage   TokenUsage
+	cancel  context.CancelFunc // cancel the current streaming request
 }
 
 // Message represents a conversation message.
 type Message struct {
-	Role    string        `json:"role"`
-	Content interface{}   `json:"content"` // string or []ContentBlock
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // string or []ContentBlock
 }
 
 // ContentBlock is a typed content block in a message.
@@ -49,16 +63,17 @@ type APIRequest struct {
 	System    string    `json:"system"`
 	Messages  []Message `json:"messages"`
 	Tools     []ToolDef `json:"tools"`
+	Stream    bool      `json:"stream"`
 }
 
-// APIResponse is the Claude API response.
+// APIResponse is the Claude API response (non-streaming).
 type APIResponse struct {
-	ID           string         `json:"id"`
-	Type         string         `json:"type"`
-	Role         string         `json:"role"`
-	Content      []ContentBlock `json:"content"`
-	StopReason   string         `json:"stop_reason"`
-	Usage        APIUsage       `json:"usage"`
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	Role       string         `json:"role"`
+	Content    []ContentBlock `json:"content"`
+	StopReason string         `json:"stop_reason"`
+	Usage      APIUsage       `json:"usage"`
 }
 
 // APIUsage tracks token usage.
@@ -67,13 +82,50 @@ type APIUsage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
+// SSE event types from Anthropic streaming API
+type sseMessageStart struct {
+	Type    string `json:"type"`
+	Message struct {
+		ID         string   `json:"id"`
+		Role       string   `json:"role"`
+		StopReason *string  `json:"stop_reason"`
+		Usage      APIUsage `json:"usage"`
+	} `json:"message"`
+}
+
+type sseContentBlockStart struct {
+	Type         string       `json:"type"`
+	Index        int          `json:"index"`
+	ContentBlock ContentBlock `json:"content_block"`
+}
+
+type sseContentBlockDelta struct {
+	Type  string `json:"type"`
+	Index int    `json:"index"`
+	Delta struct {
+		Type        string `json:"type"`
+		Text        string `json:"text,omitempty"`
+		PartialJSON string `json:"partial_json,omitempty"`
+	} `json:"delta"`
+}
+
+type sseMessageDelta struct {
+	Type  string `json:"type"`
+	Delta struct {
+		StopReason string `json:"stop_reason"`
+	} `json:"delta"`
+	Usage struct {
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
 // NewAgent creates a new LLM agent.
 func NewAgent(cfg AgentConfig) *Agent {
 	return &Agent{
 		config:  cfg,
 		history: []Message{},
 		tools:   BuildToolDefs(),
-		client:  &http.Client{Timeout: 120 * time.Second},
+		client:  &http.Client{Timeout: 300 * time.Second},
 	}
 }
 
@@ -82,29 +134,34 @@ func (a *Agent) ClearHistory() {
 	a.history = []Message{}
 }
 
+// CancelCurrent cancels the current streaming request if one is in progress.
+func (a *Agent) CancelCurrent() {
+	if a.cancel != nil {
+		a.cancel()
+	}
+}
+
 // Run executes a prompt through the agent loop and returns the final text response.
+// Used for non-interactive (one-shot) mode.
 func (a *Agent) Run(prompt string) (string, error) {
 	a.history = append(a.history, Message{
 		Role:    "user",
 		Content: prompt,
 	})
 
-	// Agentic loop: keep calling the API until we get a non-tool-use response
 	for iterations := 0; iterations < 20; iterations++ {
 		resp, err := a.callAPI()
 		if err != nil {
 			return "", fmt.Errorf("API call failed: %w", err)
 		}
 
-		// Add assistant response to history
 		a.history = append(a.history, Message{
 			Role:    "assistant",
 			Content: resp.Content,
 		})
 
-		// Check if we need to execute tools
 		if resp.StopReason == "tool_use" {
-			toolResults := a.executeToolCalls(resp.Content)
+			toolResults := a.executeToolCalls(resp.Content, context.Background())
 			a.history = append(a.history, Message{
 				Role:    "user",
 				Content: toolResults,
@@ -112,14 +169,13 @@ func (a *Agent) Run(prompt string) (string, error) {
 			continue
 		}
 
-		// Extract text from response
 		return a.extractText(resp.Content), nil
 	}
 
 	return "", fmt.Errorf("agent loop exceeded maximum iterations")
 }
 
-// RunStreaming executes a prompt with streaming terminal output.
+// RunStreaming executes a prompt with real-time SSE streaming to the terminal.
 func (a *Agent) RunStreaming(prompt string, term *Terminal) (string, error) {
 	a.history = append(a.history, Message{
 		Role:    "user",
@@ -127,52 +183,267 @@ func (a *Agent) RunStreaming(prompt string, term *Terminal) (string, error) {
 	})
 
 	for iterations := 0; iterations < 20; iterations++ {
-		resp, err := a.callAPI()
+		model := a.modelForIteration(iterations)
+		if a.config.Verbose {
+			fmt.Fprintf(term.rl.Stderr(), "[model] %s (iteration %d)\n", model, iterations)
+		}
+		content, stopReason, err := a.callStreamingAPI(term, model)
 		if err != nil {
 			return "", fmt.Errorf("API call failed: %w", err)
 		}
 
+		// Add assistant response to history
 		a.history = append(a.history, Message{
 			Role:    "assistant",
-			Content: resp.Content,
+			Content: content,
 		})
 
-		// Print text blocks and collect tool calls
-		var toolCalls []ContentBlock
-		for _, block := range resp.Content {
-			switch block.Type {
-			case "text":
-				term.PrintAssistant(block.Text)
-			case "tool_use":
-				toolCalls = append(toolCalls, block)
+		// If stop reason is tool_use, execute tools and loop
+		if stopReason == "tool_use" {
+			var toolCalls []ContentBlock
+			for _, block := range content {
+				if block.Type == "tool_use" {
+					toolCalls = append(toolCalls, block)
+				}
 			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			a.cancel = cancel
+			toolResults := a.executeToolCallsWithUI(toolCalls, term, ctx)
+			a.cancel = nil
+			cancel()
+
+			a.history = append(a.history, Message{
+				Role:    "user",
+				Content: toolResults,
+			})
+			continue
 		}
 
-		if resp.StopReason != "tool_use" || len(toolCalls) == 0 {
-			return a.extractText(resp.Content), nil
-		}
+		// Show token usage after response
+		term.PrintTokenUsage(a.usage)
 
-		// Execute tools with visual feedback
-		toolResults := a.executeToolCallsWithUI(toolCalls, term)
-		a.history = append(a.history, Message{
-			Role:    "user",
-			Content: toolResults,
-		})
+		return a.extractText(content), nil
 	}
 
 	return "", fmt.Errorf("agent loop exceeded maximum iterations")
 }
 
-// callAPI makes a request to the Claude API.
+// modelForIteration picks the model: haiku for first call (chat), sonnet for tool loops.
+func (a *Agent) modelForIteration(iteration int) string {
+	if !a.config.AutoRoute {
+		return a.config.Model
+	}
+	if iteration == 0 {
+		return a.config.ChatModel // haiku — cheap, fast for understanding intent
+	}
+	return a.config.Model // sonnet — smarter for tool orchestration
+}
+
+// callStreamingAPI makes a streaming request to the Claude API and processes SSE events.
+func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, string, error) {
+	systemPrompt := a.buildSystemPrompt()
+
+	reqBody := APIRequest{
+		Model:     model,
+		MaxTokens: 8192,
+		System:    systemPrompt,
+		Messages:  a.history,
+		Tools:     a.tools,
+		Stream:    true,
+	}
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancel = cancel
+	defer func() {
+		a.cancel = nil
+		cancel()
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", a.config.AnthropicKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	if a.config.Verbose {
+		fmt.Printf("[API] Streaming request: %d bytes, %d messages\n", len(data), len(a.history))
+	}
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, "interrupted", nil
+		}
+		return nil, "", fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse SSE stream
+	var (
+		content      []ContentBlock
+		currentIndex = -1
+		currentText  strings.Builder
+		currentJSON  strings.Builder
+		stopReason   string
+		hasText      bool
+	)
+
+	scanner := bufio.NewScanner(resp.Body)
+	// Increase buffer for large SSE events
+	scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
+
+	var eventType string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Check for cancellation
+		if ctx.Err() != nil {
+			// Interrupted — save what we have
+			if hasText {
+				content = a.finalizeTextBlock(content, currentIndex, currentText.String())
+			}
+			return content, "interrupted", nil
+		}
+
+		if strings.HasPrefix(line, "event: ") {
+			eventType = strings.TrimPrefix(line, "event: ")
+			continue
+		}
+
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		rawData := strings.TrimPrefix(line, "data: ")
+
+		switch eventType {
+		case "message_start":
+			var ev sseMessageStart
+			if err := json.Unmarshal([]byte(rawData), &ev); err == nil {
+				a.usage.InputTokens += ev.Message.Usage.InputTokens
+				a.usage.Requests++
+				if a.config.Verbose {
+					fmt.Printf("[SSE] message_start: input_tokens=%d\n", ev.Message.Usage.InputTokens)
+				}
+			}
+
+		case "content_block_start":
+			var ev sseContentBlockStart
+			if err := json.Unmarshal([]byte(rawData), &ev); err == nil {
+				// Finalize previous block if needed
+				if hasText && currentIndex >= 0 {
+					content = a.finalizeTextBlock(content, currentIndex, currentText.String())
+					term.FinishMarkdown(currentText.String())
+					currentText.Reset()
+					hasText = false
+				}
+
+				currentIndex = ev.Index
+
+				switch ev.ContentBlock.Type {
+				case "text":
+					hasText = true
+					currentText.Reset()
+				case "tool_use":
+					currentJSON.Reset()
+					// Add placeholder block — will fill Input after accumulating JSON
+					content = append(content, ContentBlock{
+						Type: "tool_use",
+						ID:   ev.ContentBlock.ID,
+						Name: ev.ContentBlock.Name,
+					})
+					term.PrintToolIcon(ev.ContentBlock.Name)
+				}
+			}
+
+		case "content_block_delta":
+			var ev sseContentBlockDelta
+			if err := json.Unmarshal([]byte(rawData), &ev); err == nil {
+				switch ev.Delta.Type {
+				case "text_delta":
+					currentText.WriteString(ev.Delta.Text)
+					// Stream text token-by-token to terminal
+					term.StreamText(ev.Delta.Text)
+				case "input_json_delta":
+					currentJSON.WriteString(ev.Delta.PartialJSON)
+				}
+			}
+
+		case "content_block_stop":
+			if hasText {
+				content = a.finalizeTextBlock(content, currentIndex, currentText.String())
+				term.FinishMarkdown(currentText.String())
+				currentText.Reset()
+				hasText = false
+			} else if currentJSON.Len() > 0 {
+				// Finalize tool_use block — parse accumulated JSON input
+				jsonStr := currentJSON.String()
+				var input interface{}
+				if err := json.Unmarshal([]byte(jsonStr), &input); err != nil {
+					input = map[string]interface{}{}
+				}
+				// Find and update the tool_use block
+				for i := range content {
+					if content[i].Type == "tool_use" && content[i].Input == nil {
+						content[i].Input = input
+						term.PrintToolStart(content[i].Name, input)
+						break
+					}
+				}
+				currentJSON.Reset()
+			}
+
+		case "message_delta":
+			var ev sseMessageDelta
+			if err := json.Unmarshal([]byte(rawData), &ev); err == nil {
+				stopReason = ev.Delta.StopReason
+				a.usage.OutputTokens += ev.Usage.OutputTokens
+				if a.config.Verbose {
+					fmt.Printf("[SSE] message_delta: stop=%s, output_tokens=%d\n", stopReason, ev.Usage.OutputTokens)
+				}
+			}
+
+		case "message_stop":
+			// End of stream
+		}
+	}
+
+	return content, stopReason, nil
+}
+
+// finalizeTextBlock adds a completed text block to content.
+func (a *Agent) finalizeTextBlock(content []ContentBlock, index int, text string) []ContentBlock {
+	return append(content, ContentBlock{
+		Type: "text",
+		Text: text,
+	})
+}
+
+// callAPI makes a non-streaming request to the Claude API (used for one-shot mode).
 func (a *Agent) callAPI() (*APIResponse, error) {
 	systemPrompt := a.buildSystemPrompt()
 
 	reqBody := APIRequest{
 		Model:     a.config.Model,
-		MaxTokens: 4096,
+		MaxTokens: 8192,
 		System:    systemPrompt,
 		Messages:  a.history,
 		Tools:     a.tools,
+		Stream:    false,
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -212,6 +483,11 @@ func (a *Agent) callAPI() (*APIResponse, error) {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
+	// Track usage
+	a.usage.InputTokens += apiResp.Usage.InputTokens
+	a.usage.OutputTokens += apiResp.Usage.OutputTokens
+	a.usage.Requests++
+
 	if a.config.Verbose {
 		fmt.Printf("[API] Response: stop=%s, input=%d, output=%d tokens\n",
 			apiResp.StopReason, apiResp.Usage.InputTokens, apiResp.Usage.OutputTokens)
@@ -221,13 +497,13 @@ func (a *Agent) callAPI() (*APIResponse, error) {
 }
 
 // executeToolCalls runs tool calls and returns results (non-interactive mode).
-func (a *Agent) executeToolCalls(content []ContentBlock) []ContentBlock {
+func (a *Agent) executeToolCalls(content []ContentBlock, ctx context.Context) []ContentBlock {
 	var results []ContentBlock
 	for _, block := range content {
 		if block.Type != "tool_use" {
 			continue
 		}
-		output := ExecuteTool(block.Name, block.Input, a.config.Context)
+		output := ExecuteTool(block.Name, block.Input, a.config.Context, ctx)
 		results = append(results, ContentBlock{
 			Type:      "tool_result",
 			ToolUseID: block.ID,
@@ -238,13 +514,10 @@ func (a *Agent) executeToolCalls(content []ContentBlock) []ContentBlock {
 }
 
 // executeToolCallsWithUI runs tool calls with terminal feedback.
-func (a *Agent) executeToolCallsWithUI(toolCalls []ContentBlock, term *Terminal) []ContentBlock {
+func (a *Agent) executeToolCallsWithUI(toolCalls []ContentBlock, term *Terminal, ctx context.Context) []ContentBlock {
 	var results []ContentBlock
 	for _, block := range toolCalls {
-		term.PrintToolStart(block.Name, block.Input)
-
-		output := ExecuteTool(block.Name, block.Input, a.config.Context)
-
+		output := ExecuteTool(block.Name, block.Input, a.config.Context, ctx)
 		term.PrintToolResult(block.Name, output)
 
 		results = append(results, ContentBlock{
@@ -257,21 +530,22 @@ func (a *Agent) executeToolCallsWithUI(toolCalls []ContentBlock, term *Terminal)
 }
 
 // extractText pulls text content from response blocks.
-func (a *Agent) extractText(content []ContentBlock) string {
+func (a *Agent) extractText(content interface{}) string {
+	blocks, ok := content.([]ContentBlock)
+	if !ok {
+		// Try to extract from interface
+		if s, ok := content.(string); ok {
+			return s
+		}
+		return ""
+	}
 	var parts []string
-	for _, block := range content {
+	for _, block := range blocks {
 		if block.Type == "text" && block.Text != "" {
 			parts = append(parts, block.Text)
 		}
 	}
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += "\n"
-		}
-		result += p
-	}
-	return result
+	return strings.Join(parts, "\n")
 }
 
 // buildSystemPrompt creates the system prompt with session context.
@@ -287,6 +561,23 @@ You have access to tools that interact with the QualityMax API to:
 - Import repositories and documents for test generation
 - Create pull requests with generated test suites
 - Read local files and run shell commands
+
+## Before Acting — Think First
+
+Before executing tools, consider:
+1. Do I have enough context? If not, ask.
+2. Is this the right tool/framework? Check before running.
+3. Will this cost money? Mention the cost/scope before proceeding.
+4. Could this fail? Plan for the failure case.
+
+When the user asks to run tests:
+- First check what scripts exist and their framework (playwright vs pytest)
+- Only run scripts on compatible runners
+- Confirm the scope: "I found 6 scripts. Want me to run all of them?"
+
+When the user asks about their account:
+- Run the ` + "`run_command`" + ` tool with ` + "`qmax status`" + ` to check auth
+- Show the user their account info
 
 ## Workflow Patterns
 
@@ -327,6 +618,7 @@ Bad examples (too forced):
 - When tests fail, analyze the output and suggest fixes.
 - Use read_file and run_command for local operations (reading test files, checking git status, etc.)
 - Chain multiple tool calls when independent — don't wait between unrelated operations.
+- Ask clarifying questions before performing destructive operations (deleting tests, force-regenerating code, etc.)
 `
 
 	// Add session context

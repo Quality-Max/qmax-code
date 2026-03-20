@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -192,7 +193,7 @@ func BuildToolDefs() []ToolDef {
 }
 
 // ExecuteTool executes a tool and returns the output string.
-func ExecuteTool(name string, rawInput interface{}, ctx *SessionContext) string {
+func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx context.Context) string {
 	// Parse input
 	input := make(map[string]interface{})
 	switch v := rawInput.(type) {
@@ -206,31 +207,31 @@ func ExecuteTool(name string, rawInput interface{}, ctx *SessionContext) string 
 	switch name {
 	// --- qmax CLI wrappers ---
 	case "list_projects":
-		return runQMax("projects")
+		return runQMax(sctx, ctx, "projects")
 
 	case "list_test_cases":
-		args := []string{"test", "cases", "--json", "--project-id", intArg(input, "project_id", ctx.ProjectID)}
+		args := []string{"test", "cases", "--json", "--project-id", intArg(input, "project_id", sctx.ProjectID)}
 		if v, ok := input["limit"]; ok {
 			args = append(args, "--limit", fmt.Sprintf("%v", v))
 		}
 		if v, ok := input["search"]; ok && v != "" {
 			args = append(args, "--search", fmt.Sprintf("%v", v))
 		}
-		return runQMax(args...)
+		return runQMax(sctx, ctx, args...)
 
 	case "list_scripts":
-		args := []string{"test", "scripts", "--json", "--project-id", intArg(input, "project_id", ctx.ProjectID)}
+		args := []string{"test", "scripts", "--json", "--project-id", intArg(input, "project_id", sctx.ProjectID)}
 		if v, ok := input["limit"]; ok {
 			args = append(args, "--limit", fmt.Sprintf("%v", v))
 		}
-		return runQMax(args...)
+		return runQMax(sctx, ctx, args...)
 
 	case "generate_test_code":
 		args := []string{"test", "generate", "--json", "--test-case-id", fmt.Sprintf("%v", input["test_case_id"])}
 		if v, ok := input["force"]; ok && v == true {
 			args = append(args, "--force")
 		}
-		return runQMax(args...)
+		return runQMax(sctx, ctx, args...)
 
 	case "run_test":
 		args := []string{"test", "run", "--json", "--wait", "--script-id", fmt.Sprintf("%v", input["script_id"])}
@@ -243,21 +244,21 @@ func ExecuteTool(name string, rawInput interface{}, ctx *SessionContext) string 
 		if v, ok := input["base_url"]; ok && v != "" {
 			args = append(args, "--base-url", fmt.Sprintf("%v", v))
 		}
-		return runQMax(args...)
+		return runQMax(sctx, ctx, args...)
 
 	case "run_tests_batch":
 		args := []string{"test", "run", "--json", "--script-ids", fmt.Sprintf("%v", input["script_ids"])}
 		if v, ok := input["base_url"]; ok && v != "" {
 			args = append(args, "--base-url", fmt.Sprintf("%v", v))
 		}
-		return runQMax(args...)
+		return runQMax(sctx, ctx, args...)
 
 	case "check_test_status":
-		return runQMax("test", "status", "--json", "--execution-id", fmt.Sprintf("%v", input["execution_id"]))
+		return runQMax(sctx, ctx, "test", "status", "--json", "--execution-id", fmt.Sprintf("%v", input["execution_id"]))
 
 	case "start_crawl":
 		args := []string{"crawl", "start", "--json", "--wait",
-			"--project-id", intArg(input, "project_id", ctx.ProjectID),
+			"--project-id", intArg(input, "project_id", sctx.ProjectID),
 			"--url", fmt.Sprintf("%v", input["url"])}
 		if v, ok := input["depth"]; ok {
 			args = append(args, "--depth", fmt.Sprintf("%v", v))
@@ -271,36 +272,36 @@ func ExecuteTool(name string, rawInput interface{}, ctx *SessionContext) string 
 		if v, ok := input["instructions"]; ok && v != "" {
 			args = append(args, "--instructions", fmt.Sprintf("%v", v))
 		}
-		return runQMax(args...)
+		return runQMax(sctx, ctx, args...)
 
 	case "crawl_status":
-		return runQMax("crawl", "status", "--json", "--crawl-id", fmt.Sprintf("%v", input["crawl_id"]))
+		return runQMax(sctx, ctx, "crawl", "status", "--json", "--crawl-id", fmt.Sprintf("%v", input["crawl_id"]))
 
 	case "crawl_results":
-		return runQMax("crawl", "results", "--json", "--crawl-id", fmt.Sprintf("%v", input["crawl_id"]))
+		return runQMax(sctx, ctx, "crawl", "results", "--json", "--crawl-id", fmt.Sprintf("%v", input["crawl_id"]))
 
 	case "list_crawl_jobs":
 		args := []string{"crawl", "jobs", "--json"}
 		if v, ok := input["limit"]; ok {
 			args = append(args, "--limit", fmt.Sprintf("%v", v))
 		}
-		return runQMax(args...)
+		return runQMax(sctx, ctx, args...)
 
 	case "list_repos":
-		return runQMax("repo", "list", "--json", "--project-id", intArg(input, "project_id", ctx.ProjectID))
+		return runQMax(sctx, ctx, "repo", "list", "--json", "--project-id", intArg(input, "project_id", sctx.ProjectID))
 
 	case "review_repo":
-		return runQMax("repo", "review", "--json", "--wait", "--repo-id", fmt.Sprintf("%v", input["repo_id"]))
+		return runQMax(sctx, ctx, "repo", "review", "--json", "--wait", "--repo-id", fmt.Sprintf("%v", input["repo_id"]))
 
 	case "repo_coverage":
-		return runQMax("repo", "coverage", "--json", "--repo-id", fmt.Sprintf("%v", input["repo_id"]))
+		return runQMax(sctx, ctx, "repo", "coverage", "--json", "--repo-id", fmt.Sprintf("%v", input["repo_id"]))
 
 	case "repo_quality":
-		return runQMax("repo", "quality", "--json", "--repo-id", fmt.Sprintf("%v", input["repo_id"]))
+		return runQMax(sctx, ctx, "repo", "quality", "--json", "--repo-id", fmt.Sprintf("%v", input["repo_id"]))
 
 	case "import_repo":
 		args := []string{"import", "repo", "--json", "--url", fmt.Sprintf("%v", input["url"])}
-		pid := intArg(input, "project_id", ctx.ProjectID)
+		pid := intArg(input, "project_id", sctx.ProjectID)
 		if pid != "0" {
 			args = append(args, "--project-id", pid)
 		}
@@ -313,28 +314,28 @@ func ExecuteTool(name string, rawInput interface{}, ctx *SessionContext) string 
 		if v, ok := input["base_url"]; ok && v != "" {
 			args = append(args, "--base-url", fmt.Sprintf("%v", v))
 		}
-		return runQMax(args...)
+		return runQMax(sctx, ctx, args...)
 
 	case "import_document":
 		args := []string{"import", "doc", "--json",
-			"--project-id", intArg(input, "project_id", ctx.ProjectID),
+			"--project-id", intArg(input, "project_id", sctx.ProjectID),
 			"--text", fmt.Sprintf("%v", input["text"])}
 		if v, ok := input["source_name"]; ok && v != "" {
 			args = append(args, "--source", fmt.Sprintf("%v", v))
 		}
-		return runQMax(args...)
+		return runQMax(sctx, ctx, args...)
 
 	case "create_pr":
-		return runQMax("pr", "create", "--json",
+		return runQMax(sctx, ctx, "pr", "create", "--json",
 			"--repo-id", fmt.Sprintf("%v", input["repo_id"]),
-			"--project-id", intArg(input, "project_id", ctx.ProjectID))
+			"--project-id", intArg(input, "project_id", sctx.ProjectID))
 
 	// --- Local operations ---
 	case "read_file":
-		return runShell("cat", fmt.Sprintf("%v", input["path"]))
+		return runShell(ctx, "cat", fmt.Sprintf("%v", input["path"]))
 
 	case "run_command":
-		return runShell("sh", "-c", fmt.Sprintf("%v", input["command"]))
+		return runShell(ctx, "sh", "-c", fmt.Sprintf("%v", input["command"]))
 
 	default:
 		return fmt.Sprintf(`{"error": "Unknown tool: %s"}`, name)
@@ -342,17 +343,20 @@ func ExecuteTool(name string, rawInput interface{}, ctx *SessionContext) string 
 }
 
 // runQMax executes a qmax CLI command and returns stdout.
-func runQMax(args ...string) string {
-	binary := "qmax"
-	if _, err := exec.LookPath(binary); err != nil {
-		return `{"error": "qmax CLI not found on PATH. Install it first: see https://docs.qualitymax.io/cli"}`
+func runQMax(sctx *SessionContext, ctx context.Context, args ...string) string {
+	binary := sctx.QMaxBin
+	if binary == "" {
+		return fmt.Sprintf(`{"error": "qmax CLI not found. %s"}`, formatQMaxInstallHint())
 	}
-	cmd := exec.Command(binary, args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return `{"error": "cancelled"}`
+		}
 		if stderr.Len() > 0 {
 			return fmt.Sprintf(`{"error": %q}`, stderr.String())
 		}
@@ -367,13 +371,16 @@ func runQMax(args ...string) string {
 }
 
 // runShell executes a shell command with output limits.
-func runShell(name string, args ...string) string {
-	cmd := exec.Command(name, args...)
+func runShell(ctx context.Context, name string, args ...string) string {
+	cmd := exec.CommandContext(ctx, name, args...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return `{"error": "cancelled"}`
+		}
 		combined := stdout.String() + stderr.String()
 		if combined != "" {
 			return truncateOutput(combined, 8000)

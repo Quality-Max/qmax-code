@@ -5,23 +5,49 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/chzyer/readline"
 )
 
-// ANSI color codes
+// ANSI color codes (kept for prompt and readline which don't use lipgloss)
 const (
 	colorReset   = "\033[0m"
 	colorBold    = "\033[1m"
 	colorDim     = "\033[2m"
-	colorItalic  = "\033[3m"
 	colorRed     = "\033[31m"
 	colorGreen   = "\033[32m"
 	colorYellow  = "\033[33m"
 	colorBlue    = "\033[34m"
 	colorMagenta = "\033[35m"
 	colorCyan    = "\033[36m"
-	colorWhite   = "\033[37m"
-	colorBgBlue  = "\033[44m"
+)
+
+// Lipgloss styles
+var (
+	styleTool = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("214")).
+			Bold(true)
+
+	styleToolDim = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("242"))
+
+	styleError = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+
+	styleSystem = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("69")).
+			Bold(true)
+
+	styleSuccess = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("82"))
+
+	styleDim = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("242"))
+
+	styleUsage = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
 )
 
 // Tool emojis — cats hunt bugs, so these are Max-approved
@@ -48,12 +74,14 @@ var toolIcons = map[string]string{
 	"run_command":        "💻",
 }
 
-// Terminal handles all user-facing I/O with colors and personality.
+// Terminal handles all user-facing I/O with colors, glamour, and personality.
 type Terminal struct {
-	rl *readline.Instance
+	rl       *readline.Instance
+	renderer *glamour.TermRenderer
+	streaming bool // true when we're in the middle of streaming text
 }
 
-// NewTerminal creates a new interactive terminal.
+// NewTerminal creates a new interactive terminal with markdown rendering.
 func NewTerminal() *Terminal {
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          fmt.Sprintf("%s%sqmax%s %s🐾%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset),
@@ -62,10 +90,23 @@ func NewTerminal() *Terminal {
 		EOFPrompt:       "exit",
 	})
 	if err != nil {
-		// Fallback: no readline features
 		rl, _ = readline.New("> ")
 	}
-	return &Terminal{rl: rl}
+
+	// Create glamour renderer for markdown
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(100),
+	)
+	if err != nil {
+		// Fallback: no markdown rendering
+		renderer = nil
+	}
+
+	return &Terminal{
+		rl:       rl,
+		renderer: renderer,
+	}
 }
 
 // Close cleans up the terminal.
@@ -81,8 +122,7 @@ func (t *Terminal) ReadLine() (string, error) {
 }
 
 // PrintBanner shows the startup banner — fun, geeky, and cat-themed.
-// Named after Max, the real cat who inspired QualityMax.
-func (t *Terminal) PrintBanner(version string, projectID int) {
+func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 	banner := fmt.Sprintf(`
 %s%s    ____  __  __    _    __  __     %s
 %s%s   / __ \|  \/  |  / \   \ \/ /     %s  %s/\_/\%s
@@ -100,7 +140,7 @@ func (t *Terminal) PrintBanner(version string, projectID int) {
 	)
 	fmt.Print(banner)
 
-	// Cat-themed geeky subtitles — Max is the QA cat
+	// Cat-themed geeky subtitles
 	subtitles := []string{
 		"*knocks bugs off the table* — Max, QA cat 🐾",
 		"Curiosity caught the bug. Max fixed it.",
@@ -115,70 +155,164 @@ func (t *Terminal) PrintBanner(version string, projectID int) {
 		"Napping is just background processing. 💤",
 		"Nine lives, zero regressions.",
 	}
-
-	// Pick a subtitle based on day-of-year for variety
 	idx := time.Now().YearDay() % len(subtitles)
 	fmt.Printf("  %s%s%s\n\n", colorDim, subtitles[idx], colorReset)
 
-	if projectID > 0 {
-		fmt.Printf("  %s▸ Project #%d active%s\n", colorGreen, projectID, colorReset)
+	// Show context info
+	if ctx.ProjectID > 0 {
+		fmt.Printf("  %s▸ Project #%d active%s\n", colorGreen, ctx.ProjectID, colorReset)
 	}
+
+	if ctx.QMaxBin != "" {
+		fmt.Printf("  %s▸ qmax CLI: %s%s\n", colorGreen, ctx.QMaxBin, colorReset)
+		if ctx.QMaxCfg.Email != "" {
+			fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.QMaxCfg.Email, colorReset)
+		}
+		if ctx.QMaxCfg.CloudURL != "" {
+			fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.QMaxCfg.CloudURL, colorReset)
+		}
+	} else {
+		fmt.Printf("  %s▸ qmax CLI not found%s — tools that need it will show install instructions\n", colorYellow, colorReset)
+	}
+
 	fmt.Printf("  %sType /help for commands or just tell me what to test. 🐾%s\n\n", colorDim, colorReset)
 }
 
-// PrintAssistant prints the agent's text response.
-func (t *Terminal) PrintAssistant(text string) {
+// StreamText prints text as it arrives from the SSE stream (token-by-token).
+func (t *Terminal) StreamText(text string) {
+	if !t.streaming {
+		t.streaming = true
+		fmt.Println() // newline before assistant response
+	}
 	fmt.Print(text)
 }
 
-// PrintToolStart shows a tool invocation with a fun icon.
-func (t *Terminal) PrintToolStart(name string, input interface{}) {
+// FinishMarkdown is called when a text block is complete.
+// We already streamed the raw text, so now we just mark streaming as done.
+// Glamour rendering happens for the full response, not mid-stream.
+func (t *Terminal) FinishMarkdown(fullText string) {
+	if t.streaming {
+		t.streaming = false
+		// We already printed the raw text via StreamText.
+		// For a clean look, add a trailing newline if needed.
+		if !strings.HasSuffix(fullText, "\n") {
+			fmt.Println()
+		}
+	}
+}
+
+// PrintAssistant prints the agent's text response with markdown rendering.
+// Used in non-streaming mode.
+func (t *Terminal) PrintAssistant(text string) {
+	if t.renderer != nil {
+		rendered, err := t.renderer.Render(text)
+		if err == nil {
+			fmt.Print(rendered)
+			return
+		}
+	}
+	fmt.Println(text)
+}
+
+// PrintToolIcon shows a tool icon when a tool_use block starts streaming.
+func (t *Terminal) PrintToolIcon(name string) {
+	if t.streaming {
+		t.streaming = false
+		fmt.Println()
+	}
 	icon := toolIcons[name]
 	if icon == "" {
 		icon = "🔧"
 	}
-
-	// Format tool name nicely
 	displayName := strings.ReplaceAll(name, "_", " ")
+	fmt.Printf("\n  %s %s", icon, styleTool.Render(displayName))
+}
 
-	// Show compact input summary
+// PrintToolStart shows a tool invocation with its input summary.
+func (t *Terminal) PrintToolStart(name string, input interface{}) {
 	summary := formatToolInput(input)
-
-	fmt.Printf("\n  %s %s%s%s", icon, colorYellow, displayName, colorReset)
 	if summary != "" {
-		fmt.Printf(" %s%s%s", colorDim, summary, colorReset)
+		fmt.Printf(" %s", styleToolDim.Render(summary))
 	}
 	fmt.Println()
 }
 
 // PrintToolResult shows tool output (abbreviated).
 func (t *Terminal) PrintToolResult(name string, output string) {
-	// Show a brief result summary
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	lineCount := len(lines)
 
 	if strings.HasPrefix(output, "{\"error\"") {
-		fmt.Printf("  %s✗ Error%s %s%s%s\n", colorRed, colorReset, colorDim, truncateStr(output, 120), colorReset)
+		fmt.Printf("  %s %s\n", styleError.Render("✗ Error"), styleDim.Render(truncateStr(output, 120)))
 		return
 	}
 
 	if lineCount <= 3 {
 		for _, line := range lines {
-			fmt.Printf("  %s%s%s\n", colorDim, truncateStr(line, 140), colorReset)
+			fmt.Printf("  %s\n", styleDim.Render(truncateStr(line, 140)))
 		}
 	} else {
-		fmt.Printf("  %s✓ %d lines of output%s\n", colorGreen, lineCount, colorReset)
+		fmt.Printf("  %s\n", styleSuccess.Render(fmt.Sprintf("✓ %d lines of output", lineCount)))
 	}
 }
 
 // PrintSystem prints a system message.
 func (t *Terminal) PrintSystem(msg string) {
-	fmt.Printf("  %s%s●%s %s\n", colorBold, colorBlue, colorReset, msg)
+	fmt.Printf("  %s %s\n", styleSystem.Render("●"), msg)
 }
 
 // PrintError prints an error message.
 func (t *Terminal) PrintError(msg string) {
-	fmt.Printf("  %s✗ %s%s\n", colorRed, msg, colorReset)
+	fmt.Printf("  %s\n", styleError.Render("✗ "+msg))
+}
+
+// PrintTokenUsage shows token usage in dim text after a response.
+func (t *Terminal) PrintTokenUsage(usage TokenUsage) {
+	fmt.Printf("\n%s\n", styleUsage.Render(
+		fmt.Sprintf("  tokens: %d in / %d out (session: %d total, %d requests)",
+			usage.InputTokens, usage.OutputTokens, usage.TotalTokens(), usage.Requests)))
+}
+
+// PrintCostSummary shows detailed cost info for /cost command.
+func (t *Terminal) PrintCostSummary(usage TokenUsage, model string) {
+	cost := usage.EstimatedCost(model)
+	fmt.Printf("\n")
+	fmt.Printf("  %s\n", styleSystem.Render("Session Token Usage"))
+	fmt.Printf("  %-20s %d\n", "Input tokens:", usage.InputTokens)
+	fmt.Printf("  %-20s %d\n", "Output tokens:", usage.OutputTokens)
+	fmt.Printf("  %-20s %d\n", "Total tokens:", usage.TotalTokens())
+	fmt.Printf("  %-20s %d\n", "API requests:", usage.Requests)
+	fmt.Printf("  %-20s $%.4f\n", "Estimated cost:", cost)
+	fmt.Printf("  %-20s %s\n", "Model:", model)
+	fmt.Println()
+}
+
+// PrintStatusInfo shows qmax status and session info for /status command.
+func (t *Terminal) PrintStatusInfo(ctx *SessionContext, usage TokenUsage, model string) {
+	fmt.Println()
+	fmt.Printf("  %s\n", styleSystem.Render("qmax-code Status"))
+
+	if ctx.QMaxBin != "" {
+		fmt.Printf("  %-20s %s\n", "qmax binary:", ctx.QMaxBin)
+	} else {
+		fmt.Printf("  %-20s %s\n", "qmax binary:", styleError.Render("not found"))
+	}
+
+	if ctx.QMaxCfg.Email != "" {
+		fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.QMaxCfg.Email)
+	} else {
+		fmt.Printf("  %-20s %s\n", "Auth:", styleDim.Render("not authenticated"))
+	}
+
+	if ctx.QMaxCfg.CloudURL != "" {
+		fmt.Printf("  %-20s %s\n", "API URL:", ctx.QMaxCfg.CloudURL)
+	}
+
+	fmt.Printf("  %-20s #%d\n", "Active project:", ctx.ProjectID)
+	fmt.Printf("  %-20s %s\n", "Model:", model)
+	fmt.Printf("  %-20s %d in / %d out\n", "Session tokens:", usage.InputTokens, usage.OutputTokens)
+	fmt.Printf("  %-20s $%.4f\n", "Est. cost:", usage.EstimatedCost(model))
+	fmt.Println()
 }
 
 // formatToolInput creates a compact summary of tool input.
