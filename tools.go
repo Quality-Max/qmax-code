@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // ToolDef is a Claude API tool definition.
@@ -198,6 +202,24 @@ func BuildToolDefs() []ToolDef {
 				prop("content", "string", "File content to write", true),
 			)),
 		},
+
+		// --- Test healing operations ---
+		{
+			Name:        "get_script",
+			Description: "Get the full code of an automation script by ID. Use this to read a script before healing or modifying it.",
+			InputSchema: obj(props(
+				prop("script_id", "integer", "Script ID to fetch", true),
+			)),
+		},
+		{
+			Name:        "update_script",
+			Description: "Update the code of an existing automation script. SECURITY: Code is scanned before saving. Only use for healing/fixing broken tests. Always get_script first, fix the issue, then update.",
+			InputSchema: obj(props(
+				prop("script_id", "integer", "Script ID to update", true),
+				prop("name", "string", "Script name", true),
+				prop("code", "string", "New script code (must pass security scan)", true),
+			)),
+		},
 	}
 }
 
@@ -354,6 +376,26 @@ func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx co
 		}
 		return fmt.Sprintf(`{"success": true, "path": %q, "bytes": %d}`, path, len(content))
 
+	// --- Test healing operations ---
+	case "get_script":
+		scriptID := fmt.Sprintf("%v", input["script_id"])
+		return fetchScriptCode(sctx, ctx, scriptID)
+
+	case "update_script":
+		scriptID := fmt.Sprintf("%v", input["script_id"])
+		name := fmt.Sprintf("%v", input["name"])
+		code := fmt.Sprintf("%v", input["content"])
+		if code == "" || code == "<nil>" {
+			code = fmt.Sprintf("%v", input["code"])
+		}
+
+		// Security scan before saving
+		if violations := scanCodeSecurity(code); len(violations) > 0 {
+			return fmt.Sprintf(`{"error": "Security scan failed", "violations": %q}`, strings.Join(violations, "; "))
+		}
+
+		return updateScriptCode(sctx, ctx, scriptID, name, code)
+
 	default:
 		return fmt.Sprintf(`{"error": "Unknown tool: %s"}`, name)
 	}
@@ -432,7 +474,8 @@ func ToolCost(name string) string {
 	switch name {
 	case "list_projects", "list_test_cases", "list_scripts", "check_test_status",
 		"crawl_status", "crawl_results", "list_crawl_jobs", "list_repos",
-		"repo_coverage", "repo_quality", "read_file", "run_command", "write_file":
+		"repo_coverage", "repo_quality", "read_file", "run_command", "write_file",
+		"get_script":
 		return "free" // read-only or local, no cost
 	case "generate_test_code":
 		return "low" // AI generation, small cost
@@ -440,7 +483,7 @@ func ToolCost(name string) string {
 		return "medium" // execution credits
 	case "start_crawl", "review_repo":
 		return "high" // significant AI + execution cost
-	case "import_repo", "import_document", "create_pr":
+	case "import_repo", "import_document", "create_pr", "update_script":
 		return "medium"
 	default:
 		return "free"
@@ -488,6 +531,10 @@ func SummarizeToolResult(name, output string) string {
 		return summarizeCrawlJobs(output)
 	case "start_crawl":
 		return summarizeStartCrawl(output)
+	case "get_script":
+		return summarizeGetScript(output)
+	case "update_script":
+		return summarizeUpdateScript(output)
 	default:
 		// For unknown tools, try to pretty-print JSON; otherwise return as-is
 		var data interface{}
@@ -936,6 +983,146 @@ func summarizeStartCrawl(output string) string {
 		return result
 	}
 	return output
+}
+
+// =============================================================================
+// API helpers — direct HTTP calls for operations not in the qmax CLI
+// =============================================================================
+
+// fetchScriptCode retrieves a script's full details via the QualityMax API.
+func fetchScriptCode(sctx *SessionContext, ctx context.Context, scriptID string) string {
+	token := sctx.QMaxCfg.Token
+	apiURL := sctx.QMaxCfg.CloudURL
+	if token == "" || apiURL == "" {
+		return `{"error": "not authenticated — run 'qmax login' first"}`
+	}
+
+	url := fmt.Sprintf("%s/api/automation/scripts/%s", apiURL, scriptID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return fmt.Sprintf(`{"error": %q}`, err.Error())
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Sprintf(`{"error": %q}`, err.Error())
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if resp.StatusCode != 200 {
+		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, string(body))
+	}
+	return string(body)
+}
+
+// updateScriptCode updates a script's code via the QualityMax API.
+func updateScriptCode(sctx *SessionContext, ctx context.Context, scriptID, name, code string) string {
+	token := sctx.QMaxCfg.Token
+	apiURL := sctx.QMaxCfg.CloudURL
+	if token == "" || apiURL == "" {
+		return `{"error": "not authenticated — run 'qmax login' first"}`
+	}
+
+	url := fmt.Sprintf("%s/api/automation/scripts/%s", apiURL, scriptID)
+	payload, _ := json.Marshal(map[string]string{
+		"name": name,
+		"code": code,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Sprintf(`{"error": %q}`, err.Error())
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Sprintf(`{"error": %q}`, err.Error())
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if resp.StatusCode != 200 {
+		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, string(body))
+	}
+	return string(body)
+}
+
+// =============================================================================
+// Summarizers for test healing tools
+// =============================================================================
+
+func summarizeGetScript(output string) string {
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return output
+	}
+
+	var sb strings.Builder
+
+	id := data["id"]
+	name := data["name"]
+	if name == nil {
+		name = data["title"]
+	}
+	framework := data["framework"]
+	code, _ := data["code"].(string)
+
+	if id != nil {
+		sb.WriteString(fmt.Sprintf("Script #%v", id))
+	}
+	if name != nil {
+		sb.WriteString(fmt.Sprintf(" — %v", name))
+	}
+	if framework != nil {
+		sb.WriteString(fmt.Sprintf(" [%v]", framework))
+	}
+	if code != "" {
+		lines := strings.Count(code, "\n") + 1
+		sb.WriteString(fmt.Sprintf(" (%d lines)", lines))
+	}
+
+	if sb.Len() == 0 {
+		return output
+	}
+
+	// Include the full output so the LLM can read the code
+	return sb.String() + "\n" + output
+}
+
+func summarizeUpdateScript(output string) string {
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return output
+	}
+
+	id := data["id"]
+	name := data["name"]
+	if name == nil {
+		name = data["title"]
+	}
+	code, _ := data["code"].(string)
+
+	var sb strings.Builder
+	if id != nil {
+		sb.WriteString(fmt.Sprintf("Script #%v updated", id))
+	} else {
+		sb.WriteString("Script updated")
+	}
+	if name != nil {
+		sb.WriteString(fmt.Sprintf(" — %v", name))
+	}
+	if code != "" {
+		lines := strings.Count(code, "\n") + 1
+		sb.WriteString(fmt.Sprintf(" (%d lines)", lines))
+	}
+
+	return sb.String()
 }
 
 // =============================================================================

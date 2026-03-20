@@ -73,6 +73,8 @@ var toolIcons = map[string]string{
 	"read_file":          "👀",
 	"run_command":        "💻",
 	"write_file":         "📝",
+	"get_script":         "📖",
+	"update_script":      "🔧",
 }
 
 // Terminal handles all user-facing I/O with colors, glamour, and personality.
