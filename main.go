@@ -24,6 +24,7 @@ func main() {
 	cloudURL := flag.String("cloud-url", "", "QualityMax cloud URL (or use qmax login)")
 	oneShot := flag.String("p", "", "Run a single prompt and exit (non-interactive)")
 	resumeID := flag.String("resume", "", "Resume a previous session by ID (or 'last')")
+	listSessions := flag.Bool("list-sessions", false, "List recent sessions and exit")
 	verbose := flag.Bool("verbose", false, "Show tool calls and raw responses")
 	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
 	showVersion := flag.Bool("version", false, "Show version")
@@ -31,6 +32,20 @@ func main() {
 
 	if *showVersion {
 		fmt.Printf("%s v%s\n", Name, Version)
+		return
+	}
+
+	if *listSessions {
+		sessions, err := ListSessions(20)
+		if err != nil || len(sessions) == 0 {
+			fmt.Println("No sessions found.")
+			os.Exit(0)
+		}
+		fmt.Printf("%-10s  %-18s  %-6s  %-8s  %s\n", "ID", "Updated", "Turns", "Tokens", "Project")
+		for _, s := range sessions {
+			fmt.Printf("%-10s  %-18s  %-6d  %-8d  #%d\n",
+				s.ID, s.UpdatedAt.Format("2006-01-02 15:04"), s.Turns, s.Tokens, s.ProjectID)
+		}
 		return
 	}
 
@@ -158,6 +173,11 @@ func main() {
 		fmt.Printf("Resumed session %s (%d turns)\n", session.ID, session.Turns)
 	}
 
+	// Clean up old sessions (>7 days)
+	if removed := CleanupOldSessions(); removed > 0 && *verbose {
+		fmt.Printf("[cleanup] Removed %d old sessions\n", removed)
+	}
+
 	// Interactive REPL
 	runREPL(agent)
 }
@@ -235,6 +255,7 @@ func runREPL(agent *Agent) {
 
 	// Welcome
 	term.PrintBanner(Version, agent.config.Context)
+	term.SetSessionPrompt(sessionID)
 	fmt.Printf("  %sSession: %s%s\n\n", colorDim, sessionID, colorReset)
 
 	for {
@@ -301,6 +322,7 @@ func runREPL(agent *Agent) {
 				if session.ProjectID > 0 {
 					agent.config.Context.ProjectID = session.ProjectID
 				}
+				term.SetSessionPrompt(sessionID)
 				term.PrintSystem(fmt.Sprintf("Resumed session %s (%d turns, project #%d)",
 					session.ID, session.Turns, session.ProjectID))
 			}

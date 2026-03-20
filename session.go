@@ -25,6 +25,7 @@ type Session struct {
 }
 
 const sessionsSubDir = "sessions"
+const sessionTTL = 7 * 24 * time.Hour // 7 days
 
 // generateSessionID creates a short random hex ID like Claude Code uses.
 func generateSessionID() string {
@@ -182,4 +183,41 @@ func ListSessions(limit int) ([]SessionSummary, error) {
 	}
 
 	return summaries, nil
+}
+
+// CleanupOldSessions removes sessions older than sessionTTL.
+// Called on startup to prevent unbounded disk growth.
+func CleanupOldSessions() int {
+	dir := sessionDirPath()
+	if dir == "" {
+		return 0
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+
+	removed := 0
+	cutoff := time.Now().Add(-sessionTTL)
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		if info.ModTime().Before(cutoff) {
+			path := filepath.Join(dir, entry.Name())
+			if os.Remove(path) == nil {
+				removed++
+			}
+		}
+	}
+
+	return removed
 }

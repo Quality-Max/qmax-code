@@ -110,6 +110,14 @@ func NewTerminal() *Terminal {
 	}
 }
 
+// SetSessionPrompt updates the prompt to include the session ID.
+func (t *Terminal) SetSessionPrompt(sessionID string) {
+	t.rl.SetPrompt(fmt.Sprintf("%s%sqmax%s %s[%s]%s %s🐾%s ",
+		colorBold, colorCyan, colorReset,
+		colorDim, sessionID, colorReset,
+		colorMagenta, colorReset))
+}
+
 // Close cleans up the terminal.
 func (t *Terminal) Close() {
 	if t.rl != nil {
