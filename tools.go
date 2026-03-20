@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -189,6 +190,14 @@ func BuildToolDefs() []ToolDef {
 				prop("command", "string", "Shell command to execute", true),
 			)),
 		},
+		{
+			Name:        "write_file",
+			Description: "Write content to a local file. Use for creating test files, configs, etc.",
+			InputSchema: obj(props(
+				prop("path", "string", "File path to write", true),
+				prop("content", "string", "File content to write", true),
+			)),
+		},
 	}
 }
 
@@ -337,6 +346,14 @@ func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx co
 	case "run_command":
 		return runShell(ctx, "sh", "-c", fmt.Sprintf("%v", input["command"]))
 
+	case "write_file":
+		path := fmt.Sprintf("%v", input["path"])
+		content := fmt.Sprintf("%v", input["content"])
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			return fmt.Sprintf(`{"error": %q}`, err.Error())
+		}
+		return fmt.Sprintf(`{"success": true, "path": %q, "bytes": %d}`, path, len(content))
+
 	default:
 		return fmt.Sprintf(`{"error": "Unknown tool: %s"}`, name)
 	}
@@ -415,8 +432,8 @@ func ToolCost(name string) string {
 	switch name {
 	case "list_projects", "list_test_cases", "list_scripts", "check_test_status",
 		"crawl_status", "crawl_results", "list_crawl_jobs", "list_repos",
-		"repo_coverage", "repo_quality", "read_file", "run_command":
-		return "free" // read-only, no cost
+		"repo_coverage", "repo_quality", "read_file", "run_command", "write_file":
+		return "free" // read-only or local, no cost
 	case "generate_test_code":
 		return "low" // AI generation, small cost
 	case "run_test", "run_tests_batch":
@@ -467,6 +484,8 @@ func SummarizeToolResult(name, output string) string {
 		return summarizeCrawlStatus(output)
 	case "crawl_results":
 		return summarizeCrawlResults(output)
+	case "list_crawl_jobs":
+		return summarizeCrawlJobs(output)
 	case "start_crawl":
 		return summarizeStartCrawl(output)
 	default:
@@ -783,14 +802,20 @@ func summarizeCrawlResults(output string) string {
 		return output
 	}
 
+	// Results may be nested under "results" key
+	results := data
+	if r, ok := data["results"].(map[string]interface{}); ok {
+		results = r
+	}
+
 	// Count pages
 	pages := 0
-	if p, ok := data["pages"]; ok {
+	if p, ok := results["pages"]; ok {
 		if arr, ok := p.([]interface{}); ok {
 			pages = len(arr)
 		}
 	}
-	if p, ok := data["pages_crawled"]; ok {
+	if p, ok := results["pages_crawled"]; ok {
 		if n, ok := p.(float64); ok {
 			pages = int(n)
 		}
@@ -799,7 +824,7 @@ func summarizeCrawlResults(output string) string {
 	// Count test cases and collect IDs
 	testCount := 0
 	var testIDs []string
-	if tcs, ok := data["test_cases"]; ok {
+	if tcs, ok := results["test_cases"]; ok {
 		if arr, ok := tcs.([]interface{}); ok {
 			testCount = len(arr)
 			for _, tc := range arr {
@@ -811,7 +836,7 @@ func summarizeCrawlResults(output string) string {
 			}
 		}
 	}
-	if tc, ok := data["test_count"]; ok {
+	if tc, ok := results["test_count"]; ok {
 		if n, ok := tc.(float64); ok {
 			testCount = int(n)
 		}
@@ -822,6 +847,52 @@ func summarizeCrawlResults(output string) string {
 		result += " Test case IDs: " + strings.Join(testIDs, ", ")
 	}
 	return result
+}
+
+func summarizeCrawlJobs(output string) string {
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return output
+	}
+
+	jobs, ok := data["jobs"].([]interface{})
+	if !ok {
+		return output
+	}
+
+	count := len(jobs)
+	total := data["total_count"]
+
+	var sb strings.Builder
+	if total != nil {
+		sb.WriteString(fmt.Sprintf("%d recent crawl jobs (of %v total):\n", count, total))
+	} else {
+		sb.WriteString(fmt.Sprintf("%d crawl jobs:\n", count))
+	}
+
+	for _, j := range jobs {
+		job, ok := j.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		id := job["id"]
+		if id == nil {
+			id = job["crawl_id"]
+		}
+		status := job["status"]
+		url := job["url"]
+		created := job["created_at"]
+
+		// Truncate URL
+		urlStr := fmt.Sprintf("%v", url)
+		if len(urlStr) > 40 {
+			urlStr = urlStr[:37] + "..."
+		}
+
+		sb.WriteString(fmt.Sprintf("  %v — %v — %v (%v)\n", id, status, urlStr, created))
+	}
+
+	return sb.String()
 }
 
 func summarizeStartCrawl(output string) string {

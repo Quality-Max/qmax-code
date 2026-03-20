@@ -72,6 +72,7 @@ var toolIcons = map[string]string{
 	"create_pr":          "🔀",
 	"read_file":          "👀",
 	"run_command":        "💻",
+	"write_file":         "📝",
 }
 
 // Terminal handles all user-facing I/O with colors, glamour, and personality.
@@ -331,6 +332,57 @@ func formatToolInput(input interface{}) string {
 		parts = append(parts, fmt.Sprintf("%s=%s", k, s))
 	}
 	return strings.Join(parts, " ")
+}
+
+// TestResult represents a single test result for visualization.
+type TestResult struct {
+	Name     string
+	Passed   bool
+	Duration float64
+	Error    string
+}
+
+// PrintTestResults shows a colored pass/fail table of test results.
+func (t *Terminal) PrintTestResults(results []TestResult) {
+	if len(results) == 0 {
+		return
+	}
+
+	passed, failed := 0, 0
+	var totalDuration float64
+	for _, r := range results {
+		if r.Passed {
+			passed++
+		} else {
+			failed++
+		}
+		totalDuration += r.Duration
+	}
+
+	// Summary line
+	status := styleSuccess.Render("✅ ALL PASSED")
+	if failed > 0 {
+		status = styleError.Render(fmt.Sprintf("❌ %d FAILED", failed))
+	}
+	fmt.Printf("\n  %s  %d/%d passed (%.1fs)\n\n", status, passed, len(results), totalDuration)
+
+	// Individual results
+	for _, r := range results {
+		icon := styleSuccess.Render("✓")
+		if !r.Passed {
+			icon = styleError.Render("✗")
+		}
+		dur := styleDim.Render(fmt.Sprintf("%.1fs", r.Duration))
+		fmt.Printf("  %s %s %s\n", icon, r.Name, dur)
+		if !r.Passed && r.Error != "" {
+			errLine := r.Error
+			if len(errLine) > 100 {
+				errLine = errLine[:97] + "..."
+			}
+			fmt.Printf("    %s\n", styleError.Render(errLine))
+		}
+	}
+	fmt.Println()
 }
 
 // truncateStr limits a string to maxLen characters.
