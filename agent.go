@@ -389,14 +389,14 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 				term.FinishMarkdown(currentText.String())
 				currentText.Reset()
 				hasText = false
-			} else if currentJSON.Len() > 0 {
-				// Finalize tool_use block — parse accumulated JSON input
+			}
+			// Finalize tool_use block — parse accumulated JSON input (or default to {})
+			if currentJSON.Len() > 0 {
 				jsonStr := currentJSON.String()
 				var input interface{}
 				if err := json.Unmarshal([]byte(jsonStr), &input); err != nil {
 					input = map[string]interface{}{}
 				}
-				// Find and update the tool_use block
 				for i := range content {
 					if content[i].Type == "tool_use" && content[i].Input == nil {
 						content[i].Input = input
@@ -405,6 +405,13 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 					}
 				}
 				currentJSON.Reset()
+			}
+			// Ensure any tool_use block always has Input (API requires it)
+			for i := range content {
+				if content[i].Type == "tool_use" && content[i].Input == nil {
+					content[i].Input = map[string]interface{}{}
+					term.PrintToolStart(content[i].Name, content[i].Input)
+				}
 			}
 
 		case "message_delta":
