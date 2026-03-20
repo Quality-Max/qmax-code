@@ -682,15 +682,14 @@ Bad examples (too forced):
 	if cloudURL != "" {
 		prompt += fmt.Sprintf(`
 ## Dashboard URLs
-Projects use vanity slug URLs. When the user asks for a link:
+Projects use vanity slug URLs (e.g. "fog-frost", "jade-delta"). The slug is in the "slug" field of the project API response — NOT derived from the project name or key.
 - Project: %s/projects/{slug}
 - Test case: %s/projects/{slug}/test-cases/{test_case_id}
 - Execution: %s/projects/{slug}/executions/{execution_id}
 - Crawl: %s/projects/{slug}/crawl/{crawl_id}
 
-The slug comes from the project "key" field (lowercase). If you listed projects and saw key "HIVEMQEDGE", the slug is "hivemqedge".
-If you don't know the slug, fall back to: %s/#/projects/{project_id}
-`, cloudURL, cloudURL, cloudURL, cloudURL, cloudURL)
+You MUST call list_projects first to get the slug. Never guess it.
+`, cloudURL, cloudURL, cloudURL, cloudURL)
 	}
 
 	// Add session context

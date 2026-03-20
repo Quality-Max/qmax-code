@@ -515,7 +515,12 @@ func summarizeProjects(output string) string {
 		p := projects[i]
 		id := p["id"]
 		name := p["name"]
-		sb.WriteString(fmt.Sprintf("  #%v %v\n", id, name))
+		slug, _ := p["slug"].(string)
+		if slug != "" {
+			sb.WriteString(fmt.Sprintf("  #%v %v (slug: %s)\n", id, name, slug))
+		} else {
+			sb.WriteString(fmt.Sprintf("  #%v %v\n", id, name))
+		}
 	}
 	if len(projects) > 20 {
 		sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(projects)-20))
