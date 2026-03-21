@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	Version = "1.1.5"
+	Version = "1.2.1"
 	Name    = "qmax-code"
 )
 
