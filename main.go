@@ -222,8 +222,8 @@ func runREPL(agent *Agent, quietMode bool) {
 	}
 
 	saveAndExit := func() {
-		autoSave()
 		if len(agent.history) > 0 {
+			_ = SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
 			fmt.Printf("Session %s saved.\n", sessionID)
 		}
 	}
