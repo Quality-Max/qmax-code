@@ -40,7 +40,6 @@ const (
 type inputModel struct {
 	mode     inputMode
 	text     string
-	cursor   int
 	menu     int // selected menu index
 	filter   string
 	result   string // final submitted text
@@ -59,7 +58,6 @@ func newInputModel(prompt string, history []string) inputModel {
 	}
 }
 
-type submitMsg struct{ text string }
 
 func (m inputModel) Init() tea.Cmd { return nil }
 
@@ -180,8 +178,6 @@ func (m inputModel) filteredMenuItems() []SlashMenuItem {
 }
 
 var (
-	promptStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("75")).Bold(true)
-	cursorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("213"))
 	menuSelStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("69")).Bold(true).PaddingLeft(1).PaddingRight(1)
 	menuItemStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("75")).PaddingLeft(1)
 	menuDescStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
