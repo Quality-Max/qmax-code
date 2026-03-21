@@ -222,10 +222,8 @@ func runREPL(agent *Agent, quietMode bool) {
 	}
 
 	saveAndExit := func() {
-		if len(agent.history) > 0 {
-			_ = SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
-			fmt.Printf("Session %s saved.\n", sessionID)
-		}
+		_ = SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
+		fmt.Fprintf(os.Stderr, "Session %s saved.\n", sessionID)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -287,11 +285,10 @@ func runREPL(agent *Agent, quietMode bool) {
 			now := time.Now()
 			if now.Sub(lastCtrlC) < time.Second {
 				saveAndExit()
-				fmt.Println("Goodbye!")
+				fmt.Fprintf(os.Stderr, "Goodbye!\n")
 				return
 			}
 			lastCtrlC = now
-			fmt.Println() // blank line after ^C
 			continue
 		}
 
@@ -305,7 +302,7 @@ func runREPL(agent *Agent, quietMode bool) {
 		switch {
 		case input == "/quit" || input == "/exit" || input == "/q":
 			saveAndExit()
-			fmt.Println("Goodbye!")
+			fmt.Fprintf(os.Stderr, "Goodbye!\n")
 			return
 		case input == "/help":
 			printREPLHelp()
