@@ -288,6 +288,12 @@ func runREPL(agent *Agent, quietMode bool) {
 			continue
 		}
 
+		// Show slash menu when user types just /
+		if input == "/" {
+			term.PrintSlashMenu()
+			continue
+		}
+
 		// Built-in commands
 		switch {
 		case input == "/quit" || input == "/exit" || input == "/q":

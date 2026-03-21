@@ -146,6 +146,33 @@ func NewTerminal() *Terminal {
 	}
 }
 
+// PrintSlashMenu shows available commands in a compact vertical list.
+func (t *Terminal) PrintSlashMenu() {
+	commands := []struct {
+		cmd  string
+		desc string
+	}{
+		{"/help", "Show help"},
+		{"/status", "Auth + session info"},
+		{"/cost", "Token usage + cost"},
+		{"/config", "Show config"},
+		{"/sessions", "List saved sessions"},
+		{"/resume", "Resume a session"},
+		{"/save", "Save current session"},
+		{"/project", "Set active project"},
+		{"/set", "Update config"},
+		{"/clear", "Clear history"},
+		{"/quit", "Exit"},
+	}
+	fmt.Println()
+	for _, c := range commands {
+		fmt.Printf("  %s%-12s%s %s%s%s\n",
+			colorCyan, c.cmd, colorReset,
+			colorDim, c.desc, colorReset)
+	}
+	fmt.Println()
+}
+
 // SetSessionPrompt updates the prompt to include the session ID.
 func (t *Terminal) SetSessionPrompt(sessionID string) {
 	t.rl.SetPrompt(fmt.Sprintf("%s%sqmax%s %s[%s]%s %s>%s ",
