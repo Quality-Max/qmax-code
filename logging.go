@@ -26,7 +26,7 @@ func NewLogger(sessionID string) *Logger {
 	}
 
 	dir := filepath.Join(home, ".qmax-code", "logs")
-	os.MkdirAll(dir, 0700)
+	_ = os.MkdirAll(dir, 0700)
 
 	path := filepath.Join(dir, fmt.Sprintf("session-%s.log", sessionID))
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
@@ -39,7 +39,7 @@ func NewLogger(sessionID string) *Logger {
 
 func generateTraceID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 

@@ -62,11 +62,11 @@ func TestListSessions(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	// Create 3 sessions
-	SaveSession("aaa", []Message{{Role: "user", Content: "1"}}, 1, TokenUsage{}, "sonnet")
+	_ = SaveSession("aaa", []Message{{Role: "user", Content: "1"}}, 1, TokenUsage{}, "sonnet")
 	time.Sleep(10 * time.Millisecond)
-	SaveSession("bbb", []Message{{Role: "user", Content: "2"}}, 2, TokenUsage{}, "sonnet")
+	_ = SaveSession("bbb", []Message{{Role: "user", Content: "2"}}, 2, TokenUsage{}, "sonnet")
 	time.Sleep(10 * time.Millisecond)
-	SaveSession("ccc", []Message{{Role: "user", Content: "3"}}, 3, TokenUsage{}, "sonnet")
+	_ = SaveSession("ccc", []Message{{Role: "user", Content: "3"}}, 3, TokenUsage{}, "sonnet")
 
 	sessions, err := ListSessions(10)
 	if err != nil {
@@ -87,9 +87,9 @@ func TestListSessions_Limit(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	SaveSession("a1", []Message{{Role: "user", Content: "1"}}, 0, TokenUsage{}, "")
-	SaveSession("a2", []Message{{Role: "user", Content: "2"}}, 0, TokenUsage{}, "")
-	SaveSession("a3", []Message{{Role: "user", Content: "3"}}, 0, TokenUsage{}, "")
+	_ = SaveSession("a1", []Message{{Role: "user", Content: "1"}}, 0, TokenUsage{}, "")
+	_ = SaveSession("a2", []Message{{Role: "user", Content: "2"}}, 0, TokenUsage{}, "")
+	_ = SaveSession("a3", []Message{{Role: "user", Content: "3"}}, 0, TokenUsage{}, "")
 
 	sessions, err := ListSessions(2)
 	if err != nil {
@@ -108,17 +108,17 @@ func TestCleanupOldSessions(t *testing.T) {
 
 	// Create sessions dir
 	dir := filepath.Join(tmpDir, ".qmax-code", "sessions")
-	os.MkdirAll(dir, 0700)
+	_ = os.MkdirAll(dir, 0700)
 
 	// Create an old file (modify time > 7 days ago)
 	oldFile := filepath.Join(dir, "old123.json")
-	os.WriteFile(oldFile, []byte(`{"id":"old123"}`), 0600)
+	_ = os.WriteFile(oldFile, []byte(`{"id":"old123"}`), 0600)
 	oldTime := time.Now().Add(-8 * 24 * time.Hour)
-	os.Chtimes(oldFile, oldTime, oldTime)
+	_ = os.Chtimes(oldFile, oldTime, oldTime)
 
 	// Create a recent file
 	newFile := filepath.Join(dir, "new456.json")
-	os.WriteFile(newFile, []byte(`{"id":"new456"}`), 0600)
+	_ = os.WriteFile(newFile, []byte(`{"id":"new456"}`), 0600)
 
 	removed := CleanupOldSessions()
 	if removed != 1 {
@@ -140,9 +140,9 @@ func TestLoadLastSession(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	SaveSession("first", []Message{{Role: "user", Content: "old"}}, 1, TokenUsage{}, "")
+	_ = SaveSession("first", []Message{{Role: "user", Content: "old"}}, 1, TokenUsage{}, "")
 	time.Sleep(10 * time.Millisecond)
-	SaveSession("second", []Message{{Role: "user", Content: "new"}}, 2, TokenUsage{}, "")
+	_ = SaveSession("second", []Message{{Role: "user", Content: "new"}}, 2, TokenUsage{}, "")
 
 	session, err := LoadLastSession()
 	if err != nil {

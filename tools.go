@@ -1169,11 +1169,11 @@ func saveScriptBackup(scriptID, content string) {
 		return
 	}
 	dir := filepath.Join(home, ".qmax-code", "script-backups")
-	os.MkdirAll(dir, 0700)
+	_ = os.MkdirAll(dir, 0700)
 
 	// Save with timestamp
 	filename := fmt.Sprintf("%s_%s.json", scriptID, time.Now().Format("20060102-150405"))
-	os.WriteFile(filepath.Join(dir, filename), []byte(content), 0600)
+	_ = os.WriteFile(filepath.Join(dir, filename), []byte(content), 0600)
 }
 
 // rollbackScript restores a script to its most recent backup.

@@ -156,7 +156,7 @@ func validateCommand(cmd string) string {
 	}
 
 	if !allowed {
-		return fmt.Sprintf("command not in allowlist. Allowed: git, ls, cat, npm, npx, node, go, python, qmax, etc.")
+		return "command not in allowlist. Allowed: git, ls, cat, npm, npx, node, go, python, qmax, etc."
 	}
 
 	return "" // safe
