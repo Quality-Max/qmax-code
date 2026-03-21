@@ -262,7 +262,17 @@ func runREPL(agent *Agent, quietMode bool) {
 	// Welcome
 	if !quietMode {
 		term.PrintBanner(Version, agent.config.Context)
-		fmt.Printf("  %sSession: %s%s\n\n", colorDim, sessionID, colorReset)
+		fmt.Printf("  %sSession: %s%s\n", colorDim, sessionID, colorReset)
+
+		// Hint about recent session if one exists
+		if recent, err := ListSessions(1); err == nil && len(recent) > 0 {
+			age := time.Since(recent[0].UpdatedAt)
+			if age < 24*time.Hour {
+				fmt.Printf("  %sRecent session: %s (%d turns, %s ago) — type /resume to continue%s\n",
+					colorDim, recent[0].ID, recent[0].Turns, formatDuration(age), colorReset)
+			}
+		}
+		fmt.Println()
 	}
 	term.SetSessionPrompt(sessionID)
 
@@ -555,4 +565,14 @@ func printContext(ctx *SessionContext, term *Terminal) {
 			term.PrintSystem(fmt.Sprintf("Changed files: %d", len(gi.ChangedFiles)))
 		}
 	}
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh", int(d.Hours()))
 }
