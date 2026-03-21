@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/glamour v0.8.0
 	github.com/charmbracelet/lipgloss v1.0.0
 	github.com/chzyer/readline v1.5.1
+	golang.org/x/term v0.22.0
 )
 
 require (
@@ -26,5 +27,4 @@ require (
 	github.com/yuin/goldmark-emoji v1.0.3 // indirect
 	golang.org/x/net v0.27.0 // indirect
 	golang.org/x/sys v0.24.0 // indirect
-	golang.org/x/term v0.22.0 // indirect
 )

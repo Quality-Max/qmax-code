@@ -132,22 +132,24 @@ type slashListener struct {
 }
 
 func (s *slashListener) OnChange(line []rune, pos int, key rune) (newLine []rune, newPos int, ok bool) {
-	// Show menu only when / is the first and only character typed
+	// When / is typed on an empty line, show interactive menu
 	if key == '/' && pos == 1 && len(line) == 1 && !s.menuShown {
 		s.menuShown = true
+		// Print blank lines as placeholders for the menu
 		fmt.Println()
-		for _, cmd := range slashCommands {
-			fmt.Printf("  %s%-12s%s %s%s%s\n",
-				colorCyan, cmd.cmd, colorReset,
-				colorDim, cmd.desc, colorReset)
+		for range slashMenuItems {
+			fmt.Println()
 		}
+		// Run interactive selector
+		selected := RunSlashMenu()
+		if selected != "" {
+			// Replace the current line with the selected command
+			return []rune(selected), len(selected), true
+		}
+		// Cancelled — clear the /
+		return []rune{}, 0, true
 	}
-	// Reset when line is submitted (empty after Enter)
 	if len(line) == 0 {
-		s.menuShown = false
-	}
-	// Reset when backspace clears the /
-	if len(line) > 0 && line[0] != '/' {
 		s.menuShown = false
 	}
 	return line, pos, false
