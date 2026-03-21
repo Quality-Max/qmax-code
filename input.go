@@ -45,6 +45,7 @@ type inputModel struct {
 	filter   string
 	result   string // final submitted text
 	done     bool
+	ctrlC    bool   // true if exited via Ctrl+C
 	prompt   string
 	history  []string
 	histIdx  int
@@ -82,6 +83,7 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlC:
 		m.result = ""
 		m.done = true
+		m.ctrlC = true
 		return m, tea.Quit
 	case tea.KeyBackspace:
 		if len(m.text) > 0 {
@@ -227,18 +229,23 @@ func (m inputModel) View() string {
 	return b.String()
 }
 
+// InputResult holds the result of a ReadInput call.
+type InputResult struct {
+	Text  string
+	CtrlC bool
+}
+
 // ReadInput runs the bubbletea input widget and returns the submitted text.
-// Returns empty string on Ctrl+C/cancel.
-func ReadInput(prompt string, history []string) string {
+func ReadInput(prompt string, history []string) InputResult {
 	m := newInputModel(prompt, history)
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {
-		return ""
+		return InputResult{}
 	}
 	final := result.(inputModel)
-	if !final.done {
-		return ""
+	return InputResult{
+		Text:  final.result,
+		CtrlC: final.ctrlC,
 	}
-	return final.result
 }

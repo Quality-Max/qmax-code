@@ -277,10 +277,25 @@ func runREPL(agent *Agent, quietMode bool) {
 	term.SetSessionPrompt(sessionID)
 
 	var inputHistory []string
+	var lastCtrlC time.Time
 
 	for {
-		input := ReadInput(term.currentPrompt, inputHistory)
-		input = strings.TrimSpace(input)
+		result := ReadInput(term.currentPrompt, inputHistory)
+
+		// Handle Ctrl+C: double-tap within 1s exits
+		if result.CtrlC {
+			now := time.Now()
+			if now.Sub(lastCtrlC) < time.Second {
+				saveAndExit()
+				fmt.Println("Goodbye!")
+				return
+			}
+			lastCtrlC = now
+			fmt.Println() // blank line after ^C
+			continue
+		}
+
+		input := strings.TrimSpace(result.Text)
 		if input == "" {
 			continue
 		}
@@ -379,14 +394,14 @@ func runREPL(agent *Agent, quietMode bool) {
 		}
 
 		// Run through the LLM agent with streaming
-		result, err := agent.RunStreaming(input, term)
+		llmResult, err := agent.RunStreaming(input, term)
 		if err != nil {
 			term.PrintError(err.Error())
 			autoSave() // save even on error — preserves context
 			continue
 		}
 
-		if result != "" {
+		if llmResult != "" {
 			fmt.Println()
 		}
 
