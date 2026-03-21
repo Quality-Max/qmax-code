@@ -276,17 +276,15 @@ func runREPL(agent *Agent, quietMode bool) {
 	}
 	term.SetSessionPrompt(sessionID)
 
-	for {
-		input, err := term.ReadLine()
-		if err != nil {
-			saveAndExit()
-			break // EOF or error
-		}
+	var inputHistory []string
 
+	for {
+		input := ReadInput(term.currentPrompt, inputHistory)
 		input = strings.TrimSpace(input)
 		if input == "" {
 			continue
 		}
+		inputHistory = append(inputHistory, input)
 
 		// Built-in commands
 		switch {

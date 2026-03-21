@@ -132,37 +132,9 @@ func (t *Terminal) Close() {
 	}
 }
 
-// ReadLine reads a line of user input.
-// If the user types / on an empty line, it launches the interactive menu
-// and returns the selected command directly.
+// ReadLine reads a line of user input via readline (fallback, used by non-REPL code).
 func (t *Terminal) ReadLine() (string, error) {
-	line, err := t.rl.Readline()
-	if err != nil {
-		return line, err
-	}
-
-	// If user typed exactly /, launch interactive menu
-	if strings.TrimSpace(line) == "/" {
-		// Temporarily release the terminal for bubbletea
-		t.rl.Close()
-
-		selected := RunSlashMenu()
-
-		// Recreate readline with same config
-		t.rl, _ = readline.NewEx(&readline.Config{
-			Prompt:          t.currentPrompt,
-			HistoryFile:     "/tmp/qmax-code-history",
-			InterruptPrompt: "^C",
-			EOFPrompt:       "exit",
-		})
-
-		if selected != "" {
-			return selected, nil
-		}
-		return "", nil // cancelled — return empty to loop again
-	}
-
-	return line, nil
+	return t.rl.Readline()
 }
 
 // PrintBanner shows the startup banner — fun, geeky, and cat-themed.
