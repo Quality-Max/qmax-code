@@ -87,44 +87,11 @@ type Terminal struct {
 
 // NewTerminal creates a new interactive terminal with markdown rendering.
 func NewTerminal() *Terminal {
-	// Build completer for readline
-	completer := readline.NewPrefixCompleter(
-		readline.PcItem("/help"),
-		readline.PcItem("/quit"),
-		readline.PcItem("/clear"),
-		readline.PcItem("/status"),
-		readline.PcItem("/cost"),
-		readline.PcItem("/config"),
-		readline.PcItem("/sessions"),
-		readline.PcItem("/resume"),
-		readline.PcItem("/save"),
-		readline.PcItem("/project"),
-		readline.PcItem("/set",
-			readline.PcItem("model",
-				readline.PcItem("auto"),
-				readline.PcItem("sonnet"),
-				readline.PcItem("opus"),
-				readline.PcItem("haiku"),
-			),
-			readline.PcItem("project"),
-			readline.PcItem("professional",
-				readline.PcItem("true"),
-				readline.PcItem("false"),
-			),
-			readline.PcItem("autosave",
-				readline.PcItem("true"),
-				readline.PcItem("false"),
-			),
-			readline.PcItem("budget"),
-		),
-	)
-
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset),
 		HistoryFile:     "/tmp/qmax-code-history",
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
-		AutoComplete:    completer,
 	})
 	if err != nil {
 		rl, _ = readline.New("> ")

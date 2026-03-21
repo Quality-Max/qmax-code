@@ -288,7 +288,7 @@ func runREPL(agent *Agent, quietMode bool) {
 			continue
 		}
 
-		// Show slash menu when user types just /
+		// Show slash menu when user types just / or an unknown slash command
 		if input == "/" {
 			term.PrintSlashMenu()
 			continue
