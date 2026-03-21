@@ -288,16 +288,6 @@ func runREPL(agent *Agent, quietMode bool) {
 			continue
 		}
 
-		// Interactive slash menu
-		if input == "/" {
-			selected := RunSlashMenu()
-			if selected != "" {
-				input = selected
-			} else {
-				continue
-			}
-		}
-
 		// Built-in commands
 		switch {
 		case input == "/quit" || input == "/exit" || input == "/q":

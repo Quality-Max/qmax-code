@@ -80,9 +80,10 @@ var toolIcons = map[string]string{
 
 // Terminal handles all user-facing I/O with colors, glamour, and personality.
 type Terminal struct {
-	rl       *readline.Instance
-	renderer *glamour.TermRenderer
-	streaming bool // true when we're in the middle of streaming text
+	rl            *readline.Instance
+	renderer      *glamour.TermRenderer
+	streaming     bool   // true when we're in the middle of streaming text
+	currentPrompt string // track prompt for readline recreation
 }
 
 // NewTerminal creates a new interactive terminal with markdown rendering.
@@ -107,18 +108,21 @@ func NewTerminal() *Terminal {
 		renderer = nil
 	}
 
+	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset)
 	return &Terminal{
-		rl:       rl,
-		renderer: renderer,
+		rl:            rl,
+		renderer:      renderer,
+		currentPrompt: prompt,
 	}
 }
 
 // SetSessionPrompt updates the prompt to include the session ID.
 func (t *Terminal) SetSessionPrompt(sessionID string) {
-	t.rl.SetPrompt(fmt.Sprintf("%s%sqmax%s %s[%s]%s %s>%s ",
+	t.currentPrompt = fmt.Sprintf("%s%sqmax%s %s[%s]%s %s>%s ",
 		colorBold, colorCyan, colorReset,
 		colorDim, sessionID, colorReset,
-		colorMagenta, colorReset))
+		colorMagenta, colorReset)
+	t.rl.SetPrompt(t.currentPrompt)
 }
 
 // Close cleans up the terminal.
@@ -129,8 +133,36 @@ func (t *Terminal) Close() {
 }
 
 // ReadLine reads a line of user input.
+// If the user types / on an empty line, it launches the interactive menu
+// and returns the selected command directly.
 func (t *Terminal) ReadLine() (string, error) {
-	return t.rl.Readline()
+	line, err := t.rl.Readline()
+	if err != nil {
+		return line, err
+	}
+
+	// If user typed exactly /, launch interactive menu
+	if strings.TrimSpace(line) == "/" {
+		// Temporarily release the terminal for bubbletea
+		t.rl.Close()
+
+		selected := RunSlashMenu()
+
+		// Recreate readline with same config
+		t.rl, _ = readline.NewEx(&readline.Config{
+			Prompt:          t.currentPrompt,
+			HistoryFile:     "/tmp/qmax-code-history",
+			InterruptPrompt: "^C",
+			EOFPrompt:       "exit",
+		})
+
+		if selected != "" {
+			return selected, nil
+		}
+		return "", nil // cancelled — return empty to loop again
+	}
+
+	return line, nil
 }
 
 // PrintBanner shows the startup banner — fun, geeky, and cat-themed.
