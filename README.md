@@ -17,6 +17,8 @@
 
 **AI-powered terminal agent for QualityMax.** Named after Max, the real cat who inspired it all.
 
+https://github.com/Quality-Max/qmax-code/raw/main/assets/max-the-cat.mp4
+
 qmax-code is the LLM brain that orchestrates the open-source [`qmax`](https://github.com/Quality-Max/qmax-local-agent) CLI. It connects to the Claude API, understands your testing intent in natural language, and translates it into structured CLI operations — crawling sites, generating tests, running scripts, reviewing repos.
 
 ## How it works
@@ -34,6 +36,12 @@ qmax-code is the LLM brain that orchestrates the open-source [`qmax`](https://gi
 
 qmax-code wraps 20 tool definitions that map 1:1 to `qmax` CLI subcommands. Claude picks the right tools, chains them together, and reports back — all in a colorful terminal with cat personality.
 
+## Install
+
+```bash
+curl -sL https://raw.githubusercontent.com/Quality-Max/qmax-code/main/install.sh | bash
+```
+
 ## Quick start
 
 ```bash
@@ -41,7 +49,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 qmax login  # authenticate with QualityMax first
 
 # Interactive REPL
-./qmax-code
+qmax-code
 
 # One-shot
 ./qmax-code "crawl staging.myapp.com and generate e2e tests"
