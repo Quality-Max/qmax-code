@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	Version = "1.1.5"
+	Version = "1.2.1"
 	Name    = "qmax-code"
 )
 
@@ -222,10 +222,8 @@ func runREPL(agent *Agent, quietMode bool) {
 	}
 
 	saveAndExit := func() {
-		autoSave()
-		if len(agent.history) > 0 {
-			fmt.Printf("Session %s saved.\n", sessionID)
-		}
+		_ = SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
+		fmt.Fprintf(os.Stderr, "Session %s saved.\n", sessionID)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -276,28 +274,35 @@ func runREPL(agent *Agent, quietMode bool) {
 	}
 	term.SetSessionPrompt(sessionID)
 
+	var inputHistory []string
+	var lastCtrlC time.Time
+
 	for {
-		input, err := term.ReadLine()
-		if err != nil {
-			saveAndExit()
-			break // EOF or error
+		result := ReadInput(term.currentPrompt, inputHistory)
+
+		// Handle Ctrl+C: double-tap within 1s exits
+		if result.CtrlC {
+			now := time.Now()
+			if now.Sub(lastCtrlC) < time.Second {
+				saveAndExit()
+				fmt.Fprintf(os.Stderr, "Goodbye!\n")
+				return
+			}
+			lastCtrlC = now
+			continue
 		}
 
-		input = strings.TrimSpace(input)
+		input := strings.TrimSpace(result.Text)
 		if input == "" {
 			continue
 		}
-
-		// / alone was already shown by the listener — just ignore the input
-		if input == "/" {
-			continue
-		}
+		inputHistory = append(inputHistory, input)
 
 		// Built-in commands
 		switch {
 		case input == "/quit" || input == "/exit" || input == "/q":
 			saveAndExit()
-			fmt.Println("Goodbye!")
+			fmt.Fprintf(os.Stderr, "Goodbye!\n")
 			return
 		case input == "/help":
 			printREPLHelp()
@@ -386,14 +391,14 @@ func runREPL(agent *Agent, quietMode bool) {
 		}
 
 		// Run through the LLM agent with streaming
-		result, err := agent.RunStreaming(input, term)
+		llmResult, err := agent.RunStreaming(input, term)
 		if err != nil {
 			term.PrintError(err.Error())
 			autoSave() // save even on error — preserves context
 			continue
 		}
 
-		if result != "" {
+		if llmResult != "" {
 			fmt.Println()
 		}
 

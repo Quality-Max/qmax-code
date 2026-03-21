@@ -80,79 +80,10 @@ var toolIcons = map[string]string{
 
 // Terminal handles all user-facing I/O with colors, glamour, and personality.
 type Terminal struct {
-	rl       *readline.Instance
-	renderer *glamour.TermRenderer
-	streaming bool // true when we're in the middle of streaming text
-}
-
-// slashCompleter implements readline.AutoCompleter with vertical display.
-type slashCompleter struct{}
-
-var slashCommands = []struct {
-	cmd  string
-	desc string
-}{
-	{"/help", "Show help"},
-	{"/status", "Auth + session info"},
-	{"/cost", "Token usage + cost"},
-	{"/config", "Show config"},
-	{"/sessions", "List saved sessions"},
-	{"/resume", "Resume a session"},
-	{"/save", "Save current session"},
-	{"/project", "Set active project"},
-	{"/set", "Update config"},
-	{"/clear", "Clear history"},
-	{"/quit", "Exit"},
-}
-
-func (s *slashCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
-	input := string(line[:pos])
-
-	// Only complete slash commands
-	if len(input) == 0 || input[0] != '/' {
-		return nil, 0
-	}
-
-	var candidates [][]rune
-	for _, cmd := range slashCommands {
-		if strings.HasPrefix(cmd.cmd, input) {
-			// Return the suffix to append
-			suffix := cmd.cmd[len(input):]
-			candidates = append(candidates, []rune(suffix))
-		}
-	}
-
-	// If exact match on /, show all commands — readline will display them
-	return candidates, len(input)
-}
-
-// slashListener shows the command menu when / is typed on an empty line.
-type slashListener struct {
-	menuShown bool
-}
-
-func (s *slashListener) OnChange(line []rune, pos int, key rune) (newLine []rune, newPos int, ok bool) {
-	// When / is typed on an empty line, show interactive menu
-	if key == '/' && pos == 1 && len(line) == 1 && !s.menuShown {
-		s.menuShown = true
-		// Print blank lines as placeholders for the menu
-		fmt.Println()
-		for range slashMenuItems {
-			fmt.Println()
-		}
-		// Run interactive selector
-		selected := RunSlashMenu()
-		if selected != "" {
-			// Replace the current line with the selected command
-			return []rune(selected), len(selected), true
-		}
-		// Cancelled — clear the /
-		return []rune{}, 0, true
-	}
-	if len(line) == 0 {
-		s.menuShown = false
-	}
-	return line, pos, false
+	rl            *readline.Instance
+	renderer      *glamour.TermRenderer
+	streaming     bool   // true when we're in the middle of streaming text
+	currentPrompt string // track prompt for readline recreation
 }
 
 // NewTerminal creates a new interactive terminal with markdown rendering.
@@ -162,8 +93,6 @@ func NewTerminal() *Terminal {
 		HistoryFile:     "/tmp/qmax-code-history",
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
-		AutoComplete:    &slashCompleter{},
-		Listener:        &slashListener{menuShown: false},
 	})
 	if err != nil {
 		rl, _ = readline.New("> ")
@@ -179,45 +108,21 @@ func NewTerminal() *Terminal {
 		renderer = nil
 	}
 
+	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset)
 	return &Terminal{
-		rl:       rl,
-		renderer: renderer,
+		rl:            rl,
+		renderer:      renderer,
+		currentPrompt: prompt,
 	}
-}
-
-// PrintSlashMenu shows available commands in a compact vertical list.
-func (t *Terminal) PrintSlashMenu() {
-	commands := []struct {
-		cmd  string
-		desc string
-	}{
-		{"/help", "Show help"},
-		{"/status", "Auth + session info"},
-		{"/cost", "Token usage + cost"},
-		{"/config", "Show config"},
-		{"/sessions", "List saved sessions"},
-		{"/resume", "Resume a session"},
-		{"/save", "Save current session"},
-		{"/project", "Set active project"},
-		{"/set", "Update config"},
-		{"/clear", "Clear history"},
-		{"/quit", "Exit"},
-	}
-	fmt.Println()
-	for _, c := range commands {
-		fmt.Printf("  %s%-12s%s %s%s%s\n",
-			colorCyan, c.cmd, colorReset,
-			colorDim, c.desc, colorReset)
-	}
-	fmt.Println()
 }
 
 // SetSessionPrompt updates the prompt to include the session ID.
 func (t *Terminal) SetSessionPrompt(sessionID string) {
-	t.rl.SetPrompt(fmt.Sprintf("%s%sqmax%s %s[%s]%s %s>%s ",
+	t.currentPrompt = fmt.Sprintf("%s%sqmax%s %s[%s]%s %s>%s ",
 		colorBold, colorCyan, colorReset,
 		colorDim, sessionID, colorReset,
-		colorMagenta, colorReset))
+		colorMagenta, colorReset)
+	t.rl.SetPrompt(t.currentPrompt)
 }
 
 // Close cleans up the terminal.
@@ -227,7 +132,7 @@ func (t *Terminal) Close() {
 	}
 }
 
-// ReadLine reads a line of user input.
+// ReadLine reads a line of user input via readline (fallback, used by non-REPL code).
 func (t *Terminal) ReadLine() (string, error) {
 	return t.rl.Readline()
 }
