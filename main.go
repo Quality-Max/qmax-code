@@ -288,9 +288,14 @@ func runREPL(agent *Agent, quietMode bool) {
 			continue
 		}
 
-		// / alone was already shown by the listener — just ignore the input
+		// Interactive slash menu
 		if input == "/" {
-			continue
+			selected := RunSlashMenu()
+			if selected != "" {
+				input = selected
+			} else {
+				continue
+			}
 		}
 
 		// Built-in commands
