@@ -39,6 +39,7 @@ type Agent struct {
 	client    *http.Client
 	usage     TokenUsage
 	cancel    context.CancelFunc // cancel the current streaming request
+	logger    *Logger
 }
 
 // Message represents a conversation message.
@@ -253,6 +254,7 @@ func (a *Agent) RunStreaming(prompt string, term *Terminal) (string, error) {
 		Role:    "user",
 		Content: prompt,
 	})
+	a.logger.Info("agent", "user_message", map[string]interface{}{"turns": len(a.history)})
 
 	for iterations := 0; iterations < 20; iterations++ {
 		// Compress history before each API call to stay within token budget
@@ -263,6 +265,7 @@ func (a *Agent) RunStreaming(prompt string, term *Terminal) (string, error) {
 		}
 		content, stopReason, err := a.callStreamingAPI(term, model)
 		if err != nil {
+			a.logger.Error("api", err.Error())
 			return "", fmt.Errorf("API call failed: %w", err)
 		}
 
@@ -347,6 +350,8 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 	req.Header.Set("x-api-key", a.config.AnthropicKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
+	a.logger.Info("api", "request", map[string]interface{}{"model": model, "messages": len(a.history)})
+
 	if a.config.Verbose {
 		fmt.Printf("[API] Streaming request: %d bytes, %d messages\n", len(data), len(a.history))
 	}
@@ -362,7 +367,9 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		apiErr := fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		a.logger.Error("api", apiErr.Error())
+		return nil, "", apiErr
 	}
 
 	// Parse SSE stream
@@ -598,6 +605,7 @@ func (a *Agent) executeToolCalls(content []ContentBlock, ctx context.Context) []
 func (a *Agent) executeToolCallsWithUI(toolCalls []ContentBlock, term *Terminal, ctx context.Context) []ContentBlock {
 	var results []ContentBlock
 	for _, block := range toolCalls {
+		a.logger.Info("tool", block.Name, map[string]interface{}{"cost": ToolCost(block.Name)})
 		output := ExecuteTool(block.Name, block.Input, a.config.Context, ctx)
 		summarized := SummarizeToolResult(block.Name, output)
 		term.PrintToolResult(block.Name, summarized)
@@ -669,6 +677,15 @@ SECURITY RULES for code generation:
 - NEVER hardcode credentials — use QualityMax variables {{auth.username}}
 - NEVER make requests to external URLs that aren't the test target
 - Keep tests focused — one test, one concern
+
+## Healing Confidence
+
+Before replacing a script, assess your confidence:
+- **HIGH** (>80%): Clear selector change, obvious fix. Auto-replace and re-run.
+- **MEDIUM** (50-80%): Multiple possible causes. Show the user your analysis and proposed fix, ask for approval before replacing.
+- **LOW** (<50%): Unclear failure, possible infrastructure issue. Do NOT auto-replace. Ask the user for guidance.
+
+Always state your confidence: "Confidence: HIGH — the button selector changed from #old-btn to [data-test=submit]"
 `
 	} else {
 		prompt = `You are qmax-code, a cat-themed QA engineer in the terminal. Named after Max the real cat. Be curious, playful, concise. Sprinkle cat references naturally — never forced.
@@ -706,6 +723,15 @@ SECURITY RULES for code generation:
 - NEVER hardcode credentials — use QualityMax variables {{auth.username}}
 - NEVER make requests to external URLs that aren't the test target
 - Keep tests focused — one test, one concern
+
+## Healing Confidence
+
+Before replacing a script, assess your confidence:
+- **HIGH** (>80%): Clear selector change, obvious fix. Auto-replace and re-run.
+- **MEDIUM** (50-80%): Multiple possible causes. Show the user your analysis and proposed fix, ask for approval before replacing.
+- **LOW** (<50%): Unclear failure, possible infrastructure issue. Do NOT auto-replace. Ask the user for guidance.
+
+Always state your confidence: "Confidence: HIGH — the button selector changed from #old-btn to [data-test=submit]"
 `
 	}
 

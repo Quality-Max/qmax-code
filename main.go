@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	Version = "1.0.5"
+	Version = "1.1.0"
 	Name    = "qmax-code"
 )
 
@@ -27,8 +27,10 @@ func main() {
 	listSessions := flag.Bool("list-sessions", false, "List recent sessions and exit")
 	verbose := flag.Bool("verbose", false, "Show tool calls and raw responses")
 	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
+	quiet := flag.Bool("q", false, "Quiet mode — no banner, minimal output (for CI)")
 	showVersion := flag.Bool("version", false, "Show version")
 	flag.Parse()
+	_ = quiet // reserved for future CI mode
 
 	if *showVersion {
 		fmt.Printf("%s v%s\n", Name, Version)
@@ -179,7 +181,7 @@ func main() {
 	}
 
 	// Interactive REPL
-	runREPL(agent)
+	runREPL(agent, *quiet)
 }
 
 // resolveModel expands shorthand model names to full model IDs.
@@ -196,12 +198,16 @@ func resolveModel(m string) string {
 	}
 }
 
-func runREPL(agent *Agent) {
+func runREPL(agent *Agent, quietMode bool) {
 	term := NewTerminal()
 	defer term.Close()
 
 	// Session ID for this conversation
 	sessionID := generateSessionID()
+
+	// Initialize structured logger
+	agent.logger = NewLogger(sessionID)
+	defer agent.logger.Close()
 
 	// Graceful interrupt handling
 	var (
@@ -254,9 +260,11 @@ func runREPL(agent *Agent) {
 	}()
 
 	// Welcome
-	term.PrintBanner(Version, agent.config.Context)
+	if !quietMode {
+		term.PrintBanner(Version, agent.config.Context)
+		fmt.Printf("  %sSession: %s%s\n\n", colorDim, sessionID, colorReset)
+	}
 	term.SetSessionPrompt(sessionID)
-	fmt.Printf("  %sSession: %s%s\n\n", colorDim, sessionID, colorReset)
 
 	for {
 		input, err := term.ReadLine()

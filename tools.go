@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -220,6 +221,13 @@ func BuildToolDefs() []ToolDef {
 				prop("code", "string", "New script code (must pass security scan)", true),
 			)),
 		},
+		{
+			Name:        "rollback_script",
+			Description: "Rollback a script to its previous version (before the last heal). Use if healing made things worse.",
+			InputSchema: obj(props(
+				prop("script_id", "integer", "Script ID to rollback", true),
+			)),
+		},
 	}
 }
 
@@ -366,11 +374,26 @@ func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx co
 		return runShell(ctx, "cat", fmt.Sprintf("%v", input["path"]))
 
 	case "run_command":
-		return runShell(ctx, "sh", "-c", fmt.Sprintf("%v", input["command"]))
+		cmd := fmt.Sprintf("%v", input["command"])
+		if violation := validateCommand(cmd); violation != "" {
+			return fmt.Sprintf(`{"error": "Command blocked: %s"}`, violation)
+		}
+		return runShell(ctx, "sh", "-c", cmd)
 
 	case "write_file":
 		path := fmt.Sprintf("%v", input["path"])
 		content := fmt.Sprintf("%v", input["content"])
+
+		// Security: restrict to current directory
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return fmt.Sprintf(`{"error": %q}`, err.Error())
+		}
+		cwd, _ := os.Getwd()
+		if !strings.HasPrefix(absPath, cwd) {
+			return `{"error": "write_file restricted to current directory for security"}`
+		}
+
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			return fmt.Sprintf(`{"error": %q}`, err.Error())
 		}
@@ -394,7 +417,17 @@ func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx co
 			return fmt.Sprintf(`{"error": "Security scan failed", "violations": %q}`, strings.Join(violations, "; "))
 		}
 
+		// Backup current version before overwriting
+		backup := fetchScriptCode(sctx, ctx, scriptID)
+		if !strings.HasPrefix(backup, `{"error"`) {
+			saveScriptBackup(scriptID, backup)
+		}
+
 		return updateScriptCode(sctx, ctx, scriptID, name, code)
+
+	case "rollback_script":
+		scriptID := fmt.Sprintf("%v", input["script_id"])
+		return rollbackScript(sctx, ctx, scriptID)
 
 	default:
 		return fmt.Sprintf(`{"error": "Unknown tool: %s"}`, name)
@@ -483,7 +516,7 @@ func ToolCost(name string) string {
 		return "medium" // execution credits
 	case "start_crawl", "review_repo":
 		return "high" // significant AI + execution cost
-	case "import_repo", "import_document", "create_pr", "update_script":
+	case "import_repo", "import_document", "create_pr", "update_script", "rollback_script":
 		return "medium"
 	default:
 		return "free"
@@ -1123,6 +1156,86 @@ func summarizeUpdateScript(output string) string {
 	}
 
 	return sb.String()
+}
+
+// =============================================================================
+// Script backup and rollback
+// =============================================================================
+
+// saveScriptBackup saves the current script code before healing overwrites it.
+func saveScriptBackup(scriptID, content string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".qmax-code", "script-backups")
+	os.MkdirAll(dir, 0700)
+
+	// Save with timestamp
+	filename := fmt.Sprintf("%s_%s.json", scriptID, time.Now().Format("20060102-150405"))
+	os.WriteFile(filepath.Join(dir, filename), []byte(content), 0600)
+}
+
+// rollbackScript restores a script to its most recent backup.
+func rollbackScript(sctx *SessionContext, ctx context.Context, scriptID string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return `{"error": "cannot determine home directory"}`
+	}
+
+	dir := filepath.Join(home, ".qmax-code", "script-backups")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return `{"error": "no backups found"}`
+	}
+
+	// Find the most recent backup for this script
+	var latestFile string
+	var latestTime time.Time
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), scriptID+"_") {
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(latestTime) {
+				latestTime = info.ModTime()
+				latestFile = entry.Name()
+			}
+		}
+	}
+
+	if latestFile == "" {
+		return fmt.Sprintf(`{"error": "no backup found for script %s"}`, scriptID)
+	}
+
+	// Load backup
+	data, err := os.ReadFile(filepath.Join(dir, latestFile))
+	if err != nil {
+		return fmt.Sprintf(`{"error": "failed to read backup: %v"}`, err)
+	}
+
+	// Parse the backup to get name and code
+	var backupData map[string]interface{}
+	if err := json.Unmarshal(data, &backupData); err != nil {
+		return fmt.Sprintf(`{"error": "failed to parse backup: %v"}`, err)
+	}
+
+	script, ok := backupData["script"].(map[string]interface{})
+	if !ok {
+		// Try top-level keys (the backup may be the script object itself)
+		script = backupData
+	}
+
+	name := fmt.Sprintf("%v", script["name"])
+	code := fmt.Sprintf("%v", script["code"])
+
+	result := updateScriptCode(sctx, ctx, scriptID, name, code)
+
+	// Delete the used backup
+	os.Remove(filepath.Join(dir, latestFile))
+
+	return result
 }
 
 // =============================================================================

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -74,4 +75,89 @@ func scanCodeSecurity(code string) []string {
 	}
 
 	return violations
+}
+
+// Command allowlist — only these command prefixes are safe
+var allowedCommands = []string{
+	"git ",
+	"git\t",
+	"ls ",
+	"ls\t",
+	"ls\n",
+	"pwd",
+	"cat ",
+	"head ",
+	"tail ",
+	"wc ",
+	"find ",
+	"grep ",
+	"npm ",
+	"npx ",
+	"node ",
+	"go ",
+	"python ",
+	"python3 ",
+	"pip ",
+	"echo ",
+	"which ",
+	"env",
+	"uname",
+	"date",
+	"whoami",
+	"qmax ",
+}
+
+// Dangerous shell operators that should be blocked
+var dangerousShellOps = []string{
+	"rm -rf",
+	"rm -f /",
+	"mkfs",
+	"dd if=",
+	"> /dev/",
+	"chmod 777",
+	"curl.*|.*sh",
+	"wget.*|.*sh",
+	"sudo ",
+	"su -",
+	"passwd",
+	"shutdown",
+	"reboot",
+	"kill -9",
+	"killall",
+	":(){ ", // fork bomb
+}
+
+// validateCommand checks if a shell command is safe to execute.
+// Returns empty string if safe, or reason if blocked.
+func validateCommand(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+
+	// Block empty commands
+	if cmd == "" {
+		return "empty command"
+	}
+
+	// Check for dangerous operators first
+	lower := strings.ToLower(cmd)
+	for _, dangerous := range dangerousShellOps {
+		if strings.Contains(lower, dangerous) {
+			return fmt.Sprintf("dangerous operation: %s", dangerous)
+		}
+	}
+
+	// Check against allowlist
+	// The command must start with one of the allowed prefixes
+	allowed := false
+	for _, prefix := range allowedCommands {
+		if strings.HasPrefix(cmd, prefix) || cmd == strings.TrimSpace(prefix) {
+			allowed = true
+			break
+		}
+	}
+
+	if !allowed {
+		return fmt.Sprintf("command not in allowlist. Allowed: git, ls, cat, npm, npx, node, go, python, qmax, etc.")
+	}
+
+	return "" // safe
 }
