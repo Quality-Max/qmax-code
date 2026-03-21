@@ -196,7 +196,7 @@ func (m inputModel) View() string {
 	if m.mode == modeTyping {
 		b.WriteString(m.prompt)
 		b.WriteString(m.text)
-		b.WriteString("")
+		b.WriteString("█")
 	} else {
 		// Menu mode
 		b.WriteString(m.prompt)
@@ -204,7 +204,7 @@ func (m inputModel) View() string {
 		if m.filter != "" {
 			b.WriteString(filterStyle.Render(m.filter))
 		}
-		b.WriteString("")
+		b.WriteString("█")
 		b.WriteString("\n")
 
 		filtered := m.filteredMenuItems()
