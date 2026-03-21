@@ -120,7 +120,7 @@ func NewTerminal() *Terminal {
 	)
 
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          fmt.Sprintf("%s%sqmax%s %s🐾%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset),
+		Prompt:          fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset),
 		HistoryFile:     "/tmp/qmax-code-history",
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
@@ -148,7 +148,7 @@ func NewTerminal() *Terminal {
 
 // SetSessionPrompt updates the prompt to include the session ID.
 func (t *Terminal) SetSessionPrompt(sessionID string) {
-	t.rl.SetPrompt(fmt.Sprintf("%s%sqmax%s %s[%s]%s %s🐾%s ",
+	t.rl.SetPrompt(fmt.Sprintf("%s%sqmax%s %s[%s]%s %s>%s ",
 		colorBold, colorCyan, colorReset,
 		colorDim, sessionID, colorReset,
 		colorMagenta, colorReset))
