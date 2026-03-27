@@ -46,13 +46,16 @@ func main() {
 		} else if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "qm-") {
 			cfg, err = LoginWithAPIKey(os.Args[2])
 		} else {
-			cfg, err = LoginInteractive()
+			// Browser-based login (Railway-style)
+			AnimateMax(MoodWaving, "Let's get you logged in!")
+			cfg, err = LoginViaBrowser()
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Login failed: %v\n", err)
+			AnimateMax(MoodSad, "Login failed: "+err.Error())
+			fmt.Fprintf(os.Stderr, "\n  Try: qmax-code login qm-YOUR-API-KEY\n")
 			os.Exit(1)
 		}
-		fmt.Printf("Logged in as %s\n", cfg.Email)
+		AnimateMax(MoodHappy, fmt.Sprintf("Logged in as %s", cfg.Email))
 		return
 	}
 
