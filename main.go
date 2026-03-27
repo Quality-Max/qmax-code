@@ -117,20 +117,23 @@ func main() {
 		apiClient = NewAPIClient(auth)
 	}
 
-	// If no qmax CLI and no API client, show help
+	// If no qmax CLI and no API client, run interactive setup
 	if qmaxBin == "" && apiClient == nil {
-		fmt.Println()
-		fmt.Println("  Welcome to qmax-code!")
-		fmt.Println()
-		fmt.Println("  To get started, run:")
-		fmt.Println("    qmax-code login")
-		fmt.Println()
-		fmt.Println("  Or set your API key:")
-		fmt.Println("    export QUALITYMAX_API_KEY=qm-...")
-		fmt.Println()
-		fmt.Println("  Get your key at: https://app.qualitymax.io/settings")
-		fmt.Println()
-		os.Exit(1)
+		setupAuth, setupProjectID := RunInteractiveSetup()
+		auth = setupAuth
+		apiClient = NewAPIClient(auth)
+		_ = setupProjectID // used below after detectedProjectID is declared
+		// Stash for use after project detection
+		appConfig.DefaultProject = setupProjectID
+		// Re-check Anthropic key after setup
+		if anthropicKey == "" {
+			anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
+		}
+		if anthropicKey == "" {
+			fmt.Fprintln(os.Stderr, "Error: Anthropic API key required.")
+			fmt.Fprintln(os.Stderr, "Set ANTHROPIC_API_KEY or use --api-key")
+			os.Exit(1)
+		}
 	}
 
 	// Detect project from cwd if not set via flag; fall back to saved config
