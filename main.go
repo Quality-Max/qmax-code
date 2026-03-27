@@ -37,6 +37,25 @@ func main() {
 		return
 	}
 
+	// Handle "login" subcommand before flag parsing
+	if len(os.Args) > 1 && os.Args[1] == "login" {
+		var cfg *AuthConfig
+		var err error
+		if *apiKey != "" {
+			cfg, err = LoginWithAPIKey(*apiKey)
+		} else if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "qm-") {
+			cfg, err = LoginWithAPIKey(os.Args[2])
+		} else {
+			cfg, err = LoginInteractive()
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Login failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Logged in as %s\n", cfg.Email)
+		return
+	}
+
 	if *listSessions {
 		sessions, err := ListSessions(20)
 		if err != nil || len(sessions) == 0 {
@@ -80,14 +99,42 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Load qmax config for cloud URL and auth token
+	// Load auth (new standalone mode)
+	auth := LoadAuth()
+
+	// Load qmax config for cloud URL and auth token (legacy)
 	qmaxCfg := loadQMaxConfig()
 	if *cloudURL != "" {
 		qmaxCfg.CloudURL = *cloudURL
 	}
 
-	// Discover qmax binary
+	// Discover qmax binary (optional in standalone mode)
 	qmaxBin := discoverQMaxBinary()
+
+	// Initialize API client if authenticated (standalone mode)
+	var apiClient *APIClient
+	if auth != nil && auth.IsAuthenticated() {
+		apiClient = NewAPIClient(auth)
+	}
+
+	// If no qmax CLI and no API client, run interactive setup
+	if qmaxBin == "" && apiClient == nil {
+		setupAuth, setupProjectID := RunInteractiveSetup()
+		auth = setupAuth
+		apiClient = NewAPIClient(auth)
+		_ = setupProjectID // used below after detectedProjectID is declared
+		// Stash for use after project detection
+		appConfig.DefaultProject = setupProjectID
+		// Re-check Anthropic key after setup
+		if anthropicKey == "" {
+			anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
+		}
+		if anthropicKey == "" {
+			fmt.Fprintln(os.Stderr, "Error: Anthropic API key required.")
+			fmt.Fprintln(os.Stderr, "Set ANTHROPIC_API_KEY or use --api-key")
+			os.Exit(1)
+		}
+	}
 
 	// Detect project from cwd if not set via flag; fall back to saved config
 	detectedProjectID := *projectID
@@ -107,6 +154,8 @@ func main() {
 		QMaxInfo:    probeQMaxStatus(qmaxBin),
 		GitInfo:     detectGitInfo(),
 		ProjectFile: projectFile,
+		API:         apiClient,
+		Auth:        auth,
 	}
 
 	// Build agent with smart model routing
