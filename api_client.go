@@ -254,10 +254,7 @@ func (c *APIClient) put(ctx context.Context, path string, body interface{}) stri
 
 func (c *APIClient) doRequest(req *http.Request) string {
 	// Auth: use API key as Bearer token (strip qm- prefix if present)
-	token := c.APIKey
-	if strings.HasPrefix(token, "qm-") {
-		token = token[3:]
-	}
+	token := strings.TrimPrefix(c.APIKey, "qm-")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 

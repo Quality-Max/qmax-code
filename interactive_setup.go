@@ -195,7 +195,7 @@ func selectProject(auth *AuthConfig) int {
 	// Save to config
 	cfg := LoadQMaxCodeConfig()
 	cfg.DefaultProject = id
-	cfg.Save()
+	_ = cfg.Save()
 
 	return id
 }
@@ -234,7 +234,7 @@ func promptChoice(prompt string, options []string) int {
 // waitForEnter waits for the user to press Enter.
 func waitForEnter() {
 	reader := bufio.NewReader(os.Stdin)
-	reader.ReadString('\n')
+	_, _ = reader.ReadString('\n')
 }
 
 // openBrowser opens a URL in the default browser.
@@ -249,7 +249,7 @@ func openBrowser(url string) {
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	}
 	if cmd != nil {
-		cmd.Start()
+		_ = cmd.Start()
 	}
 }
 

@@ -116,7 +116,7 @@ func LoginWithAPIKey(apiKey string) (*AuthConfig, error) {
 
 	body, _ := io.ReadAll(resp.Body)
 	var me map[string]interface{}
-	json.Unmarshal(body, &me)
+	_ = json.Unmarshal(body, &me)
 
 	cfg := &AuthConfig{
 		APIKey:   apiKey,

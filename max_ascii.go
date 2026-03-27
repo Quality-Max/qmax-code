@@ -210,6 +210,3 @@ var maxFrames = map[MaxMood]MaxFrame{
 	},
 }
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
