@@ -37,6 +37,25 @@ func main() {
 		return
 	}
 
+	// Handle "login" subcommand before flag parsing
+	if len(os.Args) > 1 && os.Args[1] == "login" {
+		var cfg *AuthConfig
+		var err error
+		if *apiKey != "" {
+			cfg, err = LoginWithAPIKey(*apiKey)
+		} else if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "qm-") {
+			cfg, err = LoginWithAPIKey(os.Args[2])
+		} else {
+			cfg, err = LoginInteractive()
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Login failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Logged in as %s\n", cfg.Email)
+		return
+	}
+
 	if *listSessions {
 		sessions, err := ListSessions(20)
 		if err != nil || len(sessions) == 0 {
@@ -80,14 +99,39 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Load qmax config for cloud URL and auth token
+	// Load auth (new standalone mode)
+	auth := LoadAuth()
+
+	// Load qmax config for cloud URL and auth token (legacy)
 	qmaxCfg := loadQMaxConfig()
 	if *cloudURL != "" {
 		qmaxCfg.CloudURL = *cloudURL
 	}
 
-	// Discover qmax binary
+	// Discover qmax binary (optional in standalone mode)
 	qmaxBin := discoverQMaxBinary()
+
+	// Initialize API client if authenticated (standalone mode)
+	var apiClient *APIClient
+	if auth != nil && auth.IsAuthenticated() {
+		apiClient = NewAPIClient(auth)
+	}
+
+	// If no qmax CLI and no API client, show help
+	if qmaxBin == "" && apiClient == nil {
+		fmt.Println()
+		fmt.Println("  Welcome to qmax-code!")
+		fmt.Println()
+		fmt.Println("  To get started, run:")
+		fmt.Println("    qmax-code login")
+		fmt.Println()
+		fmt.Println("  Or set your API key:")
+		fmt.Println("    export QUALITYMAX_API_KEY=qm-...")
+		fmt.Println()
+		fmt.Println("  Get your key at: https://app.qualitymax.io/settings")
+		fmt.Println()
+		os.Exit(1)
+	}
 
 	// Detect project from cwd if not set via flag; fall back to saved config
 	detectedProjectID := *projectID
@@ -107,6 +151,8 @@ func main() {
 		QMaxInfo:    probeQMaxStatus(qmaxBin),
 		GitInfo:     detectGitInfo(),
 		ProjectFile: projectFile,
+		API:         apiClient,
+		Auth:        auth,
 	}
 
 	// Build agent with smart model routing

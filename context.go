@@ -15,10 +15,12 @@ import (
 type SessionContext struct {
 	ProjectID   int
 	QMaxCfg     QMaxConfig
-	QMaxBin     string   // resolved path to qmax binary
-	QMaxInfo    string   // output of `qmax status` at startup
-	GitInfo     *GitInfo // git context from cwd
-	ProjectFile string   // name of .qmax.yml file if detected
+	QMaxBin     string      // resolved path to qmax binary (empty = standalone mode)
+	QMaxInfo    string      // output of `qmax status` at startup
+	GitInfo     *GitInfo    // git context from cwd
+	ProjectFile string      // name of .qmax.yml file if detected
+	API         *APIClient  // direct API client (standalone mode, no qmax CLI needed)
+	Auth        *AuthConfig // authentication credentials
 }
 
 // QMaxConfig mirrors the qmax CLI config (~/.qamax/config.json).

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,6 +14,49 @@ import (
 	"strings"
 	"time"
 )
+
+// --- input parsing helpers ---
+
+func parseInput(rawInput interface{}) map[string]interface{} {
+	input := make(map[string]interface{})
+	switch v := rawInput.(type) {
+	case map[string]interface{}:
+		input = v
+	default:
+		data, _ := json.Marshal(rawInput)
+		_ = json.Unmarshal(data, &input)
+	}
+	return input
+}
+
+func strVal(input map[string]interface{}, key string) string {
+	if v, ok := input[key]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
+func intVal(input map[string]interface{}, key string, fallback int) int {
+	if v, ok := input[key]; ok && v != nil {
+		switch n := v.(type) {
+		case float64:
+			return int(math.Round(n))
+		case int:
+			return n
+		case json.Number:
+			i, _ := n.Int64()
+			return int(i)
+		}
+	}
+	return fallback
+}
+
+func boolVal(input map[string]interface{}, key string) bool {
+	if v, ok := input[key]; ok && v == true {
+		return true
+	}
+	return false
+}
 
 // ToolDef is a Claude API tool definition.
 type ToolDef struct {
@@ -232,7 +276,107 @@ func BuildToolDefs() []ToolDef {
 }
 
 // ExecuteTool executes a tool and returns the output string.
+// Uses the API client for QualityMax operations (no qmax CLI needed).
+// Falls back to qmax CLI if API client is not available.
 func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx context.Context) string {
+	// Use API client if available (standalone mode)
+	if sctx.API != nil {
+		result := executeToolViaAPI(name, rawInput, sctx, ctx)
+		if result != "" {
+			return result
+		}
+		// Fall through to qmax CLI for unhandled tools
+	}
+	return executeToolViaQMax(name, rawInput, sctx, ctx)
+}
+
+// executeToolViaAPI handles tool execution through the QualityMax REST API.
+func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, ctx context.Context) string {
+	input := parseInput(rawInput)
+	api := sctx.API
+
+	switch name {
+	case "list_projects":
+		return api.ListProjects(ctx)
+
+	case "list_test_cases":
+		return api.ListTestCases(ctx, intVal(input, "project_id", sctx.ProjectID), intVal(input, "limit", 0), strVal(input, "search"))
+
+	case "list_scripts":
+		return api.ListScripts(ctx, intVal(input, "project_id", sctx.ProjectID), intVal(input, "limit", 0))
+
+	case "generate_test_code":
+		return api.GenerateTestCode(ctx, intVal(input, "test_case_id", 0), boolVal(input, "force"))
+
+	case "run_test":
+		return api.RunTest(ctx, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"))
+
+	case "run_tests_batch":
+		return api.RunTestsBatch(ctx, strVal(input, "script_ids"), strVal(input, "base_url"))
+
+	case "check_test_status":
+		return api.CheckTestStatus(ctx, strVal(input, "execution_id"))
+
+	case "start_crawl":
+		return api.StartCrawl(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "url"),
+			intVal(input, "depth", 0), intVal(input, "pages", 0), strVal(input, "test_type"), strVal(input, "instructions"))
+
+	case "crawl_status":
+		return api.CrawlStatus(ctx, strVal(input, "crawl_id"))
+
+	case "crawl_results":
+		return api.CrawlResults(ctx, strVal(input, "crawl_id"))
+
+	case "list_crawl_jobs":
+		return api.ListCrawlJobs(ctx, intVal(input, "limit", 0))
+
+	case "list_repos":
+		return api.ListRepos(ctx, intVal(input, "project_id", sctx.ProjectID))
+
+	case "review_repo":
+		return api.ReviewRepo(ctx, intVal(input, "repo_id", 0))
+
+	case "repo_coverage":
+		return api.RepoCoverage(ctx, intVal(input, "repo_id", 0))
+
+	case "repo_quality":
+		return api.RepoQuality(ctx, intVal(input, "repo_id", 0))
+
+	case "import_repo":
+		return api.ImportRepo(ctx, strVal(input, "url"), intVal(input, "project_id", sctx.ProjectID),
+			boolVal(input, "create_project"), strVal(input, "project_name"), strVal(input, "base_url"))
+
+	case "import_document":
+		return api.ImportDocument(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "text"), strVal(input, "source_name"))
+
+	case "create_pr":
+		return api.CreatePR(ctx, intVal(input, "repo_id", 0), intVal(input, "project_id", sctx.ProjectID))
+
+	case "get_script":
+		return api.GetScript(ctx, intVal(input, "script_id", 0))
+
+	case "update_script":
+		code := strVal(input, "code")
+		if code == "" {
+			code = strVal(input, "content")
+		}
+		if violations := scanCodeSecurity(code); len(violations) > 0 {
+			return fmt.Sprintf(`{"error": "Security scan failed", "violations": %q}`, strings.Join(violations, "; "))
+		}
+		scriptID := intVal(input, "script_id", 0)
+		backup := api.GetScript(ctx, scriptID)
+		if !strings.HasPrefix(backup, `{"error"`) {
+			saveScriptBackup(fmt.Sprintf("%d", scriptID), backup)
+		}
+		return api.UpdateScript(ctx, scriptID, strVal(input, "name"), code)
+	}
+
+	// Not handled by API — return empty to fall through to qmax CLI
+	return ""
+}
+
+// executeToolViaQMax handles tool execution through the qmax CLI binary (legacy).
+func executeToolViaQMax(name string, rawInput interface{}, sctx *SessionContext, ctx context.Context) string {
 	// Parse input
 	input := make(map[string]interface{})
 	switch v := rawInput.(type) {

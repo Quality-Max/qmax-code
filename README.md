@@ -49,22 +49,29 @@ curl -sL https://raw.githubusercontent.com/Quality-Max/qmax-code/main/install.sh
 ## Quick start
 
 ```bash
+# 1. Set your Anthropic API key
 export ANTHROPIC_API_KEY=sk-ant-...
-qmax login  # authenticate with QualityMax first
 
-# Interactive REPL
+# 2. Login to QualityMax (paste your API key from Settings > API Keys)
+qmax-code login
+
+# 3. Start using
 qmax-code
-
-# One-shot
-./qmax-code "crawl staging.myapp.com and generate e2e tests"
-./qmax-code -p "run all tests for project 42"
+qmax-code "crawl staging.myapp.com and generate e2e tests"
+qmax-code -p "run all tests for project 42"
 ```
+
+No qmax CLI needed. qmax-code calls the QualityMax API directly.
+
+Get your QualityMax API key at: https://app.qualitymax.io/settings
 
 ## Architecture
 
 | File | Purpose |
 |------|---------|
 | `agent.go` | Claude API agentic loop — tool-use, streaming, conversation history |
+| `api_client.go` | Direct HTTP client for QualityMax REST API (standalone mode) |
+| `auth.go` | Authentication — API key login, token storage |
 | `tools.go` | 20 tool definitions mapping to `qmax` CLI subcommands |
 | `terminal.go` | Terminal UI — ASCII banner, colors, tool icons, readline |
 | `context.go` | Session context loaded from `~/.qmax/config.json` |
@@ -86,10 +93,10 @@ qmax-code
 
 ## Requirements
 
-- Go 1.21+
-- [`qmax` CLI](https://github.com/Quality-Max/qmax-local-agent) on PATH
-- Anthropic API key
-- QualityMax account (authenticated via `qmax login`)
+- Go 1.21+ (for building from source)
+- Anthropic API key (`ANTHROPIC_API_KEY`)
+- QualityMax account (free at [qualitymax.io](https://qualitymax.io))
+- qmax CLI is **optional** — qmax-code works standalone via REST API
 
 ## Build
 
