@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build linux
 
 package main
 
@@ -9,7 +9,7 @@ import (
 
 func enableRawMode() (*unix.Termios, error) {
 	fd := int(os.Stdin.Fd())
-	old, err := unix.IoctlGetTermios(fd, unix.TIOCGETA)
+	old, err := unix.IoctlGetTermios(fd, unix.TCGETS)
 	if err != nil {
 		return nil, err
 	}
@@ -17,7 +17,7 @@ func enableRawMode() (*unix.Termios, error) {
 	raw.Lflag &^= unix.ECHO | unix.ICANON
 	raw.Cc[unix.VMIN] = 1
 	raw.Cc[unix.VTIME] = 0
-	if err := unix.IoctlSetTermios(fd, unix.TIOCSETA, &raw); err != nil {
+	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &raw); err != nil {
 		return nil, err
 	}
 	return old, nil
@@ -25,6 +25,6 @@ func enableRawMode() (*unix.Termios, error) {
 
 func restoreTermMode(old *unix.Termios) {
 	if old != nil {
-		_ = unix.IoctlSetTermios(int(os.Stdin.Fd()), unix.TIOCSETA, old)
+		_ = unix.IoctlSetTermios(int(os.Stdin.Fd()), unix.TCSETS, old)
 	}
 }
