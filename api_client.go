@@ -89,7 +89,7 @@ func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string
 	if baseURL != "" {
 		body["base_url"] = baseURL
 	}
-	return c.post(ctx, "/api/playwright-execution/run-batch", body)
+	return c.post(ctx, "/api/automation/execute-batch", body)
 }
 
 func (c *APIClient) CheckTestStatus(ctx context.Context, executionID string) string {
