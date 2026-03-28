@@ -38,6 +38,11 @@ func main() {
 		return
 	}
 
+	// Initialize error reporting (Bugsink)
+	InitErrorReporting()
+	defer FlushErrorReporting()
+	defer RecoverPanic()
+
 	// Handle "login" subcommand before flag parsing
 	if len(os.Args) > 1 && os.Args[1] == "login" {
 		var cfg *AuthConfig
@@ -524,6 +529,7 @@ func runREPL(agent *Agent, quietMode bool) {
 		}
 		if err != nil {
 			term.PrintError(err.Error())
+			CaptureError(err, map[string]interface{}{"input": truncateStr(input, 100)})
 			autoSave() // save even on error — preserves context
 			continue
 		}
