@@ -5,3 +5,4 @@ build/
 *.so
 *.dylib
 .DS_Store
+dist/
