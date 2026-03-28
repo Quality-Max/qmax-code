@@ -326,7 +326,28 @@ func (t *Terminal) PrintToolResult(name string, output string) {
 				fmt.Printf("    Message: %s\n", styleDim.Render(truncateStr(msg, 120)))
 			}
 			if errs, ok := data["test_errors"].(string); ok && errs != "" {
-				fmt.Printf("    Errors: %s\n", styleError.Render(truncateStr(errs, 200)))
+				fmt.Printf("    Errors: %s\n", styleError.Render(truncateStr(errs, 300)))
+			}
+			// Extract errors from console_logs if test_errors is empty
+			if logs, ok := data["console_logs"].([]interface{}); ok && len(logs) > 0 {
+				var errorLines []string
+				for _, l := range logs {
+					if logEntry, ok := l.(map[string]interface{}); ok {
+						text, _ := logEntry["text"].(string)
+						if strings.Contains(text, "Error") || strings.Contains(text, "failed") || strings.Contains(text, "✗") {
+							errorLines = append(errorLines, text)
+						}
+					}
+				}
+				if len(errorLines) > 0 {
+					fmt.Printf("    Console errors:\n")
+					for _, line := range errorLines {
+						fmt.Printf("      %s\n", styleError.Render(truncateStr(line, 120)))
+					}
+				}
+			}
+			if dur, ok := data["execution_time"].(float64); ok && dur > 0 {
+				fmt.Printf("    Duration: %.1fs\n", dur)
 			}
 			if screenshots, ok := data["screenshot_paths"].([]interface{}); ok && len(screenshots) > 0 {
 				fmt.Printf("    Screenshots: %d captured\n", len(screenshots))
