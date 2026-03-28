@@ -848,13 +848,29 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 		output = output[:2000] + "\n...\n" + output[len(output)-2000:]
 	}
 
+	// 5. Report results back to QualityMax
+	statusStr := "failed"
+	if passed {
+		statusStr = "passed"
+	}
+	reportResp := sctx.API.ReportLocalResult(ctx, scriptID, statusStr, output, framework, duration.Seconds())
+
+	// Parse report response for execution_id
+	var reportData map[string]interface{}
+	reportExecID := ""
+	if err := json.Unmarshal([]byte(reportResp), &reportData); err == nil {
+		reportExecID, _ = reportData["execution_id"].(string)
+	}
+
 	result := map[string]interface{}{
-		"script_id": scriptID,
-		"name":      name,
-		"framework": framework,
-		"passed":    passed,
-		"duration":  fmt.Sprintf("%.1fs", duration.Seconds()),
-		"output":    output,
+		"script_id":    scriptID,
+		"name":         name,
+		"framework":    framework,
+		"passed":       passed,
+		"duration":     fmt.Sprintf("%.1fs", duration.Seconds()),
+		"output":       output,
+		"reported":     !strings.HasPrefix(reportResp, `{"error"`),
+		"execution_id": reportExecID,
 	}
 
 	data, _ := json.Marshal(result)
