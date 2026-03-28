@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"os"
@@ -137,10 +136,7 @@ func main() {
 		fmt.Println("  Anthropic API key needed (this powers the AI).")
 		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
 		fmt.Println()
-		fmt.Print("  Paste your Anthropic key (sk-ant-...): ")
-		reader := bufio.NewReader(os.Stdin)
-		key, _ := reader.ReadString('\n')
-		key = strings.TrimSpace(key)
+		key := readSecret("  Paste your Anthropic key: ")
 		if key != "" {
 			anthropicKey = key
 			os.Setenv("ANTHROPIC_API_KEY", key)
@@ -635,10 +631,7 @@ func handleKeys(agent *Agent, term *Terminal) {
 		fmt.Println()
 		fmt.Println("  Get your key at: https://console.anthropic.com/settings/keys")
 		fmt.Println()
-		fmt.Print("  Paste your Anthropic key: ")
-		reader := bufio.NewReader(os.Stdin)
-		key, _ := reader.ReadString('\n')
-		key = strings.TrimSpace(key)
+		key := readSecret("  Paste your Anthropic key: ")
 		if key == "" {
 			term.PrintSystem("Cancelled.")
 			return

@@ -77,10 +77,7 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 		fmt.Println("  I need an Anthropic API key to think (that's my brain!).")
 		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
 		fmt.Println()
-		fmt.Print("  Paste your Anthropic key (sk-ant-...): ")
-		reader := bufio.NewReader(os.Stdin)
-		key, _ := reader.ReadString('\n')
-		key = strings.TrimSpace(key)
+		key := readSecret("  Paste your Anthropic key (sk-ant-...): ")
 		if key != "" {
 			os.Setenv("ANTHROPIC_API_KEY", key)
 			// Save to OS keychain
@@ -112,10 +109,7 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 
 // loginWithKeyPrompt asks the user to paste their API key.
 func loginWithKeyPrompt() (*AuthConfig, error) {
-	fmt.Print("  Paste your API key (qm-...): ")
-	reader := bufio.NewReader(os.Stdin)
-	key, _ := reader.ReadString('\n')
-	key = strings.TrimSpace(key)
+	key := readSecret("  Paste your API key (qm-...): ")
 
 	if key == "" {
 		return nil, fmt.Errorf("no API key provided")
@@ -198,6 +192,23 @@ func selectProject(auth *AuthConfig) int {
 	_ = cfg.Save()
 
 	return id
+}
+
+// readSecret reads a line of input, then overwrites it with a masked version.
+func readSecret(prompt string) string {
+	fmt.Print(prompt)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+	key = strings.TrimSpace(key)
+	if key != "" {
+		// Move cursor up, clear line, reprint with masked value
+		masked := key[:4] + "..." + key[len(key)-4:]
+		if len(key) <= 8 {
+			masked = "****"
+		}
+		fmt.Printf("\033[1A\033[2K%s%s\n", prompt, masked)
+	}
+	return key
 }
 
 // --- UI helpers ---

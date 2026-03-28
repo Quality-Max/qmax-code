@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -157,11 +156,7 @@ func LoginInteractive() (*AuthConfig, error) {
 	fmt.Println("  Get your API key from:")
 	fmt.Println("  https://app.qualitymax.io/settings → API Keys")
 	fmt.Println()
-	fmt.Print("  Paste your API key (qm-...): ")
-
-	reader := bufio.NewReader(os.Stdin)
-	key, _ := reader.ReadString('\n')
-	key = strings.TrimSpace(key)
+	key := readSecret("  Paste your API key (qm-...): ")
 
 	if key == "" {
 		return nil, fmt.Errorf("no API key provided")
