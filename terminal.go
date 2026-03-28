@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -299,15 +300,46 @@ func (t *Terminal) PrintToolStart(name string, input interface{}) {
 	fmt.Println()
 }
 
-// PrintToolResult shows tool output (abbreviated).
+// PrintToolResult shows tool output with smart formatting for known result types.
 func (t *Terminal) PrintToolResult(name string, output string) {
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	lineCount := len(lines)
-
 	if strings.HasPrefix(output, "{\"error\"") {
 		fmt.Printf("  %s %s\n", styleError.Render("✗ Error"), styleDim.Render(truncateStr(output, 120)))
 		return
 	}
+
+	// Smart display for execution status results
+	if (name == "check_test_status" || name == "run_test") && strings.Contains(output, "execution_id") {
+		var data map[string]interface{}
+		if err := json.Unmarshal([]byte(output), &data); err == nil {
+			execID, _ := data["execution_id"].(string)
+			status, _ := data["status"].(string)
+			fmt.Printf("  Execution: %s\n", styleDim.Render(execID))
+			switch status {
+			case "passed":
+				fmt.Printf("    Status: %s\n", styleSuccess.Render("✓ PASSED"))
+			case "failed":
+				fmt.Printf("    Status: %s\n", styleError.Render("✗ FAILED"))
+			default:
+				fmt.Printf("    Status: %s\n", styleSystem.Render(status))
+			}
+			if msg, ok := data["message"].(string); ok && msg != "" {
+				fmt.Printf("    Message: %s\n", styleDim.Render(truncateStr(msg, 120)))
+			}
+			if errs, ok := data["test_errors"].(string); ok && errs != "" {
+				fmt.Printf("    Errors: %s\n", styleError.Render(truncateStr(errs, 200)))
+			}
+			if screenshots, ok := data["screenshot_paths"].([]interface{}); ok && len(screenshots) > 0 {
+				fmt.Printf("    Screenshots: %d captured\n", len(screenshots))
+			}
+			if video, ok := data["video_path"].(string); ok && video != "" {
+				fmt.Printf("    Video: %s\n", styleDim.Render("recorded"))
+			}
+			return
+		}
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	lineCount := len(lines)
 
 	if lineCount <= 3 {
 		for _, line := range lines {

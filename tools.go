@@ -121,7 +121,7 @@ func BuildToolDefs() []ToolDef {
 		},
 		{
 			Name:        "check_test_status",
-			Description: "Check the status of a running test execution.",
+			Description: "Check the status of a test execution. Returns status, progress, message, test_errors, console_logs, screenshot_paths, video_path. When status is 'failed', always report the test_errors and message to the user.",
 			InputSchema: obj(props(
 				prop("execution_id", "string", "Execution ID to check", true),
 			)),
@@ -684,9 +684,15 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 		return raw
 	}
 
-	var script map[string]interface{}
-	if err := json.Unmarshal([]byte(raw), &script); err != nil {
+	var resp map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		return jsonError("Failed to parse script: " + err.Error())
+	}
+
+	// API returns {"success": true, "script": {...}} — unwrap
+	script, _ := resp["script"].(map[string]interface{})
+	if script == nil {
+		script = resp // fallback: maybe the response IS the script
 	}
 
 	code := ""
