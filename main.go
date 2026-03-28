@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -376,6 +377,12 @@ func runREPL(agent *Agent, quietMode bool) {
 		case input == "/context":
 			printContext(agent.config.Context, term)
 			continue
+		case input == "/connect":
+			handleConnect(agent, term)
+			continue
+		case input == "/disconnect":
+			handleDisconnect(agent, term)
+			continue
 		case input == "/status":
 			term.PrintStatusInfo(agent.config.Context, agent.usage, agent.config.Model)
 			continue
@@ -459,12 +466,69 @@ func runREPL(agent *Agent, quietMode bool) {
 	}
 }
 
+// handleConnect runs the browser-based auth flow from within the REPL.
+func handleConnect(agent *Agent, term *Terminal) {
+	ctx := agent.config.Context
+
+	// Already connected?
+	if ctx.Auth != nil && ctx.Auth.IsAuthenticated() {
+		term.PrintSystem(fmt.Sprintf("Already connected as %s", ctx.Auth.Email))
+		term.PrintSystem("Run /disconnect first to switch accounts.")
+		return
+	}
+
+	AnimateMax(MoodWaving, "Let's connect you to QualityMax!")
+	fmt.Println()
+
+	auth, err := LoginViaBrowser()
+	if err != nil {
+		AnimateMax(MoodSad, "Connection failed: "+err.Error())
+		fmt.Println()
+		term.PrintSystem("You can also paste an API key:")
+		term.PrintSystem("  /set apikey qm-YOUR-API-KEY")
+		return
+	}
+
+	// Update session context in-place
+	ctx.Auth = auth
+	ctx.API = NewAPIClient(auth)
+
+	AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
+	fmt.Println()
+}
+
+// handleDisconnect removes auth and API client from the session.
+func handleDisconnect(agent *Agent, term *Terminal) {
+	ctx := agent.config.Context
+
+	if ctx.Auth == nil || !ctx.Auth.IsAuthenticated() {
+		term.PrintSystem("Not connected.")
+		return
+	}
+
+	email := ctx.Auth.Email
+	ctx.Auth = nil
+	ctx.API = nil
+
+	// Remove saved auth file
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		_ = os.Remove(filepath.Join(home, qmaxCodeConfigDir, "auth.json"))
+	}
+
+	AnimateMax(MoodNeutral, fmt.Sprintf("Disconnected from %s", email))
+	fmt.Println()
+	term.PrintSystem("Run /connect to log in again.")
+}
+
 func printREPLHelp() {
 	fmt.Println(`
 Commands:
+  /connect       Log in to QualityMax (opens browser)
+  /disconnect    Log out and clear saved credentials
+  /status        Connection status + session info
   /project <id>  Set the active project
   /context       Show current session context
-  /status        Show qmax auth + session info
   /cost          Show session token usage and estimated cost
   /config        Show current config settings
   /set <k> <v>   Update config (model, project, professional, autosave, budget)
@@ -590,9 +654,22 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		cfg.MaxTokenBudget = budget
 		term.PrintSystem(fmt.Sprintf("Token budget set to: %d", budget))
 
+	case "apikey":
+		// Allow pasting API key directly: /set apikey qm-...
+		auth, err := LoginWithAPIKey(value)
+		if err != nil {
+			term.PrintError(fmt.Sprintf("Invalid API key: %v", err))
+			return
+		}
+		agent.config.Context.Auth = auth
+		agent.config.Context.API = NewAPIClient(auth)
+		AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
+		fmt.Println()
+		return // don't save to config.json, auth.json is handled by LoginWithAPIKey
+
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, professional, autosave, budget")
+		term.PrintSystem("Keys: model, project, professional, autosave, budget, apikey")
 		return
 	}
 

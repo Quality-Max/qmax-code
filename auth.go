@@ -44,19 +44,34 @@ func LoadAuth() *AuthConfig {
 	// 3. Legacy ~/.qamax/config.json
 	legacy := loadQMaxConfig()
 	if legacy.Token != "" || legacy.APIKey != "" {
-		key := legacy.APIKey
+		// Prefer JWT token over agent API key (hex key is for agent registration, not user auth)
+		key := legacy.Token
 		if key == "" {
-			key = legacy.Token
+			key = legacy.APIKey
 		}
 		url := legacy.CloudURL
 		if url == "" {
 			url = defaultCloudURL
 		}
-		return &AuthConfig{
+		cfg := &AuthConfig{
 			APIKey:   key,
 			Email:    legacy.Email,
 			CloudURL: url,
 		}
+		// Legacy config often has no email — fetch from /api/me and migrate to auth.json
+		if cfg.Email == "" {
+			if me := fetchMe(cfg); me != nil {
+				if email, ok := me["email"].(string); ok {
+					cfg.Email = email
+				}
+				if uid, ok := me["id"].(string); ok {
+					cfg.UserID = uid
+				}
+				// Save to new auth.json so we don't need legacy next time
+				_ = SaveAuth(cfg)
+			}
+		}
+		return cfg
 	}
 
 	return nil
@@ -260,6 +275,25 @@ func LoginViaBrowser() (*AuthConfig, error) {
 }
 
 // --- helpers ---
+
+// fetchMe calls /api/me to get user info (email, id) from the API.
+func fetchMe(cfg *AuthConfig) map[string]interface{} {
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", cfg.GetCloudURL()+"/api/me", nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Authorization", "Bearer "+stripKeyPrefix(cfg.APIKey))
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return nil
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var me map[string]interface{}
+	_ = json.Unmarshal(body, &me)
+	return me
+}
 
 func loadAuthFile() *AuthConfig {
 	home, err := os.UserHomeDir()
