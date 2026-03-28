@@ -9,12 +9,10 @@ import (
 // ProgressBar renders an animated progress bar in the terminal.
 type ProgressBar struct {
 	label    string
-	total    int
 	current  int
 	width    int
 	start    time.Time
 	done     bool
-	frames   []string
 	frameIdx int
 }
 

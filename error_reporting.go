@@ -37,7 +37,7 @@ func CaptureError(err error, context map[string]interface{}) {
 	if context != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			for k, v := range context {
-				scope.SetExtra(k, v)
+				scope.SetTag(k, fmt.Sprintf("%v", v))
 			}
 			sentry.CaptureException(err)
 		})
