@@ -538,7 +538,7 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		return api.GenerateTestCode(ctx, intVal(input, "test_case_id", 0), boolVal(input, "force"))
 
 	case "run_test":
-		return api.RunTest(ctx, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"))
+		return runTestWithProgress(ctx, api, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"))
 
 	case "run_tests_batch":
 		return api.RunTestsBatch(ctx, strVal(input, "script_ids"), strVal(input, "base_url"))
@@ -670,6 +670,78 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 
 	// Not handled by API — return empty to fall through to qmax CLI
 	return ""
+}
+
+// runTestWithProgress starts a cloud test and polls with a live progress bar + browser animation.
+func runTestWithProgress(ctx context.Context, api *APIClient, scriptID int, headless bool, browser, baseURL string) string {
+	// Start the test
+	raw := api.RunTest(ctx, scriptID, headless, browser, baseURL)
+	if strings.HasPrefix(raw, `{"error"`) {
+		return raw
+	}
+
+	var startResp map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &startResp); err != nil {
+		return raw // return as-is if can't parse
+	}
+
+	execID, _ := startResp["execution_id"].(string)
+	if execID == "" {
+		return raw
+	}
+
+	// Show browser animation + progress bar
+	fmt.Println()
+	ShowBrowserAnimation(0)
+	progress := NewProgressBar("Running test...", 30)
+
+	// Poll until done
+	frame := 1
+	for i := 0; i < 120; i++ { // max 4 minutes (120 * 2s)
+		time.Sleep(2 * time.Second)
+
+		statusRaw := api.CheckTestStatus(ctx, execID)
+		var status map[string]interface{}
+		if err := json.Unmarshal([]byte(statusRaw), &status); err != nil {
+			continue
+		}
+
+		st, _ := status["status"].(string)
+		msg, _ := status["message"].(string)
+		pct := 0
+		if p, ok := status["progress"].(float64); ok {
+			pct = int(p)
+		}
+
+		// Animate browser
+		ShowBrowserAnimation(frame)
+		frame++
+
+		// Update progress
+		if st == "running" || st == "queued" {
+			if pct == 0 {
+				pct = min(10+i*3, 90) // fake progress if backend doesn't report
+			}
+			progress.Update(pct, msg)
+		}
+
+		if st == "passed" || st == "failed" || st == "completed" {
+			ClearBrowserAnimation()
+			progress.Finish(st == "passed", msg)
+			return statusRaw
+		}
+	}
+
+	ClearBrowserAnimation()
+	progress.Finish(false, "Timed out")
+	return api.CheckTestStatus(ctx, execID) // final check
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // runLocalTest downloads a script from QualityMax and runs it locally.
