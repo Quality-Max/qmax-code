@@ -127,6 +127,14 @@ func BuildToolDefs() []ToolDef {
 			)),
 		},
 
+		{
+			Name:        "check_job_status",
+			Description: "Check the status of a background job (AI review, gap analysis, etc). Use this for any job_id that starts with 'repo_ai_review_' or 'gap_analysis_'. NOT for test executions — use check_test_status for those.",
+			InputSchema: obj(props(
+				prop("job_id", "string", "Background job ID", true),
+			)),
+		},
+
 		// --- Local test execution (pytest, etc.) ---
 		{
 			Name:        "run_local_test",
@@ -590,6 +598,9 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 			saveScriptBackup(fmt.Sprintf("%d", scriptID), backup)
 		}
 		return api.UpdateScript(ctx, scriptID, strVal(input, "name"), code)
+
+	case "check_job_status":
+		return api.CheckBackgroundJob(ctx, strVal(input, "job_id"))
 
 	// --- k6 Performance Testing ---
 	case "k6_list_scripts":

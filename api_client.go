@@ -430,6 +430,12 @@ func (c *APIClient) TestDeployedEnvironment(ctx context.Context, projectID int, 
 	return c.post(ctx, "/api/automation/test-deployed", body)
 }
 
+// --- Background Job Status ---
+
+func (c *APIClient) CheckBackgroundJob(ctx context.Context, jobID string) string {
+	return c.get(ctx, "/api/job-health/background/"+jobID)
+}
+
 // --- Delete helper ---
 
 func (c *APIClient) delete(ctx context.Context, path string) string {
