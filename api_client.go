@@ -142,7 +142,7 @@ func (c *APIClient) ListRepos(ctx context.Context, projectID int) string {
 }
 
 func (c *APIClient) ReviewRepo(ctx context.Context, repoID int) string {
-	return c.post(ctx, fmt.Sprintf("/api/repositories/%d/review", repoID), nil)
+	return c.post(ctx, fmt.Sprintf("/api/repositories/%d/ai-review", repoID), nil)
 }
 
 func (c *APIClient) RepoCoverage(ctx context.Context, repoID int) string {
@@ -389,7 +389,7 @@ func (c *APIClient) EnhanceTestCase(ctx context.Context, testCaseID int) string 
 }
 
 func (c *APIClient) GenerateGapTests(ctx context.Context, repoID int) string {
-	return c.post(ctx, fmt.Sprintf("/api/repositories/%d/generate-gaps", repoID), nil)
+	return c.post(ctx, fmt.Sprintf("/api/repositories/%d/generate-gap-tests", repoID), nil)
 }
 
 func (c *APIClient) StartCrawlFromTestCase(ctx context.Context, testCaseID int) string {
