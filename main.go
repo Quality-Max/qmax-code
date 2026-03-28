@@ -120,24 +120,39 @@ func main() {
 		apiClient = NewAPIClient(auth)
 	}
 
-	// If no qmax CLI and no API client, run interactive setup
-	// (this also prompts for Anthropic key if missing)
+	// If no qmax CLI and no API client, run full interactive setup
 	if qmaxBin == "" && apiClient == nil {
 		setupAuth, setupProjectID := RunInteractiveSetup()
 		auth = setupAuth
 		apiClient = NewAPIClient(auth)
 		appConfig.DefaultProject = setupProjectID
-		// Re-check Anthropic key after setup (setup saves to keychain + env)
 		if anthropicKey == "" {
 			anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 		}
 	}
 
-	// Final check — if still no key after setup, exit
+	// If connected but missing Anthropic key, prompt for it
 	if anthropicKey == "" {
-		fmt.Fprintln(os.Stderr, "Error: Anthropic API key required.")
-		fmt.Fprintln(os.Stderr, "  Run:  qmax-code  (interactive setup will prompt)")
-		fmt.Fprintln(os.Stderr, "  Or:   export ANTHROPIC_API_KEY=sk-ant-...")
+		fmt.Println()
+		fmt.Println("  Anthropic API key needed (this powers the AI).")
+		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
+		fmt.Println()
+		fmt.Print("  Paste your Anthropic key (sk-ant-...): ")
+		reader := bufio.NewReader(os.Stdin)
+		key, _ := reader.ReadString('\n')
+		key = strings.TrimSpace(key)
+		if key != "" {
+			anthropicKey = key
+			os.Setenv("ANTHROPIC_API_KEY", key)
+			if err := SaveAnthropicKey(key); err == nil {
+				fmt.Println("  Saved to OS keychain.")
+			}
+		}
+	}
+
+	if anthropicKey == "" {
+		fmt.Fprintln(os.Stderr, "\nError: Anthropic API key required.")
+		fmt.Fprintln(os.Stderr, "  export ANTHROPIC_API_KEY=sk-ant-...")
 		os.Exit(1)
 	}
 
