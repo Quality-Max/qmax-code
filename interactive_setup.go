@@ -65,23 +65,33 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 	projectID := selectProject(auth)
 
 	// Step 3: Anthropic key check
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+	cfg := LoadQMaxCodeConfig()
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	if anthropicKey == "" {
+		anthropicKey = cfg.AnthropicKey
+	}
+	if anthropicKey == "" {
 		fmt.Println()
 		AnimateMax(MoodThinking, "One more thing...")
 		fmt.Println()
 		fmt.Println("  I need an Anthropic API key to think (that's my brain!).")
 		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
 		fmt.Println()
-		fmt.Print("  Paste your Anthropic key (sk-ant-...): ")
-		reader := bufio.NewReader(os.Stdin)
-		key, _ := reader.ReadString('\n')
-		key = strings.TrimSpace(key)
+		key := readSecret("  Paste your Anthropic key (sk-ant-...): ")
 		if key != "" {
 			os.Setenv("ANTHROPIC_API_KEY", key)
-			fmt.Println()
-			fmt.Println("  Tip: add this to your shell profile to avoid re-entering:")
-			fmt.Printf("    export ANTHROPIC_API_KEY=%s\n", key)
+			// Save to OS keychain
+			if err := SaveAnthropicKey(key); err != nil {
+				// Fallback: warn but continue
+				fmt.Printf("\n  Note: Could not save to keychain (%s)\n", err)
+				fmt.Println("  Key is set for this session. Set ANTHROPIC_API_KEY in your shell profile to persist.")
+			} else {
+				fmt.Println()
+				fmt.Println("  Key saved securely to OS keychain")
+			}
 		}
+	} else {
+		os.Setenv("ANTHROPIC_API_KEY", anthropicKey)
 	}
 
 	// All set!
@@ -99,10 +109,7 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 
 // loginWithKeyPrompt asks the user to paste their API key.
 func loginWithKeyPrompt() (*AuthConfig, error) {
-	fmt.Print("  Paste your API key (qm-...): ")
-	reader := bufio.NewReader(os.Stdin)
-	key, _ := reader.ReadString('\n')
-	key = strings.TrimSpace(key)
+	key := readSecret("  Paste your API key (qm-...): ")
 
 	if key == "" {
 		return nil, fmt.Errorf("no API key provided")
@@ -185,6 +192,68 @@ func selectProject(auth *AuthConfig) int {
 	_ = cfg.Save()
 
 	return id
+}
+
+// readSecret reads a line of input with characters hidden (replaced with dots).
+// Shows a masked preview after completion.
+func readSecret(prompt string) string {
+	fmt.Print(prompt)
+
+	// Switch terminal to raw mode to hide input
+	oldState, err := enableRawMode()
+	if err != nil {
+		// Fallback: plain read + mask after
+		reader := bufio.NewReader(os.Stdin)
+		key, _ := reader.ReadString('\n')
+		key = strings.TrimSpace(key)
+		if key != "" {
+			masked := maskKey(key)
+			fmt.Printf("\033[1A\033[2K%s%s\n", prompt, masked)
+		}
+		return key
+	}
+
+	var input []byte
+	buf := make([]byte, 1)
+	for {
+		n, _ := os.Stdin.Read(buf)
+		if n == 0 {
+			continue
+		}
+		ch := buf[0]
+		switch ch {
+		case '\n', '\r':
+			restoreTermMode(oldState)
+			fmt.Println()
+			key := strings.TrimSpace(string(input))
+			if key != "" {
+				masked := maskKey(key)
+				fmt.Printf("\033[1A\033[2K%s%s\n", prompt, masked)
+			}
+			return key
+		case 127, '\b': // backspace
+			if len(input) > 0 {
+				input = input[:len(input)-1]
+				fmt.Print("\b \b")
+			}
+		case 3: // Ctrl+C
+			restoreTermMode(oldState)
+			fmt.Println()
+			return ""
+		default:
+			if ch >= 32 { // printable
+				input = append(input, ch)
+				fmt.Print("•")
+			}
+		}
+	}
+}
+
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "••••"
+	}
+	return key[:4] + "•••" + key[len(key)-4:]
 }
 
 // --- UI helpers ---

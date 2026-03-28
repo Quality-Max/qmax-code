@@ -121,9 +121,17 @@ func BuildToolDefs() []ToolDef {
 		},
 		{
 			Name:        "check_test_status",
-			Description: "Check the status of a running test execution.",
+			Description: "Check the status of a test execution. Returns status, progress, message, test_errors, console_logs, screenshot_paths, video_path. When status is 'failed', always report the test_errors and message to the user.",
 			InputSchema: obj(props(
 				prop("execution_id", "string", "Execution ID to check", true),
+			)),
+		},
+
+		{
+			Name:        "check_job_status",
+			Description: "Check the status of a background job (AI review, gap analysis, etc). Use this for any job_id that starts with 'repo_ai_review_' or 'gap_analysis_'. NOT for test executions — use check_test_status for those.",
+			InputSchema: obj(props(
+				prop("job_id", "string", "Background job ID", true),
 			)),
 		},
 
@@ -134,6 +142,217 @@ func BuildToolDefs() []ToolDef {
 			InputSchema: obj(props(
 				prop("script_id", "integer", "Script ID to run", true),
 				prop("base_url", "string", "Base URL for the app under test", false),
+			)),
+		},
+
+		// --- k6 Performance Testing ---
+		{
+			Name:        "k6_list_scripts",
+			Description: "List k6 performance test scripts for a project.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+			)),
+		},
+		{
+			Name:        "k6_create_script",
+			Description: "Create a k6 performance test script. Supports load, stress, spike, soak, smoke, breakpoint, API, security, and browser test types.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+				prop("name", "string", "Script name", true),
+				prop("test_type", "string", "Test type: load, stress, spike, soak, smoke, breakpoint, api, security, browser", true),
+				prop("target_url", "string", "Target URL to test", true),
+				prop("code", "string", "k6 script code (optional — auto-generated if empty)", false),
+			)),
+		},
+		{
+			Name:        "k6_get_script",
+			Description: "Get a k6 script by ID including its code.",
+			InputSchema: obj(props(
+				prop("script_id", "integer", "k6 script ID", true),
+			)),
+		},
+		{
+			Name:        "k6_run_test",
+			Description: "Execute a k6 performance test. Returns an execution ID for polling status.",
+			InputSchema: obj(props(
+				prop("script_id", "integer", "k6 script ID to execute", true),
+				prop("vus", "integer", "Number of virtual users (override)", false),
+				prop("duration", "string", "Test duration override (e.g. '30s', '5m')", false),
+			)),
+		},
+		{
+			Name:        "k6_check_status",
+			Description: "Check the status and results of a k6 test execution.",
+			InputSchema: obj(props(
+				prop("execution_id", "string", "k6 execution ID", true),
+			)),
+		},
+		{
+			Name:        "k6_report",
+			Description: "Get the full report of a k6 test execution with metrics, thresholds, and HTTP stats.",
+			InputSchema: obj(props(
+				prop("execution_id", "string", "k6 execution ID", true),
+			)),
+		},
+		{
+			Name:        "k6_generate",
+			Description: "Generate a k6 performance test script from a target URL. Auto-creates load profiles with thresholds.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+				prop("target_url", "string", "URL to generate test for", true),
+				prop("test_type", "string", "Test type: load, stress, spike, soak, smoke", false),
+				prop("endpoints", "string", "Comma-separated endpoint paths to test", false),
+			)),
+		},
+		{
+			Name:        "k6_convert",
+			Description: "Convert performance test scripts from JMeter, Gatling, Locust, or Playwright to k6.",
+			InputSchema: obj(props(
+				prop("source_code", "string", "Source test script code", true),
+				prop("source_framework", "string", "Source framework: jmeter, gatling, locust, playwright", true),
+				prop("test_type", "string", "Target k6 test type (default: load)", false),
+			)),
+		},
+
+		// --- Test Case CRUD ---
+		{
+			Name:        "create_test_case",
+			Description: "Create a new test case in a project.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+				prop("title", "string", "Test case title", true),
+				prop("description", "string", "Test case description/steps", true),
+				prop("category", "string", "Category: functional, api, ui, security, performance, accessibility", false),
+				prop("priority", "string", "Priority: critical, high, medium, low", false),
+			)),
+		},
+		{
+			Name:        "update_test_case",
+			Description: "Update an existing test case.",
+			InputSchema: obj(props(
+				prop("test_case_id", "integer", "Test case ID", true),
+				prop("title", "string", "New title", false),
+				prop("description", "string", "New description", false),
+				prop("category", "string", "New category", false),
+				prop("priority", "string", "New priority", false),
+				prop("status", "string", "New status: active, draft, deprecated", false),
+			)),
+		},
+		{
+			Name:        "delete_test_case",
+			Description: "Delete a test case. This is irreversible.",
+			InputSchema: obj(props(
+				prop("test_case_id", "integer", "Test case ID to delete", true),
+			)),
+		},
+
+		// --- Project CRUD ---
+		{
+			Name:        "create_project",
+			Description: "Create a new QualityMax project.",
+			InputSchema: obj(props(
+				prop("name", "string", "Project name", true),
+				prop("description", "string", "Project description", false),
+				prop("base_url", "string", "Base URL of the app under test", false),
+			)),
+		},
+		{
+			Name:        "update_project",
+			Description: "Update a project's name, description, or base URL.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+				prop("name", "string", "New name", false),
+				prop("description", "string", "New description", false),
+				prop("base_url", "string", "New base URL", false),
+			)),
+		},
+		{
+			Name:        "delete_project",
+			Description: "Delete a project and all its test cases and scripts. This is irreversible.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID to delete", true),
+			)),
+		},
+		{
+			Name:        "get_project_summary",
+			Description: "Get a project's summary including test case count, script count, and recent activity.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+			)),
+		},
+
+		// --- Framework Operations ---
+		{
+			Name:        "trigger_framework_run",
+			Description: "Trigger a CI test run for a project's framework (runs all tests in the GitHub Action).",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+				prop("framework_type", "string", "Framework: playwright or pytest", false),
+			)),
+		},
+		{
+			Name:        "export_framework",
+			Description: "Export a project's test framework as a downloadable zip with all scripts and config.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+				prop("framework", "string", "Framework type: playwright (default) or pytest", false),
+			)),
+		},
+		{
+			Name:        "get_install_command",
+			Description: "Get the one-liner install command for a project's test framework (for CI/CD setup).",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+			)),
+		},
+
+		// --- AI-Powered ---
+		{
+			Name:        "enhance_test_case",
+			Description: "Use AI to enhance a test case — adds detailed steps, edge cases, and assertions.",
+			InputSchema: obj(props(
+				prop("test_case_id", "integer", "Test case ID to enhance", true),
+			)),
+		},
+		{
+			Name:        "generate_gap_tests",
+			Description: "Analyze a repository and generate test cases for untested code paths.",
+			InputSchema: obj(props(
+				prop("repo_id", "integer", "Repository ID", true),
+			)),
+		},
+		{
+			Name:        "start_crawl_from_test_case",
+			Description: "Start an AI crawl that targets a specific test case — generates automation for that test scenario.",
+			InputSchema: obj(props(
+				prop("test_case_id", "integer", "Test case ID", true),
+			)),
+		},
+
+		// --- QTML ---
+		{
+			Name:        "export_qtml",
+			Description: "Export a project's test cases as QTML (QualityMax Test Markup Language) for portability.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID to export", true),
+			)),
+		},
+		{
+			Name:        "import_qtml",
+			Description: "Import test cases from QTML format into a project.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Target project ID", true),
+				prop("content", "string", "QTML content to import", true),
+			)),
+		},
+
+		// --- Deployment Testing ---
+		{
+			Name:        "test_deployed_environment",
+			Description: "Run a smoke test against a deployed environment URL.",
+			InputSchema: obj(props(
+				prop("project_id", "integer", "Project ID", true),
+				prop("url", "string", "Deployment URL to test", true),
 			)),
 		},
 
@@ -380,6 +599,71 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		}
 		return api.UpdateScript(ctx, scriptID, strVal(input, "name"), code)
 
+	case "check_job_status":
+		return api.CheckBackgroundJob(ctx, strVal(input, "job_id"))
+
+	// --- k6 Performance Testing ---
+	case "k6_list_scripts":
+		return api.K6ListScripts(ctx, intVal(input, "project_id", sctx.ProjectID))
+	case "k6_create_script":
+		return api.K6CreateScript(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "name"), strVal(input, "test_type"), strVal(input, "target_url"), strVal(input, "code"))
+	case "k6_get_script":
+		return api.K6GetScript(ctx, intVal(input, "script_id", 0))
+	case "k6_run_test":
+		return api.K6RunTest(ctx, intVal(input, "script_id", 0), intVal(input, "vus", 0), strVal(input, "duration"))
+	case "k6_check_status":
+		return api.K6CheckStatus(ctx, strVal(input, "execution_id"))
+	case "k6_report":
+		return api.K6Report(ctx, strVal(input, "execution_id"))
+	case "k6_generate":
+		return api.K6Generate(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "target_url"), strVal(input, "test_type"), strVal(input, "endpoints"))
+	case "k6_convert":
+		return api.K6Convert(ctx, strVal(input, "source_code"), strVal(input, "source_framework"), strVal(input, "test_type"))
+
+	// --- Test Case CRUD ---
+	case "create_test_case":
+		return api.CreateTestCase(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "title"), strVal(input, "description"), strVal(input, "category"), strVal(input, "priority"))
+	case "update_test_case":
+		return api.UpdateTestCase(ctx, intVal(input, "test_case_id", 0), strVal(input, "title"), strVal(input, "description"), strVal(input, "category"), strVal(input, "priority"), strVal(input, "status"))
+	case "delete_test_case":
+		return api.DeleteTestCase(ctx, intVal(input, "test_case_id", 0))
+
+	// --- Project CRUD ---
+	case "create_project":
+		return api.CreateProject(ctx, strVal(input, "name"), strVal(input, "description"), strVal(input, "base_url"))
+	case "update_project":
+		return api.UpdateProject(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "name"), strVal(input, "description"), strVal(input, "base_url"))
+	case "delete_project":
+		return api.DeleteProject(ctx, intVal(input, "project_id", 0))
+	case "get_project_summary":
+		return api.GetProjectSummary(ctx, intVal(input, "project_id", sctx.ProjectID))
+
+	// --- Framework Operations ---
+	case "trigger_framework_run":
+		return api.TriggerFrameworkRun(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "framework_type"))
+	case "export_framework":
+		return api.ExportFramework(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "framework"))
+	case "get_install_command":
+		return api.GetInstallCommand(ctx, intVal(input, "project_id", sctx.ProjectID))
+
+	// --- AI-Powered ---
+	case "enhance_test_case":
+		return api.EnhanceTestCase(ctx, intVal(input, "test_case_id", 0))
+	case "generate_gap_tests":
+		return api.GenerateGapTests(ctx, intVal(input, "repo_id", 0))
+	case "start_crawl_from_test_case":
+		return api.StartCrawlFromTestCase(ctx, intVal(input, "test_case_id", 0))
+
+	// --- QTML ---
+	case "export_qtml":
+		return api.ExportQTML(ctx, intVal(input, "project_id", sctx.ProjectID))
+	case "import_qtml":
+		return api.ImportQTML(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "content"))
+
+	// --- Deployment Testing ---
+	case "test_deployed_environment":
+		return api.TestDeployedEnvironment(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "url"))
+
 	case "run_local_test":
 		return runLocalTest(ctx, sctx, intVal(input, "script_id", 0), strVal(input, "base_url"))
 	}
@@ -400,9 +684,15 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 		return raw
 	}
 
-	var script map[string]interface{}
-	if err := json.Unmarshal([]byte(raw), &script); err != nil {
+	var resp map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		return jsonError("Failed to parse script: " + err.Error())
+	}
+
+	// API returns {"success": true, "script": {...}} — unwrap
+	script, _ := resp["script"].(map[string]interface{})
+	if script == nil {
+		script = resp // fallback: maybe the response IS the script
 	}
 
 	code := ""

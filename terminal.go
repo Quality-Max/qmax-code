@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -82,8 +83,9 @@ var toolIcons = map[string]string{
 type Terminal struct {
 	rl            *readline.Instance
 	renderer      *glamour.TermRenderer
-	streaming     bool   // true when we're in the middle of streaming text
-	currentPrompt string // track prompt for readline recreation
+	streaming     bool           // true when we're in the middle of streaming text
+	streamBuf     strings.Builder // buffers streamed text for post-render
+	currentPrompt string          // track prompt for readline recreation
 }
 
 // NewTerminal creates a new interactive terminal with markdown rendering.
@@ -226,19 +228,36 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 func (t *Terminal) StreamText(text string) {
 	if !t.streaming {
 		t.streaming = true
+		t.streamBuf.Reset()
 		fmt.Println() // newline before assistant response
 	}
 	fmt.Print(text)
+	t.streamBuf.WriteString(text)
 }
 
 // FinishMarkdown is called when a text block is complete.
-// We already streamed the raw text, so now we just mark streaming as done.
-// Glamour rendering happens for the full response, not mid-stream.
+// Re-renders the streamed text with glamour for syntax highlighting.
 func (t *Terminal) FinishMarkdown(fullText string) {
 	if t.streaming {
 		t.streaming = false
-		// We already printed the raw text via StreamText.
-		// For a clean look, add a trailing newline if needed.
+
+		// If the text contains code blocks, re-render with glamour for highlighting
+		if t.renderer != nil && strings.Contains(fullText, "```") {
+			// Move cursor up to overwrite raw output, then print rendered version
+			rawLines := strings.Count(t.streamBuf.String(), "\n") + 1
+			// Clear the raw streamed output
+			for i := 0; i < rawLines; i++ {
+				fmt.Print("\033[1A\033[2K") // move up + clear line
+			}
+			rendered, err := t.renderer.Render(fullText)
+			if err == nil {
+				fmt.Print(rendered)
+				t.streamBuf.Reset()
+				return
+			}
+		}
+
+		t.streamBuf.Reset()
 		if !strings.HasSuffix(fullText, "\n") {
 			fmt.Println()
 		}
@@ -281,15 +300,46 @@ func (t *Terminal) PrintToolStart(name string, input interface{}) {
 	fmt.Println()
 }
 
-// PrintToolResult shows tool output (abbreviated).
+// PrintToolResult shows tool output with smart formatting for known result types.
 func (t *Terminal) PrintToolResult(name string, output string) {
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	lineCount := len(lines)
-
 	if strings.HasPrefix(output, "{\"error\"") {
 		fmt.Printf("  %s %s\n", styleError.Render("✗ Error"), styleDim.Render(truncateStr(output, 120)))
 		return
 	}
+
+	// Smart display for execution status results
+	if (name == "check_test_status" || name == "run_test") && strings.Contains(output, "execution_id") {
+		var data map[string]interface{}
+		if err := json.Unmarshal([]byte(output), &data); err == nil {
+			execID, _ := data["execution_id"].(string)
+			status, _ := data["status"].(string)
+			fmt.Printf("  Execution: %s\n", styleDim.Render(execID))
+			switch status {
+			case "passed":
+				fmt.Printf("    Status: %s\n", styleSuccess.Render("✓ PASSED"))
+			case "failed":
+				fmt.Printf("    Status: %s\n", styleError.Render("✗ FAILED"))
+			default:
+				fmt.Printf("    Status: %s\n", styleSystem.Render(status))
+			}
+			if msg, ok := data["message"].(string); ok && msg != "" {
+				fmt.Printf("    Message: %s\n", styleDim.Render(truncateStr(msg, 120)))
+			}
+			if errs, ok := data["test_errors"].(string); ok && errs != "" {
+				fmt.Printf("    Errors: %s\n", styleError.Render(truncateStr(errs, 200)))
+			}
+			if screenshots, ok := data["screenshot_paths"].([]interface{}); ok && len(screenshots) > 0 {
+				fmt.Printf("    Screenshots: %d captured\n", len(screenshots))
+			}
+			if video, ok := data["video_path"].(string); ok && video != "" {
+				fmt.Printf("    Video: %s\n", styleDim.Render("recorded"))
+			}
+			return
+		}
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	lineCount := len(lines)
 
 	if lineCount <= 3 {
 		for _, line := range lines {

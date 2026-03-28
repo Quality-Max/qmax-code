@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	Version = "1.3.0"
+	Version = "1.4.0"
 	Name    = "qmax-code"
 )
 
@@ -92,15 +92,13 @@ func main() {
 	}
 	effectiveModel = resolveModel(effectiveModel)
 
-	// Resolve Anthropic API key
+	// Resolve Anthropic API key: flag > env > keychain
 	anthropicKey := *apiKey
 	if anthropicKey == "" {
 		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
-	if anthropicKey == "" {
-		fmt.Fprintln(os.Stderr, "Error: Anthropic API key required.")
-		fmt.Fprintln(os.Stderr, "Set ANTHROPIC_API_KEY or use --api-key")
-		os.Exit(1)
+	if anthropicKey == "" && appConfig.AnthropicKey != "" {
+		anthropicKey = appConfig.AnthropicKey
 	}
 
 	// Load auth (new standalone mode)
@@ -121,23 +119,37 @@ func main() {
 		apiClient = NewAPIClient(auth)
 	}
 
-	// If no qmax CLI and no API client, run interactive setup
+	// If no qmax CLI and no API client, run full interactive setup
 	if qmaxBin == "" && apiClient == nil {
 		setupAuth, setupProjectID := RunInteractiveSetup()
 		auth = setupAuth
 		apiClient = NewAPIClient(auth)
-		_ = setupProjectID // used below after detectedProjectID is declared
-		// Stash for use after project detection
 		appConfig.DefaultProject = setupProjectID
-		// Re-check Anthropic key after setup
 		if anthropicKey == "" {
 			anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 		}
-		if anthropicKey == "" {
-			fmt.Fprintln(os.Stderr, "Error: Anthropic API key required.")
-			fmt.Fprintln(os.Stderr, "Set ANTHROPIC_API_KEY or use --api-key")
-			os.Exit(1)
+	}
+
+	// If connected but missing Anthropic key, prompt for it
+	if anthropicKey == "" {
+		fmt.Println()
+		fmt.Println("  Anthropic API key needed (this powers the AI).")
+		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
+		fmt.Println()
+		key := readSecret("  Paste your Anthropic key: ")
+		if key != "" {
+			anthropicKey = key
+			os.Setenv("ANTHROPIC_API_KEY", key)
+			if err := SaveAnthropicKey(key); err == nil {
+				fmt.Println("  Saved to OS keychain.")
+			}
 		}
+	}
+
+	if anthropicKey == "" {
+		fmt.Fprintln(os.Stderr, "\nError: Anthropic API key required.")
+		fmt.Fprintln(os.Stderr, "  export ANTHROPIC_API_KEY=sk-ant-...")
+		os.Exit(1)
 	}
 
 	// Detect project from cwd if not set via flag; fall back to saved config
@@ -447,10 +459,69 @@ func runREPL(agent *Agent, quietMode bool) {
 		case strings.HasPrefix(input, "/set "):
 			handleSetCommand(input, agent, term)
 			continue
+		case input == "/keys":
+			handleKeys(agent, term)
+			continue
+		case input == "/screenshot":
+			img, err := CaptureScreenshot()
+			if err != nil {
+				term.PrintError(err.Error())
+				continue
+			}
+			term.PrintSystem(fmt.Sprintf("Screenshot captured (%s)", img.FileName))
+			llmResult, err := agent.RunStreamingWithImages("Analyze this screenshot.", []ImageAttachment{*img}, term)
+			if err != nil {
+				term.PrintError(err.Error())
+			}
+			if llmResult != "" {
+				fmt.Println()
+			}
+			autoSave()
+			continue
+		case input == "/paste":
+			// Try image first, then text
+			img, imgErr := PasteImageFromClipboard()
+			if imgErr == nil {
+				term.PrintSystem(fmt.Sprintf("Pasted image from clipboard (%s)", img.FileName))
+				llmResult, err := agent.RunStreamingWithImages("Analyze this pasted image.", []ImageAttachment{*img}, term)
+				if err != nil {
+					term.PrintError(err.Error())
+				}
+				if llmResult != "" {
+					fmt.Println()
+				}
+				autoSave()
+				continue
+			}
+			// Fall back to text paste
+			text, textErr := PasteTextFromClipboard()
+			if textErr != nil || text == "" {
+				term.PrintError("Nothing in clipboard")
+				continue
+			}
+			term.PrintSystem(fmt.Sprintf("Pasted %d chars from clipboard", len(text)))
+			input = text // fall through to normal processing
 		}
 
+		// Detect image file paths dragged/pasted into input
+		cleanInput, images := DetectAndLoadImages(input)
+
 		// Run through the LLM agent with streaming
-		llmResult, err := agent.RunStreaming(input, term)
+		var llmResult string
+		var err error
+		if len(images) > 0 {
+			names := make([]string, len(images))
+			for i, img := range images {
+				names[i] = img.FileName
+			}
+			term.PrintSystem(fmt.Sprintf("Attached %d image(s): %s", len(images), strings.Join(names, ", ")))
+			if cleanInput == "" {
+				cleanInput = "Analyze these images."
+			}
+			llmResult, err = agent.RunStreamingWithImages(cleanInput, images, term)
+		} else {
+			llmResult, err = agent.RunStreaming(input, term)
+		}
 		if err != nil {
 			term.PrintError(err.Error())
 			autoSave() // save even on error — preserves context
@@ -521,6 +592,67 @@ func handleDisconnect(agent *Agent, term *Terminal) {
 	term.PrintSystem("Run /connect to log in again.")
 }
 
+// handleKeys provides an interactive TUI for managing API keys.
+func handleKeys(agent *Agent, term *Terminal) {
+	fmt.Println()
+
+	// Show current key status
+	anthropicKey := agent.config.AnthropicKey
+	if anthropicKey == "" {
+		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
+	}
+	qmaxConnected := agent.config.Context.Auth != nil && agent.config.Context.Auth.IsAuthenticated()
+
+	fmt.Printf("  %s API Keys %s\n\n", "\033[1m", "\033[0m")
+
+	if anthropicKey != "" {
+		masked := anthropicKey[:7] + "..." + anthropicKey[len(anthropicKey)-4:]
+		fmt.Printf("  Anthropic:   %s● Set%s (%s)\n", "\033[32m", "\033[0m", masked)
+	} else {
+		fmt.Printf("  Anthropic:   %s● Not set%s\n", "\033[33m", "\033[0m")
+	}
+
+	if qmaxConnected {
+		fmt.Printf("  QualityMax:  %s● Connected%s (%s)\n", "\033[32m", "\033[0m", agent.config.Context.Auth.Email)
+	} else {
+		fmt.Printf("  QualityMax:  %s● Not connected%s\n", "\033[33m", "\033[0m")
+	}
+	fmt.Println()
+
+	choice := promptChoice("  What would you like to do?", []string{
+		"Set Anthropic API key",
+		"Connect to QualityMax (browser)",
+		"Disconnect from QualityMax",
+		"Cancel",
+	})
+
+	switch choice {
+	case 0: // Anthropic key
+		fmt.Println()
+		fmt.Println("  Get your key at: https://console.anthropic.com/settings/keys")
+		fmt.Println()
+		key := readSecret("  Paste your Anthropic key: ")
+		if key == "" {
+			term.PrintSystem("Cancelled.")
+			return
+		}
+		os.Setenv("ANTHROPIC_API_KEY", key)
+		agent.config.AnthropicKey = key
+		if err := SaveAnthropicKey(key); err != nil {
+			term.PrintSystem(fmt.Sprintf("Key set for this session (keychain unavailable: %s)", err))
+		} else {
+			AnimateMax(MoodHappy, "Key saved to OS keychain!")
+			fmt.Println()
+		}
+	case 1: // QualityMax connect
+		handleConnect(agent, term)
+	case 2: // Disconnect
+		handleDisconnect(agent, term)
+	case 3: // Cancel
+		return
+	}
+}
+
 func printREPLHelp() {
 	fmt.Println(`
 Commands:
@@ -531,6 +663,9 @@ Commands:
   /context       Show current session context
   /cost          Show session token usage and estimated cost
   /config        Show current config settings
+  /keys          Set API keys (interactive menu)
+  /screenshot    Capture a screenshot and analyze it
+  /paste         Paste from clipboard (image or text)
   /set <k> <v>   Update config (model, project, professional, autosave, budget)
   /save          Save current session
   /sessions      List recent sessions
@@ -665,7 +800,18 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		agent.config.Context.API = NewAPIClient(auth)
 		AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 		fmt.Println()
-		return // don't save to config.json, auth.json is handled by LoginWithAPIKey
+		return // auth.json handles persistence
+
+	case "anthropic-key", "anthropic_key":
+		// Save Anthropic API key to OS keychain
+		os.Setenv("ANTHROPIC_API_KEY", value)
+		agent.config.AnthropicKey = value
+		if err := SaveAnthropicKey(value); err != nil {
+			term.PrintSystem(fmt.Sprintf("Key set for this session (keychain: %s)", err))
+		} else {
+			term.PrintSystem("Anthropic API key saved to OS keychain.")
+		}
+		return // don't save to config.json — keychain handles it
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
