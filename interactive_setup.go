@@ -25,7 +25,7 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 
 	// Step 1: Account check
 	choice := promptChoice("  Do you have a QualityMax account?", []string{
-		"Yes, log me in",
+		"Yes, log me in (opens browser)",
 		"No, create one (free)",
 		"I have an API key already",
 	})
@@ -34,15 +34,17 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 	var err error
 
 	switch choice {
-	case 0: // Yes, log me in → browser
-		auth, err = loginViaBrowser()
+	case 0: // Yes, log me in → browser auth (Railway-style)
+		AnimateMax(MoodThinking, "Opening browser...")
+		auth, err = LoginViaBrowser()
 	case 1: // No, create one
 		openBrowser("https://qualitymax.io/auth/email/signup?ref=qmax-code")
 		fmt.Println()
 		fmt.Println("  Browser opened! Create your free account, then come back.")
 		fmt.Println("  Press Enter when you're ready to log in...")
 		waitForEnter()
-		auth, err = loginViaBrowser()
+		AnimateMax(MoodThinking, "Opening browser...")
+		auth, err = LoginViaBrowser()
 	case 2: // I have an API key
 		auth, err = loginWithKeyPrompt()
 	}
@@ -93,21 +95,6 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 	fmt.Println()
 
 	return auth, projectID
-}
-
-// loginViaBrowser opens the browser for login, then prompts for API key.
-func loginViaBrowser() (*AuthConfig, error) {
-	fmt.Println()
-	AnimateMax(MoodThinking, "Opening browser...")
-
-	// Open the settings page where API keys are managed
-	openBrowser("https://app.qualitymax.io/settings?tab=api-keys&ref=qmax-code")
-
-	fmt.Println()
-	fmt.Println("  Browser opened! Go to Settings > API Keys and create one.")
-	fmt.Println()
-
-	return loginWithKeyPrompt()
 }
 
 // loginWithKeyPrompt asks the user to paste their API key.

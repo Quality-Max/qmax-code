@@ -139,21 +139,41 @@ func (t *Terminal) ReadLine() (string, error) {
 
 // PrintBanner shows the startup banner — fun, geeky, and cat-themed.
 func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
+	// Pick Max's mood based on context
+	mood := MoodNeutral
+	if ctx.API != nil || ctx.QMaxBin != "" {
+		mood = MoodHappy
+	}
+
+	// Get mood-specific cat art
+	frame := maxFrames[mood]
+	catLines := strings.Split(frame.Art, "\n")
+	// Pad to 5 lines
+	for len(catLines) < 5 {
+		catLines = append(catLines, "")
+	}
+	// Pad each line to consistent width
+	for i := range catLines {
+		for len(catLines[i]) < 14 {
+			catLines[i] += " "
+		}
+	}
+
 	banner := fmt.Sprintf(`
   %s%s ██████╗ ███╗   ███╗ █████╗ ██╗  ██╗%s
-  %s%s██╔═══██╗████╗ ████║██╔══██╗╚██╗██╔╝%s    %s /\_/\%s
-  %s%s██║   ██║██╔████╔██║███████║ ╚███╔╝ %s    %s( o.o )%s
-  %s%s██║▄▄ ██║██║╚██╔╝██║██╔══██║ ██╔██╗ %s    %s > ^ <%s
-  %s%s╚██████╔╝██║ ╚═╝ ██║██║  ██║██╔╝ ██╗%s    %s/|   |\%s
-  %s%s ╚══▀▀═╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝%s   %s(_|   |_) meow.%s
+  %s%s██╔═══██╗████╗ ████║██╔══██╗╚██╗██╔╝%s    %s%s%s
+  %s%s██║   ██║██╔████╔██║███████║ ╚███╔╝ %s    %s%s%s
+  %s%s██║▄▄ ██║██║╚██╔╝██║██╔══██║ ██╔██╗ %s    %s%s%s
+  %s%s╚██████╔╝██║ ╚═╝ ██║██║  ██║██╔╝ ██╗%s    %s%s%s
+  %s%s ╚══▀▀═╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝%s   %s%s%s
   %s%s                code %s%s
 `,
 		colorBold, colorCyan, colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, colorReset,
+		colorBold, colorCyan, colorReset, colorYellow, catLines[0], colorReset,
+		colorBold, colorCyan, colorReset, colorYellow, catLines[1], colorReset,
+		colorBold, colorCyan, colorReset, colorYellow, catLines[2], colorReset,
+		colorBold, colorCyan, colorReset, colorYellow, catLines[3], colorReset,
+		colorBold, colorCyan, colorReset, colorYellow, catLines[4], colorReset,
 		colorBold, colorMagenta, version, colorReset,
 	)
 	fmt.Print(banner)
@@ -181,7 +201,13 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 		fmt.Printf("  %s▸ Project #%d active%s\n", colorGreen, ctx.ProjectID, colorReset)
 	}
 
-	if ctx.QMaxBin != "" {
+	if ctx.API != nil {
+		fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", colorGreen, colorReset)
+		if ctx.Auth != nil && ctx.Auth.Email != "" {
+			fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
+		}
+		fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.Auth.GetCloudURL(), colorReset)
+	} else if ctx.QMaxBin != "" {
 		fmt.Printf("  %s▸ qmax CLI: %s%s\n", colorGreen, ctx.QMaxBin, colorReset)
 		if ctx.QMaxCfg.Email != "" {
 			fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.QMaxCfg.Email, colorReset)
@@ -190,7 +216,7 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 			fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.QMaxCfg.CloudURL, colorReset)
 		}
 	} else {
-		fmt.Printf("  %s▸ qmax CLI not found%s — tools that need it will show install instructions\n", colorYellow, colorReset)
+		fmt.Printf("  %s▸ Not connected%s — run: qmax-code login\n", colorYellow, colorReset)
 	}
 
 	fmt.Printf("  %sType /help for commands or just tell me what to test. 🐾%s\n\n", colorDim, colorReset)
