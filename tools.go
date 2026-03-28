@@ -103,7 +103,7 @@ func BuildToolDefs() []ToolDef {
 		},
 		{
 			Name:        "run_test",
-			Description: "Execute a single Playwright test script on the cloud runner. IMPORTANT: Only works with playwright/cypress scripts. Check the framework first with list_scripts.",
+			Description: "Execute a Playwright test on the cloud runner. Shows live progress with browser animation. Returns full execution trace: status, test_errors, console_logs, screenshot_paths, video_path. When failed, always show the test_errors and console_logs to the user.",
 			InputSchema: obj(props(
 				prop("script_id", "integer", "Script ID to execute", true),
 				prop("headless", "boolean", "Run headless (default true)", false),
