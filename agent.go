@@ -376,11 +376,27 @@ func (a *Agent) modelForIteration(iteration int) string {
 func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, string, error) {
 	systemPrompt := a.buildSystemPrompt()
 
+	// Sanitize messages — ensure Content is always a valid type for the API
+	sanitized := make([]Message, len(a.history))
+	for i, msg := range a.history {
+		sanitized[i] = msg
+		switch sanitized[i].Content.(type) {
+		case string, []ContentBlock:
+			// valid
+		case nil:
+			sanitized[i].Content = ""
+		default:
+			// Convert unknown types to string
+			data, _ := json.Marshal(sanitized[i].Content)
+			sanitized[i].Content = string(data)
+		}
+	}
+
 	reqBody := APIRequest{
 		Model:     model,
 		MaxTokens: 8192,
 		System:    systemPrompt,
-		Messages:  a.history,
+		Messages:  sanitized,
 		Tools:     a.tools,
 		Stream:    true,
 	}
