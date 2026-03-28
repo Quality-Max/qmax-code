@@ -71,8 +71,7 @@ func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force 
 
 func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, browser, baseURL string) string {
 	body := map[string]interface{}{
-		"script_id": scriptID,
-		"headless":  headless,
+		"headless": headless,
 	}
 	if browser != "" {
 		body["browser"] = browser
@@ -80,7 +79,7 @@ func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, br
 	if baseURL != "" {
 		body["base_url"] = baseURL
 	}
-	return c.post(ctx, "/api/automation/run", body)
+	return c.post(ctx, fmt.Sprintf("/api/playwright-execution/run/%d", scriptID), body)
 }
 
 func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string) string {
@@ -90,11 +89,11 @@ func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string
 	if baseURL != "" {
 		body["base_url"] = baseURL
 	}
-	return c.post(ctx, "/api/automation/run-batch", body)
+	return c.post(ctx, "/api/playwright-execution/run-batch", body)
 }
 
 func (c *APIClient) CheckTestStatus(ctx context.Context, executionID string) string {
-	return c.get(ctx, "/api/automation/status/"+executionID)
+	return c.get(ctx, "/api/playwright-execution/status/"+executionID)
 }
 
 // --- Crawl operations ---
