@@ -1448,12 +1448,52 @@ func summarizeExecution(output string) string {
 		sb.WriteString(fmt.Sprintf("  Failed: %v\n", failed))
 	}
 
+	// Message
+	if msg, ok := data["message"].(string); ok && msg != "" {
+		sb.WriteString(fmt.Sprintf("  Message: %s\n", msg))
+	}
+
+	// Execution time
+	if dur, ok := data["execution_time"].(float64); ok && dur > 0 {
+		sb.WriteString(fmt.Sprintf("  Duration: %.1fs\n", dur))
+	}
+
 	// Error message
 	if errMsg, ok := data["error"]; ok && errMsg != nil && errMsg != "" {
 		sb.WriteString(fmt.Sprintf("  Error: %v\n", errMsg))
 	}
 	if errMsg, ok := data["error_message"]; ok && errMsg != nil && errMsg != "" {
 		sb.WriteString(fmt.Sprintf("  Error: %v\n", errMsg))
+	}
+	if errMsg, ok := data["test_errors"].(string); ok && errMsg != "" {
+		sb.WriteString(fmt.Sprintf("  Test errors: %s\n", truncateStr(errMsg, 500)))
+	}
+
+	// Console logs — extract error lines
+	if logs, ok := data["console_logs"].([]interface{}); ok && len(logs) > 0 {
+		for _, l := range logs {
+			if entry, ok := l.(map[string]interface{}); ok {
+				text, _ := entry["text"].(string)
+				if strings.Contains(text, "Error") || strings.Contains(text, "failed") || strings.Contains(text, "✗") {
+					sb.WriteString(fmt.Sprintf("  Console: %s\n", truncateStr(text, 200)))
+				}
+			}
+		}
+	}
+
+	// Screenshots
+	if screenshots, ok := data["screenshot_paths"].([]interface{}); ok && len(screenshots) > 0 {
+		sb.WriteString(fmt.Sprintf("  Screenshots: %d captured\n", len(screenshots)))
+		for _, s := range screenshots {
+			if url, ok := s.(string); ok {
+				sb.WriteString(fmt.Sprintf("    %s\n", url))
+			}
+		}
+	}
+
+	// Video
+	if video, ok := data["video_path"].(string); ok && video != "" {
+		sb.WriteString(fmt.Sprintf("  Video: %s\n", video))
 	}
 
 	if sb.Len() == 0 {
