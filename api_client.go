@@ -71,7 +71,8 @@ func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force 
 
 func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, browser, baseURL string) string {
 	body := map[string]interface{}{
-		"headless": headless,
+		"headless":         headless,
+		"use_browserbase":  false, // Use QualityMax server runner, not BrowserBase
 	}
 	if browser != "" {
 		body["browser"] = browser
