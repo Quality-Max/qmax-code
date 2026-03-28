@@ -25,6 +25,8 @@ var slashMenuItems = []SlashMenuItem{
 	{"/resume", "Resume a session"},
 	{"/save", "Save current session"},
 	{"/project", "Set active project"},
+	{"/screenshot", "Capture & analyze a screenshot"},
+	{"/paste", "Paste from clipboard (image or text)"},
 	{"/set", "Update config"},
 	{"/clear", "Clear history"},
 	{"/quit", "Exit"},

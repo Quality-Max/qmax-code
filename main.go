@@ -447,10 +447,66 @@ func runREPL(agent *Agent, quietMode bool) {
 		case strings.HasPrefix(input, "/set "):
 			handleSetCommand(input, agent, term)
 			continue
+		case input == "/screenshot":
+			img, err := CaptureScreenshot()
+			if err != nil {
+				term.PrintError(err.Error())
+				continue
+			}
+			term.PrintSystem(fmt.Sprintf("Screenshot captured (%s)", img.FileName))
+			llmResult, err := agent.RunStreamingWithImages("Analyze this screenshot.", []ImageAttachment{*img}, term)
+			if err != nil {
+				term.PrintError(err.Error())
+			}
+			if llmResult != "" {
+				fmt.Println()
+			}
+			autoSave()
+			continue
+		case input == "/paste":
+			// Try image first, then text
+			img, imgErr := PasteImageFromClipboard()
+			if imgErr == nil {
+				term.PrintSystem(fmt.Sprintf("Pasted image from clipboard (%s)", img.FileName))
+				llmResult, err := agent.RunStreamingWithImages("Analyze this pasted image.", []ImageAttachment{*img}, term)
+				if err != nil {
+					term.PrintError(err.Error())
+				}
+				if llmResult != "" {
+					fmt.Println()
+				}
+				autoSave()
+				continue
+			}
+			// Fall back to text paste
+			text, textErr := PasteTextFromClipboard()
+			if textErr != nil || text == "" {
+				term.PrintError("Nothing in clipboard")
+				continue
+			}
+			term.PrintSystem(fmt.Sprintf("Pasted %d chars from clipboard", len(text)))
+			input = text // fall through to normal processing
 		}
 
+		// Detect image file paths dragged/pasted into input
+		cleanInput, images := DetectAndLoadImages(input)
+
 		// Run through the LLM agent with streaming
-		llmResult, err := agent.RunStreaming(input, term)
+		var llmResult string
+		var err error
+		if len(images) > 0 {
+			names := make([]string, len(images))
+			for i, img := range images {
+				names[i] = img.FileName
+			}
+			term.PrintSystem(fmt.Sprintf("Attached %d image(s): %s", len(images), strings.Join(names, ", ")))
+			if cleanInput == "" {
+				cleanInput = "Analyze these images."
+			}
+			llmResult, err = agent.RunStreamingWithImages(cleanInput, images, term)
+		} else {
+			llmResult, err = agent.RunStreaming(input, term)
+		}
 		if err != nil {
 			term.PrintError(err.Error())
 			autoSave() // save even on error — preserves context
@@ -531,6 +587,8 @@ Commands:
   /context       Show current session context
   /cost          Show session token usage and estimated cost
   /config        Show current config settings
+  /screenshot    Capture a screenshot and analyze it
+  /paste         Paste from clipboard (image or text)
   /set <k> <v>   Update config (model, project, professional, autosave, budget)
   /save          Save current session
   /sessions      List recent sessions

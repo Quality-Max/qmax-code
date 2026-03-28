@@ -50,13 +50,21 @@ type Message struct {
 
 // ContentBlock is a typed content block in a message.
 type ContentBlock struct {
-	Type      string      `json:"type"`
-	Text      string      `json:"text,omitempty"`
-	ID        string      `json:"id,omitempty"`
-	Name      string      `json:"name,omitempty"`
-	Input     interface{} `json:"input,omitempty"`
-	ToolUseID string      `json:"tool_use_id,omitempty"`
-	Content   string      `json:"content,omitempty"`
+	Type      string       `json:"type"`
+	Text      string       `json:"text,omitempty"`
+	ID        string       `json:"id,omitempty"`
+	Name      string       `json:"name,omitempty"`
+	Input     interface{}  `json:"input,omitempty"`
+	ToolUseID string       `json:"tool_use_id,omitempty"`
+	Content   string       `json:"content,omitempty"`
+	Source    *ImageSource `json:"source,omitempty"` // for type="image"
+}
+
+// ImageSource is the source data for an image content block.
+type ImageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // "image/png", "image/jpeg", "image/gif", "image/webp"
+	Data      string `json:"data"`       // base64-encoded image data
 }
 
 // APIRequest is the Claude API request body.
@@ -249,13 +257,60 @@ func (a *Agent) compressHistory() {
 }
 
 // RunStreaming executes a prompt with real-time SSE streaming to the terminal.
+// BuildUserContent creates a content payload for a user message.
+// If images are provided, it builds a multi-block content array (text + images).
+// Otherwise, it returns the plain string (simpler, lower token usage).
+func BuildUserContent(text string, images []ImageAttachment) interface{} {
+	if len(images) == 0 {
+		return text
+	}
+	blocks := make([]ContentBlock, 0, len(images)+1)
+	for _, img := range images {
+		blocks = append(blocks, ContentBlock{
+			Type: "image",
+			Source: &ImageSource{
+				Type:      "base64",
+				MediaType: img.MediaType,
+				Data:      img.Data,
+			},
+		})
+	}
+	if text != "" {
+		blocks = append(blocks, ContentBlock{
+			Type: "text",
+			Text: text,
+		})
+	}
+	return blocks
+}
+
+// ImageAttachment holds a base64-encoded image to send with a message.
+type ImageAttachment struct {
+	MediaType string // "image/png", "image/jpeg", etc.
+	Data      string // base64-encoded
+	FileName  string // original filename (for display)
+}
+
+// RunStreamingWithImages is like RunStreaming but supports image attachments.
+func (a *Agent) RunStreamingWithImages(prompt string, images []ImageAttachment, term *Terminal) (string, error) {
+	a.history = append(a.history, Message{
+		Role:    "user",
+		Content: BuildUserContent(prompt, images),
+	})
+	a.logger.Info("agent", "user_message_with_images", map[string]interface{}{"turns": len(a.history), "images": len(images)})
+	return a.runStreamingLoop(term)
+}
+
 func (a *Agent) RunStreaming(prompt string, term *Terminal) (string, error) {
 	a.history = append(a.history, Message{
 		Role:    "user",
 		Content: prompt,
 	})
 	a.logger.Info("agent", "user_message", map[string]interface{}{"turns": len(a.history)})
+	return a.runStreamingLoop(term)
+}
 
+func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 	for iterations := 0; iterations < 20; iterations++ {
 		// Compress history before each API call to stay within token budget
 		a.compressHistory()
