@@ -65,7 +65,12 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 	projectID := selectProject(auth)
 
 	// Step 3: Anthropic key check
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+	cfg := LoadQMaxCodeConfig()
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	if anthropicKey == "" {
+		anthropicKey = cfg.AnthropicKey
+	}
+	if anthropicKey == "" {
 		fmt.Println()
 		AnimateMax(MoodThinking, "One more thing...")
 		fmt.Println()
@@ -78,10 +83,14 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 		key = strings.TrimSpace(key)
 		if key != "" {
 			os.Setenv("ANTHROPIC_API_KEY", key)
+			// Save persistently
+			cfg.AnthropicKey = key
+			_ = cfg.Save()
 			fmt.Println()
-			fmt.Println("  Tip: add this to your shell profile to avoid re-entering:")
-			fmt.Printf("    export ANTHROPIC_API_KEY=%s\n", key)
+			fmt.Println("  Key saved to ~/.qmax-code/config.json")
 		}
+	} else {
+		os.Setenv("ANTHROPIC_API_KEY", anthropicKey)
 	}
 
 	// All set!

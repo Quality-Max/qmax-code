@@ -92,10 +92,13 @@ func main() {
 	}
 	effectiveModel = resolveModel(effectiveModel)
 
-	// Resolve Anthropic API key
+	// Resolve Anthropic API key: flag > env > saved config
 	anthropicKey := *apiKey
 	if anthropicKey == "" {
 		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
+	}
+	if anthropicKey == "" && appConfig.AnthropicKey != "" {
+		anthropicKey = appConfig.AnthropicKey
 	}
 	if anthropicKey == "" {
 		fmt.Fprintln(os.Stderr, "Error: Anthropic API key required.")
@@ -723,6 +726,13 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		agent.config.Context.API = NewAPIClient(auth)
 		AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 		fmt.Println()
+
+	case "anthropic-key", "anthropic_key":
+		// Save Anthropic API key persistently
+		os.Setenv("ANTHROPIC_API_KEY", value)
+		agent.config.AnthropicKey = value
+		cfg.AnthropicKey = value
+		term.PrintSystem("Anthropic API key saved.")
 		return // don't save to config.json, auth.json is handled by LoginWithAPIKey
 
 	default:

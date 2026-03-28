@@ -13,6 +13,7 @@ type Config struct {
 	Professional   bool   `json:"professional,omitempty"` // disable cat personality
 	AutoSave       bool   `json:"auto_save"`              // auto-save session on exit (default true)
 	MaxTokenBudget int    `json:"max_token_budget,omitempty"`
+	AnthropicKey   string `json:"anthropic_key,omitempty"` // persisted Anthropic API key
 }
 
 const qmaxCodeConfigDir = ".qmax-code"
