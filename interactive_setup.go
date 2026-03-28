@@ -194,21 +194,66 @@ func selectProject(auth *AuthConfig) int {
 	return id
 }
 
-// readSecret reads a line of input, then overwrites it with a masked version.
+// readSecret reads a line of input with characters hidden (replaced with dots).
+// Shows a masked preview after completion.
 func readSecret(prompt string) string {
 	fmt.Print(prompt)
-	reader := bufio.NewReader(os.Stdin)
-	key, _ := reader.ReadString('\n')
-	key = strings.TrimSpace(key)
-	if key != "" {
-		// Move cursor up, clear line, reprint with masked value
-		masked := key[:4] + "..." + key[len(key)-4:]
-		if len(key) <= 8 {
-			masked = "****"
+
+	// Switch terminal to raw mode to hide input
+	oldState, err := enableRawMode()
+	if err != nil {
+		// Fallback: plain read + mask after
+		reader := bufio.NewReader(os.Stdin)
+		key, _ := reader.ReadString('\n')
+		key = strings.TrimSpace(key)
+		if key != "" {
+			masked := maskKey(key)
+			fmt.Printf("\033[1A\033[2K%s%s\n", prompt, masked)
 		}
-		fmt.Printf("\033[1A\033[2K%s%s\n", prompt, masked)
+		return key
 	}
-	return key
+
+	var input []byte
+	buf := make([]byte, 1)
+	for {
+		n, _ := os.Stdin.Read(buf)
+		if n == 0 {
+			continue
+		}
+		ch := buf[0]
+		switch ch {
+		case '\n', '\r':
+			restoreTermMode(oldState)
+			fmt.Println()
+			key := strings.TrimSpace(string(input))
+			if key != "" {
+				masked := maskKey(key)
+				fmt.Printf("\033[1A\033[2K%s%s\n", prompt, masked)
+			}
+			return key
+		case 127, '\b': // backspace
+			if len(input) > 0 {
+				input = input[:len(input)-1]
+				fmt.Print("\b \b")
+			}
+		case 3: // Ctrl+C
+			restoreTermMode(oldState)
+			fmt.Println()
+			return ""
+		default:
+			if ch >= 32 { // printable
+				input = append(input, ch)
+				fmt.Print("•")
+			}
+		}
+	}
+}
+
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "••••"
+	}
+	return key[:4] + "•••" + key[len(key)-4:]
 }
 
 // --- UI helpers ---
