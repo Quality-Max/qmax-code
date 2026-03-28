@@ -127,6 +127,16 @@ func BuildToolDefs() []ToolDef {
 			)),
 		},
 
+		// --- Local test execution (pytest, etc.) ---
+		{
+			Name:        "run_local_test",
+			Description: "Run a test script locally using the user's environment (pytest, node, etc). Downloads the script from QualityMax, runs it, and reports results back. Works with any framework including pytest.",
+			InputSchema: obj(props(
+				prop("script_id", "integer", "Script ID to run", true),
+				prop("base_url", "string", "Base URL for the app under test", false),
+			)),
+		},
+
 		// --- Crawl operations ---
 		{
 			Name:        "start_crawl",
@@ -369,10 +379,124 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 			saveScriptBackup(fmt.Sprintf("%d", scriptID), backup)
 		}
 		return api.UpdateScript(ctx, scriptID, strVal(input, "name"), code)
+
+	case "run_local_test":
+		return runLocalTest(ctx, sctx, intVal(input, "script_id", 0), strVal(input, "base_url"))
 	}
 
 	// Not handled by API — return empty to fall through to qmax CLI
 	return ""
+}
+
+// runLocalTest downloads a script from QualityMax and runs it locally.
+func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseURL string) string {
+	if sctx.API == nil {
+		return jsonError("Not connected to QualityMax. Run /connect first.")
+	}
+
+	// 1. Fetch script details
+	raw := sctx.API.GetScript(ctx, scriptID)
+	if strings.HasPrefix(raw, `{"error"`) {
+		return raw
+	}
+
+	var script map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &script); err != nil {
+		return jsonError("Failed to parse script: " + err.Error())
+	}
+
+	code := ""
+	if c, ok := script["code"].(string); ok {
+		code = c
+	}
+	if code == "" {
+		return jsonError("Script has no code")
+	}
+
+	framework := ""
+	if f, ok := script["framework"].(string); ok {
+		framework = f
+	}
+	name := ""
+	if n, ok := script["name"].(string); ok {
+		name = n
+	}
+
+	// 2. Write to temp file
+	tmpDir, err := os.MkdirTemp("", "qmax-test-*")
+	if err != nil {
+		return jsonError("Failed to create temp dir: " + err.Error())
+	}
+	defer os.RemoveAll(tmpDir)
+
+	var fileName string
+	var cmd *exec.Cmd
+
+	switch framework {
+	case "pytest", "unittest":
+		fileName = filepath.Join(tmpDir, "test_script.py")
+		if err := os.WriteFile(fileName, []byte(code), 0644); err != nil {
+			return jsonError("Failed to write test file: " + err.Error())
+		}
+		junitFile := filepath.Join(tmpDir, "results.xml")
+		args := []string{"-m", "pytest", fileName, "-v", "--tb=short", "--junitxml=" + junitFile}
+		if baseURL != "" {
+			args = append(args, "--base-url="+baseURL)
+		}
+		cmd = exec.CommandContext(ctx, "python3", args...)
+
+	case "playwright":
+		fileName = filepath.Join(tmpDir, "test_script.spec.js")
+		if err := os.WriteFile(fileName, []byte(code), 0644); err != nil {
+			return jsonError("Failed to write test file: " + err.Error())
+		}
+		args := []string{"playwright", "test", fileName}
+		if baseURL != "" {
+			args = append(args, "--base-url="+baseURL)
+		}
+		cmd = exec.CommandContext(ctx, "npx", args...)
+
+	default:
+		return jsonError(fmt.Sprintf("Framework '%s' not supported for local execution. Supported: pytest, playwright", framework))
+	}
+
+	// 3. Run with timeout
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	cmd.Dir = tmpDir
+
+	if baseURL != "" {
+		cmd.Env = append(os.Environ(), "BASE_URL="+baseURL)
+	}
+
+	startTime := time.Now()
+	runErr := cmd.Run()
+	duration := time.Since(startTime)
+
+	// 4. Build result
+	passed := runErr == nil
+	output := stdout.String()
+	if stderr.Len() > 0 {
+		output += "\n--- stderr ---\n" + stderr.String()
+	}
+
+	// Trim output if too long
+	if len(output) > 5000 {
+		output = output[:2000] + "\n...\n" + output[len(output)-2000:]
+	}
+
+	result := map[string]interface{}{
+		"script_id": scriptID,
+		"name":      name,
+		"framework": framework,
+		"passed":    passed,
+		"duration":  fmt.Sprintf("%.1fs", duration.Seconds()),
+		"output":    output,
+	}
+
+	data, _ := json.Marshal(result)
+	return string(data)
 }
 
 // executeToolViaQMax handles tool execution through the qmax CLI binary (legacy).
