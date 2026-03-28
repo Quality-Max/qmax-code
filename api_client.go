@@ -210,6 +210,236 @@ func (c *APIClient) UpdateScript(ctx context.Context, scriptID int, name, code s
 	return c.put(ctx, fmt.Sprintf("/api/automation/scripts/%d", scriptID), body)
 }
 
+// --- k6 Performance Testing ---
+
+func (c *APIClient) K6ListScripts(ctx context.Context, projectID int) string {
+	return c.get(ctx, fmt.Sprintf("/api/k6/scripts?project_id=%d", projectID))
+}
+
+func (c *APIClient) K6CreateScript(ctx context.Context, projectID int, name, testType, targetURL, code string) string {
+	body := map[string]interface{}{
+		"project_id": projectID,
+		"name":       name,
+		"test_type":  testType,
+		"target_url": targetURL,
+	}
+	if code != "" {
+		body["code"] = code
+	}
+	return c.post(ctx, "/api/k6/scripts", body)
+}
+
+func (c *APIClient) K6GetScript(ctx context.Context, scriptID int) string {
+	return c.get(ctx, fmt.Sprintf("/api/k6/scripts/%d", scriptID))
+}
+
+func (c *APIClient) K6RunTest(ctx context.Context, scriptID, vus int, duration string) string {
+	body := map[string]interface{}{
+		"script_id": scriptID,
+	}
+	if vus > 0 {
+		body["vus"] = vus
+	}
+	if duration != "" {
+		body["duration"] = duration
+	}
+	return c.post(ctx, fmt.Sprintf("/api/k6/run/%d", scriptID), body)
+}
+
+func (c *APIClient) K6CheckStatus(ctx context.Context, executionID string) string {
+	return c.get(ctx, "/api/k6/status/"+executionID)
+}
+
+func (c *APIClient) K6Report(ctx context.Context, executionID string) string {
+	return c.get(ctx, "/api/k6/executions/"+executionID+"/report")
+}
+
+func (c *APIClient) K6Generate(ctx context.Context, projectID int, targetURL, testType string, endpoints string) string {
+	body := map[string]interface{}{
+		"project_id": projectID,
+		"target_url": targetURL,
+		"test_type":  testType,
+	}
+	if endpoints != "" {
+		body["endpoints"] = endpoints
+	}
+	return c.post(ctx, "/api/k6/generate", body)
+}
+
+func (c *APIClient) K6Convert(ctx context.Context, sourceCode, sourceFramework, testType string) string {
+	body := map[string]interface{}{
+		"source_code":      sourceCode,
+		"source_framework": sourceFramework,
+		"test_type":        testType,
+	}
+	return c.post(ctx, "/api/k6/convert", body)
+}
+
+// --- Test Case CRUD ---
+
+func (c *APIClient) CreateTestCase(ctx context.Context, projectID int, title, description, category, priority string) string {
+	body := map[string]interface{}{
+		"project_id":  projectID,
+		"title":       title,
+		"description": description,
+	}
+	if category != "" {
+		body["category"] = category
+	}
+	if priority != "" {
+		body["priority"] = priority
+	}
+	return c.post(ctx, "/api/test-cases/", body)
+}
+
+func (c *APIClient) UpdateTestCase(ctx context.Context, testCaseID int, title, description, category, priority, status string) string {
+	body := map[string]interface{}{}
+	if title != "" {
+		body["title"] = title
+	}
+	if description != "" {
+		body["description"] = description
+	}
+	if category != "" {
+		body["category"] = category
+	}
+	if priority != "" {
+		body["priority"] = priority
+	}
+	if status != "" {
+		body["status"] = status
+	}
+	return c.put(ctx, fmt.Sprintf("/api/test-cases/%d", testCaseID), body)
+}
+
+func (c *APIClient) DeleteTestCase(ctx context.Context, testCaseID int) string {
+	return c.delete(ctx, fmt.Sprintf("/api/test-cases/%d", testCaseID))
+}
+
+// --- Project CRUD ---
+
+func (c *APIClient) CreateProject(ctx context.Context, name, description, baseURL string) string {
+	body := map[string]interface{}{
+		"name": name,
+	}
+	if description != "" {
+		body["description"] = description
+	}
+	if baseURL != "" {
+		body["base_url"] = baseURL
+	}
+	return c.post(ctx, "/api/projects", body)
+}
+
+func (c *APIClient) UpdateProject(ctx context.Context, projectID int, name, description, baseURL string) string {
+	body := map[string]interface{}{}
+	if name != "" {
+		body["name"] = name
+	}
+	if description != "" {
+		body["description"] = description
+	}
+	if baseURL != "" {
+		body["base_url"] = baseURL
+	}
+	return c.put(ctx, fmt.Sprintf("/api/projects/%d", projectID), body)
+}
+
+func (c *APIClient) DeleteProject(ctx context.Context, projectID int) string {
+	return c.delete(ctx, fmt.Sprintf("/api/projects/%d", projectID))
+}
+
+func (c *APIClient) GetProjectSummary(ctx context.Context, projectID int) string {
+	return c.get(ctx, fmt.Sprintf("/api/projects/%d", projectID))
+}
+
+// --- Framework Operations ---
+
+func (c *APIClient) TriggerFrameworkRun(ctx context.Context, projectID int, frameworkType string) string {
+	body := map[string]interface{}{}
+	if frameworkType != "" {
+		body["framework_type"] = frameworkType
+	}
+	return c.post(ctx, fmt.Sprintf("/api/frameworks/%d/run", projectID), body)
+}
+
+func (c *APIClient) AddScriptToFramework(ctx context.Context, projectID, scriptID int) string {
+	body := map[string]interface{}{
+		"script_id": scriptID,
+	}
+	return c.post(ctx, fmt.Sprintf("/api/frameworks/%d/add-script", projectID), body)
+}
+
+func (c *APIClient) ExportFramework(ctx context.Context, projectID int, framework string) string {
+	path := fmt.Sprintf("/api/frameworks/%d/export", projectID)
+	if framework != "" {
+		path += "?framework=" + framework
+	}
+	return c.get(ctx, path)
+}
+
+func (c *APIClient) GetInstallCommand(ctx context.Context, projectID int) string {
+	return c.get(ctx, fmt.Sprintf("/api/frameworks/%d/install-command", projectID))
+}
+
+// --- AI-Powered Tools ---
+
+func (c *APIClient) EnhanceTestCase(ctx context.Context, testCaseID int) string {
+	return c.post(ctx, fmt.Sprintf("/api/test-cases/%d/enhance", testCaseID), nil)
+}
+
+func (c *APIClient) GenerateGapTests(ctx context.Context, repoID int) string {
+	return c.post(ctx, fmt.Sprintf("/api/repositories/%d/generate-gaps", repoID), nil)
+}
+
+func (c *APIClient) StartCrawlFromTestCase(ctx context.Context, testCaseID int) string {
+	body := map[string]interface{}{
+		"test_case_id": testCaseID,
+	}
+	return c.post(ctx, "/api/ai-crawl/start-from-test-case", body)
+}
+
+// --- QTML ---
+
+func (c *APIClient) ExportQTML(ctx context.Context, projectID int) string {
+	return c.get(ctx, fmt.Sprintf("/api/qtml/export?project_id=%d", projectID))
+}
+
+func (c *APIClient) ImportQTML(ctx context.Context, projectID int, qtmlContent string) string {
+	body := map[string]interface{}{
+		"project_id": projectID,
+		"content":    qtmlContent,
+	}
+	return c.post(ctx, "/api/qtml/import", body)
+}
+
+func (c *APIClient) ConvertQTMLToPlaywright(ctx context.Context, qtmlContent string) string {
+	body := map[string]interface{}{
+		"content": qtmlContent,
+	}
+	return c.post(ctx, "/api/qtml/convert-to-playwright", body)
+}
+
+// --- Deployment Testing ---
+
+func (c *APIClient) TestDeployedEnvironment(ctx context.Context, projectID int, url string) string {
+	body := map[string]interface{}{
+		"project_id": projectID,
+		"url":        url,
+	}
+	return c.post(ctx, "/api/automation/test-deployed", body)
+}
+
+// --- Delete helper ---
+
+func (c *APIClient) delete(ctx context.Context, path string) string {
+	req, err := http.NewRequestWithContext(ctx, "DELETE", c.BaseURL+path, nil)
+	if err != nil {
+		return jsonError(err.Error())
+	}
+	return c.doRequest(req)
+}
+
 // --- HTTP helpers ---
 
 func (c *APIClient) get(ctx context.Context, path string) string {
