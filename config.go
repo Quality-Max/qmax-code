@@ -13,13 +13,14 @@ type Config struct {
 	Professional   bool   `json:"professional,omitempty"` // disable cat personality
 	AutoSave       bool   `json:"auto_save"`              // auto-save session on exit (default true)
 	MaxTokenBudget int    `json:"max_token_budget,omitempty"`
-	AnthropicKey   string `json:"anthropic_key,omitempty"` // persisted Anthropic API key
+	AnthropicKey string `json:"-"` // NOT stored in JSON — use keychain instead
 }
 
 const qmaxCodeConfigDir = ".qmax-code"
 const qmaxCodeConfigFile = "config.json"
 
-// LoadQMaxCodeConfig reads persistent user preferences from ~/.qmax-code/config.json.
+// LoadQMaxCodeConfig reads persistent user preferences from ~/.qmax-code/config.json
+// and loads the Anthropic key from the OS keychain.
 func LoadQMaxCodeConfig() *Config {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -36,7 +37,18 @@ func LoadQMaxCodeConfig() *Config {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return defaultConfig()
 	}
+
+	// Load Anthropic key from keychain (not stored in JSON)
+	if key, err := LoadFromKeychain("anthropic_key"); err == nil && key != "" {
+		cfg.AnthropicKey = key
+	}
+
 	return &cfg
+}
+
+// SaveAnthropicKey securely stores the Anthropic API key in the OS keychain.
+func SaveAnthropicKey(key string) error {
+	return SaveToKeychain("anthropic_key", key)
 }
 
 // Save persists the config to ~/.qmax-code/config.json.

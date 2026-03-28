@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
@@ -450,6 +451,9 @@ func runREPL(agent *Agent, quietMode bool) {
 		case strings.HasPrefix(input, "/set "):
 			handleSetCommand(input, agent, term)
 			continue
+		case input == "/keys":
+			handleKeys(agent, term)
+			continue
 		case input == "/screenshot":
 			img, err := CaptureScreenshot()
 			if err != nil {
@@ -580,6 +584,70 @@ func handleDisconnect(agent *Agent, term *Terminal) {
 	term.PrintSystem("Run /connect to log in again.")
 }
 
+// handleKeys provides an interactive TUI for managing API keys.
+func handleKeys(agent *Agent, term *Terminal) {
+	fmt.Println()
+
+	// Show current key status
+	anthropicKey := agent.config.AnthropicKey
+	if anthropicKey == "" {
+		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
+	}
+	qmaxConnected := agent.config.Context.Auth != nil && agent.config.Context.Auth.IsAuthenticated()
+
+	fmt.Printf("  %s API Keys %s\n\n", "\033[1m", "\033[0m")
+
+	if anthropicKey != "" {
+		masked := anthropicKey[:7] + "..." + anthropicKey[len(anthropicKey)-4:]
+		fmt.Printf("  Anthropic:   %s● Set%s (%s)\n", "\033[32m", "\033[0m", masked)
+	} else {
+		fmt.Printf("  Anthropic:   %s● Not set%s\n", "\033[33m", "\033[0m")
+	}
+
+	if qmaxConnected {
+		fmt.Printf("  QualityMax:  %s● Connected%s (%s)\n", "\033[32m", "\033[0m", agent.config.Context.Auth.Email)
+	} else {
+		fmt.Printf("  QualityMax:  %s● Not connected%s\n", "\033[33m", "\033[0m")
+	}
+	fmt.Println()
+
+	choice := promptChoice("  What would you like to do?", []string{
+		"Set Anthropic API key",
+		"Connect to QualityMax (browser)",
+		"Disconnect from QualityMax",
+		"Cancel",
+	})
+
+	switch choice {
+	case 0: // Anthropic key
+		fmt.Println()
+		fmt.Println("  Get your key at: https://console.anthropic.com/settings/keys")
+		fmt.Println()
+		fmt.Print("  Paste your Anthropic key: ")
+		reader := bufio.NewReader(os.Stdin)
+		key, _ := reader.ReadString('\n')
+		key = strings.TrimSpace(key)
+		if key == "" {
+			term.PrintSystem("Cancelled.")
+			return
+		}
+		os.Setenv("ANTHROPIC_API_KEY", key)
+		agent.config.AnthropicKey = key
+		if err := SaveAnthropicKey(key); err != nil {
+			term.PrintSystem(fmt.Sprintf("Key set for this session (keychain unavailable: %s)", err))
+		} else {
+			AnimateMax(MoodHappy, "Key saved to OS keychain!")
+			fmt.Println()
+		}
+	case 1: // QualityMax connect
+		handleConnect(agent, term)
+	case 2: // Disconnect
+		handleDisconnect(agent, term)
+	case 3: // Cancel
+		return
+	}
+}
+
 func printREPLHelp() {
 	fmt.Println(`
 Commands:
@@ -590,6 +658,7 @@ Commands:
   /context       Show current session context
   /cost          Show session token usage and estimated cost
   /config        Show current config settings
+  /keys          Set API keys (interactive menu)
   /screenshot    Capture a screenshot and analyze it
   /paste         Paste from clipboard (image or text)
   /set <k> <v>   Update config (model, project, professional, autosave, budget)
@@ -726,14 +795,18 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		agent.config.Context.API = NewAPIClient(auth)
 		AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 		fmt.Println()
+		return // auth.json handles persistence
 
 	case "anthropic-key", "anthropic_key":
-		// Save Anthropic API key persistently
+		// Save Anthropic API key to OS keychain
 		os.Setenv("ANTHROPIC_API_KEY", value)
 		agent.config.AnthropicKey = value
-		cfg.AnthropicKey = value
-		term.PrintSystem("Anthropic API key saved.")
-		return // don't save to config.json, auth.json is handled by LoginWithAPIKey
+		if err := SaveAnthropicKey(value); err != nil {
+			term.PrintSystem(fmt.Sprintf("Key set for this session (keychain: %s)", err))
+		} else {
+			term.PrintSystem("Anthropic API key saved to OS keychain.")
+		}
+		return // don't save to config.json — keychain handles it
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))

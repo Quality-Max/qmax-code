@@ -83,11 +83,15 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 		key = strings.TrimSpace(key)
 		if key != "" {
 			os.Setenv("ANTHROPIC_API_KEY", key)
-			// Save persistently
-			cfg.AnthropicKey = key
-			_ = cfg.Save()
-			fmt.Println()
-			fmt.Println("  Key saved to ~/.qmax-code/config.json")
+			// Save to OS keychain
+			if err := SaveAnthropicKey(key); err != nil {
+				// Fallback: warn but continue
+				fmt.Printf("\n  Note: Could not save to keychain (%s)\n", err)
+				fmt.Println("  Key is set for this session. Set ANTHROPIC_API_KEY in your shell profile to persist.")
+			} else {
+				fmt.Println()
+				fmt.Println("  Key saved securely to OS keychain")
+			}
 		}
 	} else {
 		os.Setenv("ANTHROPIC_API_KEY", anthropicKey)
