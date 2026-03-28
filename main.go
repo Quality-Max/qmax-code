@@ -93,18 +93,13 @@ func main() {
 	}
 	effectiveModel = resolveModel(effectiveModel)
 
-	// Resolve Anthropic API key: flag > env > saved config
+	// Resolve Anthropic API key: flag > env > keychain
 	anthropicKey := *apiKey
 	if anthropicKey == "" {
 		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
 	if anthropicKey == "" && appConfig.AnthropicKey != "" {
 		anthropicKey = appConfig.AnthropicKey
-	}
-	if anthropicKey == "" {
-		fmt.Fprintln(os.Stderr, "Error: Anthropic API key required.")
-		fmt.Fprintln(os.Stderr, "Set ANTHROPIC_API_KEY or use --api-key")
-		os.Exit(1)
 	}
 
 	// Load auth (new standalone mode)
@@ -126,22 +121,24 @@ func main() {
 	}
 
 	// If no qmax CLI and no API client, run interactive setup
+	// (this also prompts for Anthropic key if missing)
 	if qmaxBin == "" && apiClient == nil {
 		setupAuth, setupProjectID := RunInteractiveSetup()
 		auth = setupAuth
 		apiClient = NewAPIClient(auth)
-		_ = setupProjectID // used below after detectedProjectID is declared
-		// Stash for use after project detection
 		appConfig.DefaultProject = setupProjectID
-		// Re-check Anthropic key after setup
+		// Re-check Anthropic key after setup (setup saves to keychain + env)
 		if anthropicKey == "" {
 			anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 		}
-		if anthropicKey == "" {
-			fmt.Fprintln(os.Stderr, "Error: Anthropic API key required.")
-			fmt.Fprintln(os.Stderr, "Set ANTHROPIC_API_KEY or use --api-key")
-			os.Exit(1)
-		}
+	}
+
+	// Final check — if still no key after setup, exit
+	if anthropicKey == "" {
+		fmt.Fprintln(os.Stderr, "Error: Anthropic API key required.")
+		fmt.Fprintln(os.Stderr, "  Run:  qmax-code  (interactive setup will prompt)")
+		fmt.Fprintln(os.Stderr, "  Or:   export ANTHROPIC_API_KEY=sk-ant-...")
+		os.Exit(1)
 	}
 
 	// Detect project from cwd if not set via flag; fall back to saved config
