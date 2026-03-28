@@ -189,6 +189,14 @@ var (
 )
 
 func (m inputModel) View() string {
+	// When done, show only the final input — no menu residue
+	if m.done {
+		if m.result == "" {
+			return ""
+		}
+		return m.prompt + m.result + "\n"
+	}
+
 	var b strings.Builder
 
 	if m.mode == modeTyping {
