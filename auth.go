@@ -44,9 +44,10 @@ func LoadAuth() *AuthConfig {
 	// 3. Legacy ~/.qamax/config.json
 	legacy := loadQMaxConfig()
 	if legacy.Token != "" || legacy.APIKey != "" {
-		key := legacy.APIKey
+		// Prefer JWT token over agent API key (hex key is for agent registration, not user auth)
+		key := legacy.Token
 		if key == "" {
-			key = legacy.Token
+			key = legacy.APIKey
 		}
 		url := legacy.CloudURL
 		if url == "" {

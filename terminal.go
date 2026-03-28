@@ -216,7 +216,7 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 			fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.QMaxCfg.CloudURL, colorReset)
 		}
 	} else {
-		fmt.Printf("  %s▸ Not connected%s — run: qmax-code login\n", colorYellow, colorReset)
+		fmt.Printf("  %s▸ Not connected%s — type %s/connect%s to log in\n", colorYellow, colorReset, colorBold, colorReset)
 	}
 
 	fmt.Printf("  %sType /help for commands or just tell me what to test. 🐾%s\n\n", colorDim, colorReset)
@@ -336,22 +336,24 @@ func (t *Terminal) PrintStatusInfo(ctx *SessionContext, usage TokenUsage, model 
 	fmt.Println()
 	fmt.Printf("  %s\n", styleSystem.Render("qmax-code Status"))
 
-	if ctx.QMaxBin != "" {
-		fmt.Printf("  %-20s %s\n", "qmax binary:", ctx.QMaxBin)
+	// Connection status (primary)
+	if ctx.API != nil && ctx.Auth != nil && ctx.Auth.IsAuthenticated() {
+		fmt.Printf("  %-20s %s%s Connected%s\n", "QualityMax:", "\033[32m", "●", "\033[0m")
+		fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.Auth.Email)
+		fmt.Printf("  %-20s %s\n", "API:", ctx.Auth.GetCloudURL())
+		fmt.Printf("  %-20s standalone (direct API)\n", "Mode:")
+	} else if ctx.QMaxBin != "" {
+		fmt.Printf("  %-20s %s%s Connected (via CLI)%s\n", "QualityMax:", "\033[32m", "●", "\033[0m")
+		if ctx.QMaxCfg.Email != "" {
+			fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.QMaxCfg.Email)
+		}
+		fmt.Printf("  %-20s %s\n", "CLI:", ctx.QMaxBin)
 	} else {
-		fmt.Printf("  %-20s %s\n", "qmax binary:", styleError.Render("not found"))
+		fmt.Printf("  %-20s %s%s Not connected%s\n", "QualityMax:", "\033[33m", "●", "\033[0m")
+		fmt.Printf("  %-20s run %s/connect%s to log in\n", "", "\033[1m", "\033[0m")
 	}
 
-	if ctx.QMaxCfg.Email != "" {
-		fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.QMaxCfg.Email)
-	} else {
-		fmt.Printf("  %-20s %s\n", "Auth:", styleDim.Render("not authenticated"))
-	}
-
-	if ctx.QMaxCfg.CloudURL != "" {
-		fmt.Printf("  %-20s %s\n", "API URL:", ctx.QMaxCfg.CloudURL)
-	}
-
+	fmt.Println()
 	fmt.Printf("  %-20s #%d\n", "Active project:", ctx.ProjectID)
 	fmt.Printf("  %-20s %s\n", "Model:", model)
 	fmt.Printf("  %-20s %d in / %d out\n", "Session tokens:", usage.InputTokens, usage.OutputTokens)

@@ -16,6 +16,8 @@ type SlashMenuItem struct {
 
 var slashMenuItems = []SlashMenuItem{
 	{"/help", "Show help"},
+	{"/connect", "Log in to QualityMax (browser)"},
+	{"/disconnect", "Log out"},
 	{"/status", "Auth + session info"},
 	{"/cost", "Token usage + cost"},
 	{"/config", "Show config"},
