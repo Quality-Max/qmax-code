@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	Version = "1.4.0"
+	Version = "1.5.0"
 	Name    = "qmax-code"
 )
 
@@ -37,6 +37,11 @@ func main() {
 		fmt.Printf("%s v%s\n", Name, Version)
 		return
 	}
+
+	// Initialize error reporting (Bugsink)
+	InitErrorReporting()
+	defer FlushErrorReporting()
+	defer RecoverPanic()
 
 	// Handle "login" subcommand before flag parsing
 	if len(os.Args) > 1 && os.Args[1] == "login" {
@@ -524,6 +529,7 @@ func runREPL(agent *Agent, quietMode bool) {
 		}
 		if err != nil {
 			term.PrintError(err.Error())
+			CaptureError(err, map[string]interface{}{"input": truncateStr(input, 100)})
 			autoSave() // save even on error — preserves context
 			continue
 		}

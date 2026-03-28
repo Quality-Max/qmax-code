@@ -330,9 +330,14 @@ func (t *Terminal) PrintToolResult(name string, output string) {
 			}
 			if screenshots, ok := data["screenshot_paths"].([]interface{}); ok && len(screenshots) > 0 {
 				fmt.Printf("    Screenshots: %d captured\n", len(screenshots))
+				for i, s := range screenshots {
+					if url, ok := s.(string); ok && url != "" {
+						RenderScreenshotCompact(fmt.Sprintf("Screenshot %d", i+1), url)
+					}
+				}
 			}
 			if video, ok := data["video_path"].(string); ok && video != "" {
-				fmt.Printf("    Video: %s\n", styleDim.Render("recorded"))
+				fmt.Printf("    Video: %s\n", styleDim.Render(video))
 			}
 			return
 		}

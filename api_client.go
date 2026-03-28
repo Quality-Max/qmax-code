@@ -96,6 +96,17 @@ func (c *APIClient) CheckTestStatus(ctx context.Context, executionID string) str
 	return c.get(ctx, "/api/playwright-execution/status/"+executionID)
 }
 
+func (c *APIClient) ReportLocalResult(ctx context.Context, scriptID int, status, output, framework string, duration float64) string {
+	body := map[string]interface{}{
+		"script_id": scriptID,
+		"status":    status,
+		"output":    output,
+		"framework": framework,
+		"duration":  duration,
+	}
+	return c.post(ctx, "/api/playwright-execution/report-local", body)
+}
+
 // --- Crawl operations ---
 
 func (c *APIClient) StartCrawl(ctx context.Context, projectID int, url string, depth, pages int, testType, instructions string) string {

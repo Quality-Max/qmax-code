@@ -247,12 +247,22 @@ func (a *Agent) compressHistory() {
 		}
 	}
 
-	// Replace history with summary + recent messages
+	// Replace history with summary + recent messages.
+	// Use []ContentBlock for assistant to avoid API validation issues.
 	compressed := []Message{
 		{Role: "user", Content: summary.String()},
-		{Role: "assistant", Content: "Got it, I have the context from our earlier conversation."},
+		{Role: "assistant", Content: []ContentBlock{{Type: "text", Text: "Got it, I have the context from our earlier conversation."}}},
 	}
-	compressed = append(compressed, a.history[len(a.history)-6:]...)
+	// Keep last 6 messages, but ensure tool_result messages stay paired with their tool_use
+	keep := a.history[len(a.history)-6:]
+	// If the first kept message is a user tool_result without a preceding assistant tool_use,
+	// skip it to avoid orphaned tool_results
+	if len(keep) > 0 && keep[0].Role == "user" {
+		if blocks, ok := keep[0].Content.([]ContentBlock); ok && len(blocks) > 0 && blocks[0].Type == "tool_result" {
+			keep = keep[1:] // skip orphaned tool_result
+		}
+	}
+	compressed = append(compressed, keep...)
 	a.history = compressed
 }
 
@@ -376,11 +386,36 @@ func (a *Agent) modelForIteration(iteration int) string {
 func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, string, error) {
 	systemPrompt := a.buildSystemPrompt()
 
+	// Sanitize messages — ensure Content is always a valid type for the API.
+	// Claude API accepts: string OR array of content blocks.
+	// After JSON round-trips, []ContentBlock can become []interface{} — that's still valid
+	// as json.Marshal will serialize it correctly. Only fix nil/unexpected scalars.
+	sanitized := make([]Message, len(a.history))
+	for i, msg := range a.history {
+		sanitized[i] = msg
+		switch v := sanitized[i].Content.(type) {
+		case string:
+			// valid — plain text message
+		case []ContentBlock:
+			// valid — structured content blocks
+		case []interface{}:
+			// valid — this is []ContentBlock after JSON deserialization via interface{}
+			// json.Marshal will serialize it correctly as an array
+		case nil:
+			sanitized[i].Content = ""
+		default:
+			// Unknown scalar type — stringify it
+			_ = v
+			data, _ := json.Marshal(sanitized[i].Content)
+			sanitized[i].Content = string(data)
+		}
+	}
+
 	reqBody := APIRequest{
 		Model:     model,
 		MaxTokens: 8192,
 		System:    systemPrompt,
-		Messages:  a.history,
+		Messages:  sanitized,
 		Tools:     a.tools,
 		Stream:    true,
 	}
