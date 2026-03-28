@@ -7,7 +7,11 @@ import (
 	"os"
 )
 
-func enableRawMode() (*unix.Termios, error) {
+type termState struct {
+	old unix.Termios
+}
+
+func enableRawMode() (*termState, error) {
 	fd := int(os.Stdin.Fd())
 	old, err := unix.IoctlGetTermios(fd, unix.TCGETS)
 	if err != nil {
@@ -20,11 +24,11 @@ func enableRawMode() (*unix.Termios, error) {
 	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &raw); err != nil {
 		return nil, err
 	}
-	return old, nil
+	return &termState{old: *old}, nil
 }
 
-func restoreTermMode(old *unix.Termios) {
-	if old != nil {
-		_ = unix.IoctlSetTermios(int(os.Stdin.Fd()), unix.TCSETS, old)
+func restoreTermMode(state *termState) {
+	if state != nil {
+		_ = unix.IoctlSetTermios(int(os.Stdin.Fd()), unix.TCSETS, &state.old)
 	}
 }
