@@ -82,8 +82,9 @@ var toolIcons = map[string]string{
 type Terminal struct {
 	rl            *readline.Instance
 	renderer      *glamour.TermRenderer
-	streaming     bool   // true when we're in the middle of streaming text
-	currentPrompt string // track prompt for readline recreation
+	streaming     bool           // true when we're in the middle of streaming text
+	streamBuf     strings.Builder // buffers streamed text for post-render
+	currentPrompt string          // track prompt for readline recreation
 }
 
 // NewTerminal creates a new interactive terminal with markdown rendering.
@@ -226,19 +227,36 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 func (t *Terminal) StreamText(text string) {
 	if !t.streaming {
 		t.streaming = true
+		t.streamBuf.Reset()
 		fmt.Println() // newline before assistant response
 	}
 	fmt.Print(text)
+	t.streamBuf.WriteString(text)
 }
 
 // FinishMarkdown is called when a text block is complete.
-// We already streamed the raw text, so now we just mark streaming as done.
-// Glamour rendering happens for the full response, not mid-stream.
+// Re-renders the streamed text with glamour for syntax highlighting.
 func (t *Terminal) FinishMarkdown(fullText string) {
 	if t.streaming {
 		t.streaming = false
-		// We already printed the raw text via StreamText.
-		// For a clean look, add a trailing newline if needed.
+
+		// If the text contains code blocks, re-render with glamour for highlighting
+		if t.renderer != nil && strings.Contains(fullText, "```") {
+			// Move cursor up to overwrite raw output, then print rendered version
+			rawLines := strings.Count(t.streamBuf.String(), "\n") + 1
+			// Clear the raw streamed output
+			for i := 0; i < rawLines; i++ {
+				fmt.Print("\033[1A\033[2K") // move up + clear line
+			}
+			rendered, err := t.renderer.Render(fullText)
+			if err == nil {
+				fmt.Print(rendered)
+				t.streamBuf.Reset()
+				return
+			}
+		}
+
+		t.streamBuf.Reset()
 		if !strings.HasSuffix(fullText, "\n") {
 			fmt.Println()
 		}
