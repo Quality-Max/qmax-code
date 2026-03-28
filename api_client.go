@@ -171,7 +171,7 @@ func (c *APIClient) ImportRepo(ctx context.Context, url string, projectID int, c
 	if baseURL != "" {
 		body["base_url"] = baseURL
 	}
-	body["training_consent"] = true
+	body["training_consent"] = "opt_in"
 	return c.post(ctx, "/api/repositories/import", body)
 }
 
