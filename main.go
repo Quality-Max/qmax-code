@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -587,10 +588,22 @@ func handleDisconnect(agent *Agent, term *Terminal) {
 	ctx.Auth = nil
 	ctx.API = nil
 
-	// Remove saved auth file
+	// Remove saved auth files (both new and legacy)
 	home, _ := os.UserHomeDir()
 	if home != "" {
 		_ = os.Remove(filepath.Join(home, qmaxCodeConfigDir, "auth.json"))
+		// Also clear legacy ~/.qamax/config.json token to prevent auto-reconnect
+		legacyPath := filepath.Join(home, ".qamax", "config.json")
+		if data, err := os.ReadFile(legacyPath); err == nil {
+			var legacy map[string]interface{}
+			if json.Unmarshal(data, &legacy) == nil {
+				legacy["token"] = ""
+				legacy["api_key"] = ""
+				if updated, err := json.MarshalIndent(legacy, "", "  "); err == nil {
+					_ = os.WriteFile(legacyPath, updated, 0600)
+				}
+			}
+		}
 	}
 
 	AnimateMax(MoodNeutral, fmt.Sprintf("Disconnected from %s", email))
