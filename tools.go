@@ -1146,6 +1146,44 @@ func truncateOutput(s string, maxLen int) string {
 	return s[:maxLen] + "\n... (truncated)"
 }
 
+// extractPlaywrightError parses Playwright test output and extracts the actual error
+// with line numbers, locator info, and expected/received values.
+func extractPlaywrightError(output string) string {
+	lines := strings.Split(output, "\n")
+	var errLines []string
+	capturing := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Start capturing on error indicators
+		if strings.Contains(trimmed, "Error:") ||
+			strings.Contains(trimmed, "error:") ||
+			strings.Contains(trimmed, "locator.") ||
+			strings.Contains(trimmed, "expect(") ||
+			strings.Contains(trimmed, "Timeout") ||
+			strings.Contains(trimmed, "waiting for") ||
+			strings.Contains(trimmed, "strict mode violation") {
+			capturing = true
+		}
+		if capturing {
+			errLines = append(errLines, "    "+trimmed)
+			// Stop after enough context
+			if len(errLines) > 15 {
+				break
+			}
+		}
+		// Also capture "at" lines for stack trace
+		if strings.HasPrefix(trimmed, "at ") && len(errLines) > 0 && len(errLines) < 20 {
+			errLines = append(errLines, "    "+trimmed)
+		}
+	}
+
+	if len(errLines) == 0 {
+		return ""
+	}
+	return strings.Join(errLines, "\n")
+}
+
 // intArg extracts an integer argument, falling back to a default.
 func intArg(input map[string]interface{}, key string, fallback int) string {
 	if v, ok := input[key]; ok {
@@ -1475,7 +1513,16 @@ func summarizeExecution(output string) string {
 		sb.WriteString(fmt.Sprintf("  Error: %v\n", errMsg))
 	}
 	if errMsg, ok := data["test_errors"].(string); ok && errMsg != "" {
-		sb.WriteString(fmt.Sprintf("  Test errors: %s\n", truncateStr(errMsg, 500)))
+		sb.WriteString(fmt.Sprintf("  Test errors: %s\n", truncateStr(errMsg, 1000)))
+	}
+
+	// test_output — extract Playwright error lines (locator failures, timeouts, assertion errors)
+	if testOut, ok := data["test_output"].(string); ok && testOut != "" {
+		// Extract the most useful error info from Playwright output
+		errLines := extractPlaywrightError(testOut)
+		if errLines != "" {
+			sb.WriteString(fmt.Sprintf("  Playwright error:\n%s\n", errLines))
+		}
 	}
 
 	// Console logs — extract error lines
@@ -1819,7 +1866,17 @@ func summarizeGetScript(output string) string {
 		return output
 	}
 
-	// Include the full output so the LLM can read the code
+	// Include the code but cap at 4000 chars to avoid context bloat.
+	// The LLM needs the code to analyze/edit it, but full API JSON is wasteful.
+	if code != "" {
+		if len(code) > 4000 {
+			sb.WriteString("\n```javascript\n" + code[:4000] + "\n// ... truncated (" + fmt.Sprintf("%d", len(code)) + " chars total)\n```")
+		} else {
+			sb.WriteString("\n```javascript\n" + code + "\n```")
+		}
+		return sb.String()
+	}
+
 	return sb.String() + "\n" + output
 }
 

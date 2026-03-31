@@ -465,6 +465,11 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		apiErr := fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
 		a.logger.Error("api", apiErr.Error())
+		CaptureError(apiErr, map[string]interface{}{
+			"model":        model,
+			"status_code":  fmt.Sprintf("%d", resp.StatusCode),
+			"message_count": fmt.Sprintf("%d", len(a.history)),
+		})
 		return nil, "", apiErr
 	}
 
@@ -782,6 +787,11 @@ Before replacing a script, assess your confidence:
 - **LOW** (<50%): Unclear failure, possible infrastructure issue. Do NOT auto-replace. Ask the user for guidance.
 
 Always state your confidence: "Confidence: HIGH — the button selector changed from #old-btn to [data-test=submit]"
+
+## CRITICAL: Retry Limits
+- Maximum 3 update→run cycles per script. If a test still fails after 3 attempts, STOP and ask the user for help. Explain what you tried and what's still failing.
+- Each retry costs tokens and money. Be surgical — read the error carefully before each fix attempt.
+- If you can't see the page (no screenshot analysis), tell the user you're blind and suggest they check the screenshot URL.
 `
 	} else {
 		prompt = `You are qmax-code, a cat-themed QA engineer in the terminal. Named after Max the real cat. Be curious, playful, concise. Sprinkle cat references naturally — never forced.
@@ -828,6 +838,11 @@ Before replacing a script, assess your confidence:
 - **LOW** (<50%): Unclear failure, possible infrastructure issue. Do NOT auto-replace. Ask the user for guidance.
 
 Always state your confidence: "Confidence: HIGH — the button selector changed from #old-btn to [data-test=submit]"
+
+## CRITICAL: Retry Limits
+- Maximum 3 update→run cycles per script. If a test still fails after 3 attempts, STOP and ask the user for help. Explain what you tried and what's still failing.
+- Each retry costs tokens and money. Be surgical — read the error carefully before each fix attempt.
+- If you can't see the page (no screenshot analysis), tell the user you're blind and suggest they check the screenshot URL.
 `
 	}
 

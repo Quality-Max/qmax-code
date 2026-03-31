@@ -528,14 +528,28 @@ func (c *APIClient) doRequest(req *http.Request) string {
 	data, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode >= 400 {
+		errMsg := ""
 		// Try to extract error message from JSON response
 		var errResp map[string]interface{}
 		if json.Unmarshal(data, &errResp) == nil {
 			if detail, ok := errResp["detail"].(string); ok {
-				return jsonError(fmt.Sprintf("HTTP %d: %s", resp.StatusCode, detail))
+				errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, detail)
 			}
 		}
-		return jsonError(fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(data)))
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(data))
+		}
+
+		// Report server errors (5xx) and auth errors (401/403) to Bugsink
+		if resp.StatusCode >= 500 || resp.StatusCode == 401 || resp.StatusCode == 403 {
+			CaptureError(fmt.Errorf("API error: %s", errMsg), map[string]interface{}{
+				"method":      req.Method,
+				"path":        req.URL.Path,
+				"status_code": fmt.Sprintf("%d", resp.StatusCode),
+			})
+		}
+
+		return jsonError(errMsg)
 	}
 
 	return string(data)
