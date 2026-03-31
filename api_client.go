@@ -33,7 +33,11 @@ func NewAPIClient(auth *AuthConfig) *APIClient {
 // --- Project operations ---
 
 func (c *APIClient) ListProjects(ctx context.Context) string {
-	return c.get(ctx, "/api/projects")
+	return c.get(ctx, "/api/projects?limit=200")
+}
+
+func (c *APIClient) GetProjectBySlug(ctx context.Context, slug string) string {
+	return c.get(ctx, "/api/projects/by-slug/"+slug)
 }
 
 // --- Test case operations ---
@@ -330,14 +334,28 @@ func (c *APIClient) DeleteTestCase(ctx context.Context, testCaseID int) string {
 // --- Project CRUD ---
 
 func (c *APIClient) CreateProject(ctx context.Context, name, description, baseURL string) string {
+	// Auto-generate project key from name (uppercase, alphanumeric, max 10 chars)
+	key := ""
+	for _, ch := range strings.ToUpper(name) {
+		if (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') {
+			key += string(ch)
+		}
+		if len(key) >= 10 {
+			break
+		}
+	}
+	if key == "" {
+		key = "PROJ"
+	}
 	body := map[string]interface{}{
 		"name": name,
+		"key":  key,
 	}
 	if description != "" {
 		body["description"] = description
 	}
 	if baseURL != "" {
-		body["base_url"] = baseURL
+		body["main_url"] = baseURL
 	}
 	return c.post(ctx, "/api/projects", body)
 }
@@ -404,10 +422,7 @@ func (c *APIClient) GenerateGapTests(ctx context.Context, repoID int) string {
 }
 
 func (c *APIClient) StartCrawlFromTestCase(ctx context.Context, testCaseID int) string {
-	body := map[string]interface{}{
-		"test_case_id": testCaseID,
-	}
-	return c.post(ctx, "/api/ai-crawl/start-from-test-case", body)
+	return c.post(ctx, fmt.Sprintf("/api/ai-crawl/start-from-test-case/%d", testCaseID), nil)
 }
 
 // --- QTML ---
@@ -500,9 +515,8 @@ func (c *APIClient) put(ctx context.Context, path string, body interface{}) stri
 }
 
 func (c *APIClient) doRequest(req *http.Request) string {
-	// Auth: use API key as Bearer token (strip qm- prefix if present)
-	token := strings.TrimPrefix(c.APIKey, "qm-")
-	req.Header.Set("Authorization", "Bearer "+token)
+	// Auth: send full API key as Bearer token (backend handles qm- prefix)
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.HTTP.Do(req)
