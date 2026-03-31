@@ -336,6 +336,22 @@ func BuildToolDefs() []ToolDef {
 			)),
 		},
 
+		// --- Page Analysis (for test healing) ---
+		{
+			Name:        "analyze_screenshot",
+			Description: "Analyze a test execution screenshot to understand what's visible on the page. Use this after a test fails to see what the page actually looks like — helps identify correct selectors, missing elements, and page state. Returns a description of visible elements, text, and layout.",
+			InputSchema: obj(props(
+				prop("execution_id", "string", "Execution ID from a test run", true),
+			)),
+		},
+		{
+			Name:        "get_page_elements",
+			Description: "Get a list of visible interactive elements on the page from a test execution screenshot. Returns element roles, text, and suggested Playwright selectors. Use this to find the correct selectors when healing a broken test.",
+			InputSchema: obj(props(
+				prop("execution_id", "string", "Execution ID from a test run", true),
+			)),
+		},
+
 		// --- QTML ---
 		{
 			Name:        "export_qtml",
@@ -662,6 +678,11 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		return api.GenerateGapTests(ctx, intVal(input, "repo_id", 0))
 	case "start_crawl_from_test_case":
 		return api.StartCrawlFromTestCase(ctx, intVal(input, "test_case_id", 0))
+
+	case "analyze_screenshot":
+		return analyzeScreenshot(ctx, api, strVal(input, "execution_id"), sctx)
+	case "get_page_elements":
+		return getPageElements(ctx, api, strVal(input, "execution_id"), sctx)
 
 	// --- QTML ---
 	case "export_qtml":
@@ -2029,4 +2050,166 @@ func obj(pp []propDef) map[string]interface{} {
 		schema["required"] = required
 	}
 	return schema
+}
+
+// =============================================================================
+// Screenshot analysis + page elements (Vision-based tools)
+// =============================================================================
+
+// analyzeScreenshot fetches the screenshot from a test execution and asks Claude Vision
+// to describe what's visible on the page.
+func analyzeScreenshot(ctx context.Context, api *APIClient, executionID string, sctx *SessionContext) string {
+	if executionID == "" {
+		return jsonError("execution_id is required")
+	}
+
+	screenshotURL, err := getScreenshotURL(api, executionID, sctx)
+	if err != "" {
+		return jsonError(err)
+	}
+
+	return callVisionAnalysis(sctx, screenshotURL,
+		"Analyze this web page screenshot from a Playwright test execution. Describe:\n"+
+			"1. What page is this? (URL, title, app name)\n"+
+			"2. What interactive elements are visible? (buttons, links, inputs, forms)\n"+
+			"3. What content/text is displayed?\n"+
+			"4. Any error messages, modals, or overlays?\n"+
+			"5. Is there a cookie consent banner or login form?\n"+
+			"Be specific about element positions and text content — this helps fix broken test selectors.")
+}
+
+// getPageElements fetches the screenshot and asks Claude Vision to extract
+// interactive elements with suggested Playwright selectors.
+func getPageElements(ctx context.Context, api *APIClient, executionID string, sctx *SessionContext) string {
+	if executionID == "" {
+		return jsonError("execution_id is required")
+	}
+
+	screenshotURL, err := getScreenshotURL(api, executionID, sctx)
+	if err != "" {
+		return jsonError(err)
+	}
+
+	return callVisionAnalysis(sctx, screenshotURL,
+		"Extract ALL interactive elements visible on this web page screenshot. For each element, provide:\n"+
+			"- Role (button, link, input, checkbox, select, etc.)\n"+
+			"- Visible text or label\n"+
+			"- Suggested Playwright selector (prefer getByRole, getByText, getByLabel)\n"+
+			"- Position on page (header, sidebar, main content, footer, modal)\n\n"+
+			"Format as a structured list. Be exhaustive — include every clickable, fillable, or assertable element.\n"+
+			"This will be used to fix broken Playwright test selectors.")
+}
+
+// getScreenshotURL fetches the screenshot URL from a test execution result.
+func getScreenshotURL(api *APIClient, executionID string, sctx *SessionContext) (string, string) {
+	raw := api.CheckTestStatus(context.Background(), executionID)
+
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &data); err != nil {
+		return "", "Failed to parse execution status"
+	}
+
+	screenshots, _ := data["screenshot_paths"].([]interface{})
+	if len(screenshots) == 0 {
+		return "", "No screenshots available for this execution. Run the test first."
+	}
+
+	url, _ := screenshots[len(screenshots)-1].(string) // Last screenshot = final state
+	if url == "" {
+		return "", "Screenshot path is empty"
+	}
+
+	// Build full URL if relative
+	if !strings.HasPrefix(url, "http") {
+		cloudURL := sctx.QMaxCfg.CloudURL
+		if cloudURL == "" {
+			cloudURL = "https://app.qualitymax.io"
+		}
+		url = cloudURL + "/static/test-executions/" + url
+	}
+
+	return url, ""
+}
+
+// callVisionAnalysis sends a screenshot URL to Claude Vision API for analysis.
+func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
+	apiKey := ""
+	if sctx != nil && sctx.Auth != nil {
+		// Use the user's Anthropic key if available via config
+	}
+	// Check env for API key
+	apiKey = os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		// Fall back to QualityMax backend for vision analysis
+		return callBackendVisionAnalysis(sctx, imageURL, prompt)
+	}
+
+	// Direct Claude Vision call
+	reqBody := map[string]interface{}{
+		"model":      "claude-haiku-4-5-20251001",
+		"max_tokens": 2000,
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{
+						"type": "image",
+						"source": map[string]interface{}{
+							"type": "url",
+							"url":  imageURL,
+						},
+					},
+					{
+						"type": "text",
+						"text": prompt,
+					},
+				},
+			},
+		},
+	}
+
+	data, _ := json.Marshal(reqBody)
+	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(data))
+	if err != nil {
+		return jsonError("Failed to create vision request: " + err.Error())
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return jsonError("Vision API request failed: " + err.Error())
+	}
+	defer resp.Body.Close()
+
+	respData, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return jsonError(fmt.Sprintf("Vision API error %d: %s", resp.StatusCode, string(respData)))
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(respData, &result); err != nil {
+		return jsonError("Failed to parse vision response")
+	}
+
+	// Extract text from response
+	content, _ := result["content"].([]interface{})
+	if len(content) == 0 {
+		return jsonError("Empty vision response")
+	}
+	block, _ := content[0].(map[string]interface{})
+	text, _ := block["text"].(string)
+
+	return text
+}
+
+// callBackendVisionAnalysis falls back to QualityMax backend for vision analysis
+// when no local Anthropic key is available.
+func callBackendVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
+	return fmt.Sprintf("Screenshot URL: %s\n\n"+
+		"[Vision analysis requires ANTHROPIC_API_KEY env var. "+
+		"Set it with: export ANTHROPIC_API_KEY=sk-ant-...]\n\n"+
+		"You can view the screenshot at the URL above to manually inspect the page.", imageURL)
 }

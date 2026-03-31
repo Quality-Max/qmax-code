@@ -101,6 +101,10 @@ func (c *APIClient) CheckTestStatus(ctx context.Context, executionID string) str
 	return c.get(ctx, "/api/playwright-execution/status/"+executionID)
 }
 
+func (c *APIClient) GetExecutionArtifact(ctx context.Context, executionID, artifactType string) string {
+	return c.get(ctx, fmt.Sprintf("/api/playwright-execution/artifacts/%s/%s", executionID, artifactType))
+}
+
 func (c *APIClient) ReportLocalResult(ctx context.Context, scriptID int, status, output, framework string, duration float64) string {
 	body := map[string]interface{}{
 		"script_id": scriptID,
