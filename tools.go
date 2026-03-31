@@ -274,6 +274,13 @@ func BuildToolDefs() []ToolDef {
 			)),
 		},
 		{
+			Name:        "get_project_by_slug",
+			Description: "Look up a project by its URL slug (e.g., 'amber-panda', 'oak-mango'). Use this when the user provides a project URL or slug instead of an ID.",
+			InputSchema: obj(props(
+				prop("slug", "string", "Project slug from URL (e.g., amber-panda)", true),
+			)),
+		},
+		{
 			Name:        "get_project_summary",
 			Description: "Get a project's summary including test case count, script count, and recent activity.",
 			InputSchema: obj(props(
@@ -635,6 +642,8 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		return api.UpdateProject(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "name"), strVal(input, "description"), strVal(input, "base_url"))
 	case "delete_project":
 		return api.DeleteProject(ctx, intVal(input, "project_id", 0))
+	case "get_project_by_slug":
+		return api.GetProjectBySlug(ctx, strVal(input, "slug"))
 	case "get_project_summary":
 		return api.GetProjectSummary(ctx, intVal(input, "project_id", sctx.ProjectID))
 
