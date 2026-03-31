@@ -396,6 +396,12 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 		switch v := sanitized[i].Content.(type) {
 		case string:
 			// valid — plain text message
+			// But if this is a "user" message that should contain tool_result blocks,
+			// a bare string causes "Input should be a valid list" errors.
+			// Wrap it in a content block array.
+			if msg.Role == "user" && strings.Contains(v, "tool_result") {
+				sanitized[i].Content = []ContentBlock{{Type: "text", Text: v}}
+			}
 		case []ContentBlock:
 			// valid — structured content blocks
 		case []interface{}:
@@ -404,10 +410,10 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 		case nil:
 			sanitized[i].Content = ""
 		default:
-			// Unknown scalar type — stringify it
+			// Unknown type — wrap in a content block array to satisfy the API
 			_ = v
 			data, _ := json.Marshal(sanitized[i].Content)
-			sanitized[i].Content = string(data)
+			sanitized[i].Content = []ContentBlock{{Type: "text", Text: string(data)}}
 		}
 	}
 
