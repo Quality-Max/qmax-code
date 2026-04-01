@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	Version = "1.6.0"
+	Version = "1.6.1"
 	Name    = "qmax-code"
 )
 
@@ -299,29 +299,6 @@ func runREPL(agent *Agent, quietMode bool) {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	// ESC key listener — double ESC cancels current operation (like Claude Code)
-	go func() {
-		buf := make([]byte, 1)
-		var lastEsc time.Time
-		for {
-			n, err := os.Stdin.Read(buf)
-			if err != nil || n == 0 {
-				continue
-			}
-			if buf[0] == 0x1b { // ESC
-				now := time.Now()
-				if now.Sub(lastEsc) < time.Second {
-					// Double ESC — cancel current operation
-					agent.CancelCurrent()
-					fmt.Fprintf(os.Stderr, "\r\033[K  ⏹ Cancelled (ESC ESC)\n")
-					lastEsc = time.Time{}
-				} else {
-					lastEsc = now
-				}
-			}
-		}
-	}()
 
 	go func() {
 		for sig := range sigCh {
