@@ -187,24 +187,18 @@ func (a *Agent) Run(prompt string) (string, error) {
 }
 
 // compressHistory summarizes old messages when history gets too large.
-const maxHistoryTokens = 50000 // rough estimate: compress when history exceeds this
+const maxHistoryTokens = 40000 // compress at 90% of ~45K practical limit
+const maxSessionMessages = 40  // hard limit — force compression after 40 messages (~20 turns)
 
 func (a *Agent) compressHistory() {
 	// Rough token estimate: 4 chars ≈ 1 token
 	totalChars := 0
 	for _, msg := range a.history {
-		switch v := msg.Content.(type) {
-		case string:
-			totalChars += len(v)
-		case []ContentBlock:
-			for _, block := range v {
-				totalChars += len(block.Text) + len(block.Content)
-			}
-		}
+		totalChars += estimateMessageChars(msg)
 	}
 
 	estimatedTokens := totalChars / 4
-	if estimatedTokens < maxHistoryTokens {
+	if estimatedTokens < maxHistoryTokens && len(a.history) < maxSessionMessages {
 		return // within budget
 	}
 
@@ -268,6 +262,36 @@ func (a *Agent) compressHistory() {
 
 // RunStreaming executes a prompt with real-time SSE streaming to the terminal.
 // BuildUserContent creates a content payload for a user message.
+// estimateMessageChars estimates the character count of a message's content,
+// handling both typed []ContentBlock and deserialized []interface{} from JSON.
+func estimateMessageChars(msg Message) int {
+	switch v := msg.Content.(type) {
+	case string:
+		return len(v)
+	case []ContentBlock:
+		n := 0
+		for _, block := range v {
+			n += len(block.Text) + len(block.Content)
+		}
+		return n
+	case []interface{}:
+		n := 0
+		for _, raw := range v {
+			if block, ok := raw.(map[string]interface{}); ok {
+				if text, ok := block["text"].(string); ok {
+					n += len(text)
+				}
+				if content, ok := block["content"].(string); ok {
+					n += len(content)
+				}
+			}
+		}
+		return n
+	default:
+		return 0
+	}
+}
+
 // If images are provided, it builds a multi-block content array (text + images).
 // Otherwise, it returns the plain string (simpler, lower token usage).
 func BuildUserContent(text string, images []ImageAttachment) interface{} {
