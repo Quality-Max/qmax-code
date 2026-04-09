@@ -113,7 +113,40 @@ func LoadSession(id string) (*Session, error) {
 		return nil, err
 	}
 
+	// Sanitize loaded messages — fix corrupted tool_use blocks
+	sanitizeSessionMessages(session.Messages)
+
 	return &session, nil
+}
+
+// sanitizeSessionMessages fixes common corruption issues in saved sessions:
+// - tool_use blocks missing Input field (causes Anthropic API 400 errors)
+// - tool_result blocks with nil Content
+func sanitizeSessionMessages(messages []Message) {
+	for i := range messages {
+		blocks, ok := messages[i].Content.([]interface{})
+		if !ok {
+			continue
+		}
+		for j, raw := range blocks {
+			block, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			blockType, _ := block["type"].(string)
+			if blockType == "tool_use" && block["input"] == nil {
+				block["input"] = map[string]interface{}{}
+				blocks[j] = block
+			}
+			if blockType == "tool_result" {
+				if block["content"] == nil || block["content"] == "" {
+					block["content"] = "{}"
+					blocks[j] = block
+				}
+			}
+		}
+		messages[i].Content = blocks
+	}
 }
 
 // LoadLastSession loads the most recently updated session.
