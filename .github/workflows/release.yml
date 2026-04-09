@@ -59,6 +59,7 @@ jobs:
       - name: Publish to public releases repo
         env:
           RELEASES_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
         run: |
           TAG="${GITHUB_REF_NAME}"
           if [ -z "$RELEASES_TOKEN" ]; then
@@ -87,5 +88,3 @@ jobs:
             --repo Quality-Max/qmax-code-releases \
             --title "${TAG}" \
             --notes "See full release notes: https://github.com/Quality-Max/qmax-code/releases/tag/${TAG}"
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
