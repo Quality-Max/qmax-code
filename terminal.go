@@ -229,6 +229,11 @@ func (t *Terminal) StreamText(text string) {
 	if !t.streaming {
 		t.streaming = true
 		t.streamBuf.Reset()
+		// Hide readline prompt during streaming to prevent input overlap
+		if t.rl != nil {
+			t.rl.SetPrompt("")
+			t.rl.Refresh()
+		}
 		fmt.Println() // newline before assistant response
 	}
 	fmt.Print(text)
@@ -260,6 +265,10 @@ func (t *Terminal) FinishMarkdown(fullText string) {
 		t.streamBuf.Reset()
 		if !strings.HasSuffix(fullText, "\n") {
 			fmt.Println()
+		}
+		// Restore readline prompt after streaming completes
+		if t.rl != nil && t.currentPrompt != "" {
+			t.rl.SetPrompt(t.currentPrompt)
 		}
 	}
 }
