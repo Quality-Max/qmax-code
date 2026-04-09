@@ -63,6 +63,9 @@ func SaveSession(sessionID string, history []Message, projectID int, usage Token
 		return err
 	}
 
+	// Sanitize before saving to prevent persisting corruption
+	sanitizeSessionMessages(history)
+
 	// Count user turns
 	turns := 0
 	for _, msg := range history {
@@ -113,7 +116,58 @@ func LoadSession(id string) (*Session, error) {
 		return nil, err
 	}
 
+	// Sanitize loaded messages — fix corrupted tool_use blocks
+	sanitizeSessionMessages(session.Messages)
+
 	return &session, nil
+}
+
+// sanitizeSessionMessages fixes common corruption issues in saved sessions:
+// - tool_use blocks missing Input field (causes Anthropic API 400 errors)
+// - text blocks with extra Input field (causes "Extra inputs are not permitted")
+// - tool_result blocks with nil Content
+func sanitizeSessionMessages(messages []Message) {
+	for i := range messages {
+		blocks, ok := messages[i].Content.([]interface{})
+		if !ok {
+			continue
+		}
+		for j, raw := range blocks {
+			block, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			blockType, _ := block["type"].(string)
+
+			// tool_use must have input
+			if blockType == "tool_use" && block["input"] == nil {
+				block["input"] = map[string]interface{}{}
+				blocks[j] = block
+			}
+
+			// text blocks must NOT have input, id, name, tool_use_id
+			if blockType == "text" {
+				delete(block, "input")
+				delete(block, "id")
+				delete(block, "name")
+				delete(block, "tool_use_id")
+				blocks[j] = block
+			}
+
+			// tool_result must have content
+			if blockType == "tool_result" {
+				if block["content"] == nil || block["content"] == "" {
+					block["content"] = "{}"
+					blocks[j] = block
+				}
+				// tool_result must NOT have input
+				delete(block, "input")
+				delete(block, "name")
+				blocks[j] = block
+			}
+		}
+		messages[i].Content = blocks
+	}
 }
 
 // LoadLastSession loads the most recently updated session.

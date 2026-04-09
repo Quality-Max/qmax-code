@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,7 +38,37 @@ func (c *APIClient) ListProjects(ctx context.Context) string {
 }
 
 func (c *APIClient) GetProjectBySlug(ctx context.Context, slug string) string {
-	return c.get(ctx, "/api/projects/by-slug/"+slug)
+	// Try exact slug first
+	result := c.get(ctx, "/api/projects/by-slug/"+slug)
+	if !strings.Contains(result, "not found") && !strings.Contains(result, "404") {
+		return result
+	}
+
+	// Slug not found — search by name/key in all projects
+	listResult := c.get(ctx, "/api/projects?limit=200")
+
+	// Parse the projects list and find a fuzzy match
+	var listResp struct {
+		Projects []struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+			Key  string `json:"key"`
+			Slug string `json:"slug"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal([]byte(listResult), &listResp); err != nil {
+		return result // Return original 404
+	}
+
+	query := strings.ToLower(slug)
+	for _, p := range listResp.Projects {
+		if strings.ToLower(p.Name) == query || strings.ToLower(p.Key) == query ||
+			strings.Contains(strings.ToLower(p.Name), query) {
+			return c.get(ctx, fmt.Sprintf("/api/projects/by-slug/%s", p.Slug))
+		}
+	}
+
+	return result // No match found, return original 404
 }
 
 // --- Test case operations ---
@@ -88,8 +119,16 @@ func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, br
 }
 
 func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string) string {
+	// Parse comma-separated string into integer array for JSON serialization
+	var ids []int
+	for _, s := range strings.Split(scriptIDs, ",") {
+		s = strings.TrimSpace(s)
+		if id, err := strconv.Atoi(s); err == nil {
+			ids = append(ids, id)
+		}
+	}
 	body := map[string]interface{}{
-		"script_ids": scriptIDs,
+		"script_ids": ids,
 	}
 	if baseURL != "" {
 		body["base_url"] = baseURL
