@@ -63,6 +63,9 @@ func SaveSession(sessionID string, history []Message, projectID int, usage Token
 		return err
 	}
 
+	// Sanitize before saving to prevent persisting corruption
+	sanitizeSessionMessages(history)
+
 	// Count user turns
 	turns := 0
 	for _, msg := range history {

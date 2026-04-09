@@ -152,3 +152,46 @@ func TestLoadLastSession(t *testing.T) {
 		t.Errorf("Should load most recent session, got %s", session.ID)
 	}
 }
+
+func TestSanitizeSessionMessages(t *testing.T) {
+	// Simulate corrupted messages as they come from JSON deserialization
+	messages := []Message{
+		{
+			Role: "assistant",
+			Content: []interface{}{
+				map[string]interface{}{
+					"type":  "text",
+					"text":  "hello",
+					"input": map[string]interface{}{}, // CORRUPTED: text blocks shouldn't have input
+				},
+			},
+		},
+		{
+			Role: "assistant",
+			Content: []interface{}{
+				map[string]interface{}{
+					"type":  "tool_use",
+					"id":    "abc",
+					"name":  "test",
+					// CORRUPTED: missing input field
+				},
+			},
+		},
+	}
+
+	sanitizeSessionMessages(messages)
+
+	// Check text block — input should be removed
+	blocks0 := messages[0].Content.([]interface{})
+	block0 := blocks0[0].(map[string]interface{})
+	if _, exists := block0["input"]; exists {
+		t.Error("text block still has 'input' field after sanitization")
+	}
+
+	// Check tool_use block — input should be added
+	blocks1 := messages[1].Content.([]interface{})
+	block1 := blocks1[0].(map[string]interface{})
+	if block1["input"] == nil {
+		t.Error("tool_use block still has nil 'input' after sanitization")
+	}
+}
