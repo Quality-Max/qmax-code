@@ -54,7 +54,7 @@ type ContentBlock struct {
 	Text      string       `json:"text,omitempty"`
 	ID        string       `json:"id,omitempty"`
 	Name      string       `json:"name,omitempty"`
-	Input     interface{}  `json:"input"`
+	Input     interface{}  `json:"input,omitempty"`
 	ToolUseID string       `json:"tool_use_id,omitempty"`
 	Content   string       `json:"content,omitempty"`
 	Source    *ImageSource `json:"source,omitempty"` // for type="image"
