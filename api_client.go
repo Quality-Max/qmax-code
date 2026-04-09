@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -88,8 +89,16 @@ func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, br
 }
 
 func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string) string {
+	// Parse comma-separated string into integer array for JSON serialization
+	var ids []int
+	for _, s := range strings.Split(scriptIDs, ",") {
+		s = strings.TrimSpace(s)
+		if id, err := strconv.Atoi(s); err == nil {
+			ids = append(ids, id)
+		}
+	}
 	body := map[string]interface{}{
-		"script_ids": scriptIDs,
+		"script_ids": ids,
 	}
 	if baseURL != "" {
 		body["base_url"] = baseURL
