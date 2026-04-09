@@ -121,6 +121,7 @@ func LoadSession(id string) (*Session, error) {
 
 // sanitizeSessionMessages fixes common corruption issues in saved sessions:
 // - tool_use blocks missing Input field (causes Anthropic API 400 errors)
+// - text blocks with extra Input field (causes "Extra inputs are not permitted")
 // - tool_result blocks with nil Content
 func sanitizeSessionMessages(messages []Message) {
 	for i := range messages {
@@ -134,15 +135,32 @@ func sanitizeSessionMessages(messages []Message) {
 				continue
 			}
 			blockType, _ := block["type"].(string)
+
+			// tool_use must have input
 			if blockType == "tool_use" && block["input"] == nil {
 				block["input"] = map[string]interface{}{}
 				blocks[j] = block
 			}
+
+			// text blocks must NOT have input, id, name, tool_use_id
+			if blockType == "text" {
+				delete(block, "input")
+				delete(block, "id")
+				delete(block, "name")
+				delete(block, "tool_use_id")
+				blocks[j] = block
+			}
+
+			// tool_result must have content
 			if blockType == "tool_result" {
 				if block["content"] == nil || block["content"] == "" {
 					block["content"] = "{}"
 					blocks[j] = block
 				}
+				// tool_result must NOT have input
+				delete(block, "input")
+				delete(block, "name")
+				blocks[j] = block
 			}
 		}
 		messages[i].Content = blocks
