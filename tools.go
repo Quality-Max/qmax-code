@@ -2133,12 +2133,7 @@ func getScreenshotURL(api *APIClient, executionID string, sctx *SessionContext) 
 
 // callVisionAnalysis sends a screenshot URL to Claude Vision API for analysis.
 func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
-	apiKey := ""
-	if sctx != nil && sctx.Auth != nil {
-		// Use the user's Anthropic key if available via config
-	}
-	// Check env for API key
-	apiKey = os.Getenv("ANTHROPIC_API_KEY")
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		// Fall back to QualityMax backend for vision analysis
 		return callBackendVisionAnalysis(sctx, imageURL, prompt)
