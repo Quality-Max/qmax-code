@@ -422,6 +422,7 @@ func runREPL(agent *Agent, quietMode bool) {
 				term.PrintError(fmt.Sprintf("Cannot resume: %v", loadErr))
 				term.PrintSystem("Use /sessions to see available sessions")
 			} else {
+				sanitizeSessionMessages(session.Messages)
 				agent.history = session.Messages
 				agent.usage = session.Usage
 				sessionID = session.ID

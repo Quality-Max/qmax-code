@@ -346,7 +346,8 @@ func (a *Agent) RunStreaming(prompt string, term *Terminal) (string, error) {
 
 func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 	for iterations := 0; iterations < 20; iterations++ {
-		// Compress history before each API call to stay within token budget
+		// Sanitize + compress history before each API call
+		sanitizeSessionMessages(a.history)
 		a.compressHistory()
 		model := a.modelForIteration(iterations)
 		if a.config.Verbose {
