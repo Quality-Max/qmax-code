@@ -1,0 +1,114 @@
+name: QualityMax Go Tests
+
+on:
+  push:
+    branches: [test]
+  pull_request:
+    branches: [test]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL for tests (leave empty for default)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  test:
+    name: Run Go Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Run tests
+        id: gotest
+        env:
+          BASE_URL: ${{ inputs.base_url || vars.QAMAX_BASE_URL || '' }}
+        run: |
+          set +e
+          go test -json -v ./... 2>&1 | tee gotest.json
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          # Aggregate counts from the JSON event stream
+          PASSED=$(grep -c '"Action":"pass"' gotest.json || true)
+          FAILED=$(grep -c '"Action":"fail"' gotest.json || true)
+          SKIPPED=$(grep -c '"Action":"skip"' gotest.json || true)
+          # Strip top-level package fail/pass events to count individual tests
+          # (each test fires both a test-level and package-level event)
+          PASSED=$((PASSED / 2))
+          FAILED=$((FAILED / 2))
+          TOTAL=$((PASSED + FAILED + SKIPPED))
+
+          if [ $TEST_EXIT_CODE -eq 0 ]; then
+            RESULT="passed"
+          else
+            RESULT="failed"
+          fi
+
+          echo "result=$RESULT" >> $GITHUB_OUTPUT
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          echo "Test Results: $PASSED/$TOTAL passed"
+          exit $TEST_EXIT_CODE
+
+      - name: Report results to QualityMax
+        if: always()
+        env:
+          QAMAX_API_KEY: ${{ secrets.QAMAX_API_KEY }}
+          QAMAX_PROJECT_ID: ${{ vars.QAMAX_PROJECT_ID || '164' }}
+        run: |
+          curl -s -X POST "https://app.qualitymax.io/api/github-action/report-external" \
+            -H "X-API-Key: $QAMAX_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"project_id\": \"$QAMAX_PROJECT_ID\",
+              \"framework\": \"go_test\",
+              \"result\": \"${{ steps.gotest.outputs.result || 'failed' }}\",
+              \"passed_tests\": ${{ steps.gotest.outputs.passed || 0 }},
+              \"failed_tests\": ${{ steps.gotest.outputs.failed || 0 }},
+              \"total_tests\": ${{ steps.gotest.outputs.total || 0 }},
+              \"github_context\": {
+                \"repository\": \"${{ github.repository }}\",
+                \"ref\": \"${{ github.ref }}\",
+                \"sha\": \"${{ github.sha }}\",
+                \"run_id\": \"${{ github.run_id }}\"
+              }
+            }" || true
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gotest-results
+          path: gotest.json
+          retention-days: 30
