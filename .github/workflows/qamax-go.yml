@@ -1,0 +1,137 @@
+name: QualityMax Go Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL for tests (leave empty for default)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  test:
+    name: Run Go Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Run tests
+        id: gotest
+        env:
+          BASE_URL: ${{ inputs.base_url || vars.QAMAX_BASE_URL || '' }}
+        run: |
+          set +e
+          go test -json -v ./... 2>&1 | tee gotest.json
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          # Parse counts from the JSON event stream using jq.
+          # Only count events that have a "Test" field (individual tests),
+          # not package-level events (which have no "Test" key).
+          PASSED=$(jq -r 'select(.Test != null and .Action == "pass") | .Test' gotest.json 2>/dev/null | wc -l | tr -d ' ')
+          FAILED=$(jq -r 'select(.Test != null and .Action == "fail") | .Test' gotest.json 2>/dev/null | wc -l | tr -d ' ')
+          SKIPPED=$(jq -r 'select(.Test != null and .Action == "skip") | .Test' gotest.json 2>/dev/null | wc -l | tr -d ' ')
+          PASSED=${PASSED:-0}
+          FAILED=${FAILED:-0}
+          SKIPPED=${SKIPPED:-0}
+          TOTAL=$((PASSED + FAILED + SKIPPED))
+
+          if [ $TEST_EXIT_CODE -eq 0 ]; then
+            RESULT="passed"
+          else
+            RESULT="failed"
+          fi
+
+          echo "result=$RESULT" >> $GITHUB_OUTPUT
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          echo "Test Results: $PASSED/$TOTAL passed"
+          exit $TEST_EXIT_CODE
+
+      - name: Report results to QualityMax
+        if: always()
+        env:
+          QAMAX_API_KEY: ${{ secrets.QAMAX_API_KEY }}
+          QAMAX_PROJECT_ID: ${{ vars.QAMAX_PROJECT_ID || '164' }}
+        run: |
+          # Build JSON payload safely using jq to avoid shell injection
+          PAYLOAD=$(jq -n \
+            --arg project_id "$QAMAX_PROJECT_ID" \
+            --arg framework "go_test" \
+            --arg result "${{ steps.gotest.outputs.result || 'failed' }}" \
+            --argjson passed "${{ steps.gotest.outputs.passed || 0 }}" \
+            --argjson failed "${{ steps.gotest.outputs.failed || 0 }}" \
+            --argjson total "${{ steps.gotest.outputs.total || 0 }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg ref "${{ github.ref }}" \
+            --arg sha "${{ github.sha }}" \
+            --arg run_id "${{ github.run_id }}" \
+            '{
+              project_id: $project_id,
+              framework: $framework,
+              result: $result,
+              passed_tests: $passed,
+              failed_tests: $failed,
+              total_tests: $total,
+              github_context: {
+                repository: $repo,
+                ref: $ref,
+                sha: $sha,
+                run_id: $run_id
+              }
+            }')
+
+          # Report to QualityMax (fail visibly on error instead of silent || true)
+          HTTP_CODE=$(curl -s -o /tmp/qamax-response.txt -w "%{http_code}" \
+            -X POST "https://app.qualitymax.io/api/github-action/report-external" \
+            -H "X-API-Key: $QAMAX_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::warning::QualityMax report failed (HTTP $HTTP_CODE): $(cat /tmp/qamax-response.txt)"
+          else
+            echo "QualityMax report submitted (HTTP $HTTP_CODE)"
+          fi
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gotest-results
+          path: gotest.json
+          retention-days: 30
