@@ -1,0 +1,63 @@
+# Changelog
+
+All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
+
+## [1.8.3] — 2026-04-14
+
+### Added
+- **`qmax-code config` subcommand** — `config show`, `config set KEY VALUE`, `config unset KEY`, `config reset`. Strict validation: rejects invalid frameworks, wrong int/bool types, unknown keys. Replaces the "hand-edit ~/.qmax-code/config.json" workflow called out in the PR #29 review.
+
+### Changed
+- **Enriched "framework not supported for local execution" error** — now explains *why* native frameworks run server-side (toolchain weight, `$GOPATH` / `$CARGO_HOME` pollution) so users understand the tradeoff without a support ticket.
+- **`pruneToolUse` placeholder consolidation** — typed-vs-map placeholders now share a single `orphanPlaceholderText` constant via `orphanPlaceholderTyped()` / `orphanPlaceholderMap()` helpers. Closes the shape-drift risk flagged in the PR #29 review (adding a new `ContentBlock` field no longer risks the `[]interface{}` path diverging silently).
+- **Added `empty-vs-missing framework` comment** in the `generate_test_code` dispatcher so future maintainers know the fallback-to-DefaultFramework semantics are intentional.
+
+### Tests
+- **5 new `stripOrphanedToolUse` tests** — empty history, multi-loop pairing, reverse orphan (tool_result without tool_use), nil content, trailing edge case.
+- **4 new `detectProjectFramework` tests** — `go.sum` without `go.mod`, symlinked marker files, quadruple-framework priority, non-existent dir.
+- **1 new forward-compat test** — loads a pre-1.8.0 config JSON (no `default_framework`) and verifies no crash + all legacy fields preserved + new field defaults to empty.
+- **8 new `config set` tests** — happy path, bad value rejection, unset semantics, int parsing, bool forms (true/yes/1/on vs false/no/0/off/""), unknown-key rejection, disk persistence, `parseConfigBool` table.
+
+### Docs
+- **CHANGELOG.md added** — versioned changelog for the 1.7.0 → 1.8.x history.
+
+## [1.8.2] — 2026-04-14
+
+### Fixed (security + review findings from PR #29)
+- **XSS in Console tab rendering** — `log.type` was unsanitized at 3 DOM sites; now whitelisted to `/^[a-z_-]{1,16}$/` with fallback to `"log"`. (Surfaces via qa-rag-app UI; client-side defense in depth.)
+- **Error-code prefix round-trip** — `doRequest` now parses both FastAPI `{"detail": "..."}` and MCP `{"success": false, "error": "[CODE] ..."}` envelopes. `[NOT_FOUND]` / `[FORBIDDEN]` / `[BAD_REQUEST]` prefixes propagate intact so callers can parse intent when HTTP status alone isn't in scope.
+- **Client-side framework allow-list** — `validateFramework` + `allowedFrameworks` whitelist. `GenerateTestCode` and `SetupCICD` short-circuit before posting if the framework value is invalid.
+- **Wizard confirmation prompt** — first-run framework detection is no longer silently saved. Users explicitly pick "Yes, save it" vs "No, I'll pick per-call".
+- **Fallback message on empty detection** — when the wizard can't identify a framework, it now says so and points at `--framework` / config.json instead of silently moving on.
+- **Orphaned `tool_use` stripper** (`stripOrphanedToolUse`) — fixes the `API error 400: messages.N.content: Input should be a valid list` crash that hit live sessions when tools failed or users interrupted mid-loop. Detects assistant messages with `tool_use` blocks whose matching `tool_result` isn't in the next message, prunes them (keeping text), inserts a placeholder when stripping would leave the message empty.
+- **`runLocalTest` doc comment** — clarifies the pytest/playwright=local vs rust_cargo/go_test=server dispatch semantics.
+
+### Added
+- **`run_native_test` MCP tool** — executes Rust (`cargo test`) / Go (`go test -json ./...`) automation scripts via `POST /api/automation/execute` and returns a normalized result (status, passed/failed/total, console_logs, test_output, test_errors).
+- **`setup_cicd` MCP tool** — creates a GitHub Actions workflow PR on the linked repo. Auto-detects the framework from the repo's language analysis; for Rust, auto-detects apt packages from Cargo.lock.
+- **`framework` param on `generate_test_code`** — previously hardcoded Playwright; now accepts `playwright / pytest / rust_cargo / go_test` and defaults to `DefaultFramework` from config when omitted.
+- **First-run wizard framework detection** — `detectProjectFramework` checks cwd for `Cargo.toml`, `go.mod`, `playwright.config.*`, `pyproject.toml` / `pytest.ini` / `tox.ini`. Priority: Rust > Go > Playwright > pytest.
+- **`qmax-code config` subcommand** — `config show`, `config set KEY VALUE`, `config unset KEY`, `config reset`. Edit `default_framework`, `default_project`, `default_model`, `professional`, `auto_save`, `max_token_budget` without hand-editing JSON.
+- **Enriched "framework not supported for local execution" error** — now explains why native frameworks run server-side (toolchain weight + `$GOPATH` / `$CARGO_HOME` pollution avoidance) and points at `run_native_test`.
+
+### Tests
+- **11 new HTTP tests** (`api_client_native_test.go`) — httptest.Server-based coverage of `RunNativeTest`, `SetupCICD`, `GenerateTestCode(framework)` body shapes + error prefix round-trip.
+- **6 + 5 new tests** for `stripOrphanedToolUse` (paired no-op, orphan strip, placeholder insertion, `[]interface{}` shape, partial match, trailing, empty history, multi-loop, reverse orphan, nil content).
+- **14 + 4 new tests** for `detectProjectFramework` (every marker file, polyglot priority, triple priority, symlinked marker, `go.sum` without `go.mod`, non-existent dir).
+- **Config round-trip forward-compat test** — loads a pre-1.8.0 config JSON (missing `default_framework`) and verifies upgrade doesn't crash or lose existing fields.
+
+### Related
+- Client-side counterpart of Quality-Max/qamax-rag-app#387 (server-side MCP tools).
+- Follow-up on the diff-analysis prompt guards from Quality-Max/qamax-rag-app#385.
+
+## [1.8.1] — 2026-04-14
+
+Internal patch — subsumed by 1.8.2. Shipped only the orphaned `tool_use` stripper to unblock a live session; the full review fix cycle landed in 1.8.2.
+
+## [1.8.0] — 2026-04-14
+
+Internal patch — subsumed by 1.8.2. Shipped the initial Rust/Go support (new tools, API methods, wizard detection).
+
+## [1.7.0] — 2026-04-09
+
+Previous release. Session stability, batch arrays, project lookup, terminal fixes.

@@ -582,6 +582,13 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		// go_test, etc.). Lets Rust/Go users run `qmax-code generate` and
 		// get native scripts without having to spell out the framework
 		// on every call.
+		//
+		// Intentional: omitted-field and empty-string are treated the same
+		// here. Users who want to FORCE server-side auto-detect (bypassing
+		// DefaultFramework) should remove DefaultFramework from their config
+		// rather than trying to pass framework="". The alternative (using
+		// map key presence to distinguish) would leak JSON-parsing quirks
+		// into the agent loop and trips up nearly every LLM.
 		fw := strVal(input, "framework")
 		if fw == "" {
 			if cfg := LoadQMaxCodeConfig(); cfg != nil {
@@ -908,7 +915,13 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 			"Framework '%s' not supported for local execution. "+
 				"Supported locally: pytest, playwright. "+
 				"For rust_cargo/go_test scripts, use the run_native_test tool — "+
-				"it runs on the QualityMax server with the full cargo/go toolchain.",
+				"it runs on the QualityMax server runner which ships the full "+
+				"cargo + rustc toolchain and a Go 1.22+ module cache. "+
+				"(Local execution of those frameworks would require us to "+
+				"scaffold a Cargo.toml / go.mod per run, plus download a few "+
+				"hundred MB of dependencies on your machine — running on the "+
+				"server is faster and avoids polluting your local $GOPATH / "+
+				"$CARGO_HOME.)",
 			framework,
 		))
 	}

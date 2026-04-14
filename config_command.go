@@ -1,0 +1,158 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
+
+// handleConfigCommand implements the `qmax-code config ...` subcommand
+// family. The flag package is avoided here on purpose — subcommand args
+// don't fit its one-parse-at-start model, and the surface is small enough
+// that manual parsing is clearer.
+//
+// Usage:
+//
+//	qmax-code config                   → print current values
+//	qmax-code config show              → same as above (explicit)
+//	qmax-code config set KEY VALUE     → set a single field
+//	qmax-code config unset KEY         → clear a single field
+//	qmax-code config reset             → wipe to defaults
+//
+// Supported keys mirror the public Config fields:
+//
+//	default_framework → "", "playwright", "pytest", "rust_cargo", "go_test"
+//	default_project   → integer project ID
+//	default_model     → "auto", "sonnet", "opus", "haiku", or full model ID
+//	professional      → bool ("true" / "false")
+//	auto_save         → bool
+//	max_token_budget  → integer
+func handleConfigCommand(args []string) {
+	if len(args) == 0 || args[0] == "show" {
+		printConfig()
+		return
+	}
+
+	switch args[0] {
+	case "set":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: qmax-code config set KEY VALUE")
+			os.Exit(2)
+		}
+		if err := setConfigField(args[1], args[2]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("  Set %s = %s\n", args[1], args[2])
+
+	case "unset":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: qmax-code config unset KEY")
+			os.Exit(2)
+		}
+		if err := setConfigField(args[1], ""); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("  Cleared %s\n", args[1])
+
+	case "reset":
+		cfg := defaultConfig()
+		if err := cfg.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("  Config reset to defaults")
+
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown config command: %s\n", args[0])
+		fmt.Fprintln(os.Stderr, "Try: qmax-code config [show|set|unset|reset]")
+		os.Exit(2)
+	}
+}
+
+func printConfig() {
+	cfg := LoadQMaxCodeConfig()
+	fmt.Println("  Current config (~/.qmax-code/config.json):")
+	fmt.Printf("    default_model     = %q\n", cfg.DefaultModel)
+	fmt.Printf("    default_project   = %d\n", cfg.DefaultProject)
+	fmt.Printf("    default_framework = %q\n", cfg.DefaultFramework)
+	fmt.Printf("    professional      = %t\n", cfg.Professional)
+	fmt.Printf("    auto_save         = %t\n", cfg.AutoSave)
+	fmt.Printf("    max_token_budget  = %d\n", cfg.MaxTokenBudget)
+	if cfg.AnthropicKey != "" {
+		fmt.Println("    anthropic_key     = (set; stored in OS keychain)")
+	} else {
+		fmt.Println("    anthropic_key     = (not set)")
+	}
+}
+
+// setConfigField writes the given value into the Config. Empty value
+// clears the field (same semantics as `unset`). Validation is strict —
+// wrong value types return an error so users find out immediately rather
+// than discovering a silently-ignored setting later.
+func setConfigField(key, value string) error {
+	cfg := LoadQMaxCodeConfig()
+
+	switch key {
+	case "default_framework":
+		if value != "" && !allowedFrameworks[value] {
+			return fmt.Errorf("invalid framework %q; allowed: playwright, pytest, go, rust, go_test, rust_cargo", value)
+		}
+		cfg.DefaultFramework = value
+
+	case "default_project":
+		if value == "" {
+			cfg.DefaultProject = 0
+		} else {
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("default_project must be an integer, got %q", value)
+			}
+			cfg.DefaultProject = n
+		}
+
+	case "default_model":
+		cfg.DefaultModel = value
+
+	case "professional":
+		b, err := parseConfigBool(value)
+		if err != nil {
+			return err
+		}
+		cfg.Professional = b
+
+	case "auto_save":
+		b, err := parseConfigBool(value)
+		if err != nil {
+			return err
+		}
+		cfg.AutoSave = b
+
+	case "max_token_budget":
+		if value == "" {
+			cfg.MaxTokenBudget = 200000
+		} else {
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("max_token_budget must be an integer, got %q", value)
+			}
+			cfg.MaxTokenBudget = n
+		}
+
+	default:
+		return fmt.Errorf("unknown config key %q", key)
+	}
+
+	return cfg.Save()
+}
+
+func parseConfigBool(s string) (bool, error) {
+	switch s {
+	case "", "false", "no", "0", "off":
+		return false, nil
+	case "true", "yes", "1", "on":
+		return true, nil
+	}
+	return false, fmt.Errorf("expected true/false, got %q", s)
+}

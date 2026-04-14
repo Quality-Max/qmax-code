@@ -145,3 +145,84 @@ func TestStripOrphanedToolUse_LastMessageIsAssistantToolUse(t *testing.T) {
 		}
 	}
 }
+
+func TestStripOrphanedToolUse_EmptyHistory(t *testing.T) {
+	// Defensive: empty history is a valid input (fresh session, first turn).
+	// Must not panic, must return empty slice.
+	out := stripOrphanedToolUse([]Message{})
+	if len(out) != 0 {
+		t.Errorf("empty input should return empty output, got %v", out)
+	}
+	// Also nil.
+	out2 := stripOrphanedToolUse(nil)
+	if len(out2) != 0 {
+		t.Errorf("nil input should return empty output, got %v", out2)
+	}
+}
+
+func TestStripOrphanedToolUse_MultipleSeparateToolLoops(t *testing.T) {
+	// Two independent tool loops in history. Each is paired internally.
+	// The function must not conflate tool_result from loop A with tool_use
+	// from loop B — even though matching is ID-exact, this guards against
+	// future regressions in the collector/matcher logic.
+	msgs := []Message{
+		{Role: "user", Content: "run A"},
+		{Role: "assistant", Content: []ContentBlock{{Type: "tool_use", ID: "A1", Name: "a"}}},
+		{Role: "user", Content: []ContentBlock{{Type: "tool_result", ToolUseID: "A1", Content: "ok"}}},
+		{Role: "assistant", Content: []ContentBlock{{Type: "text", Text: "done"}}},
+		{Role: "user", Content: "run B"},
+		{Role: "assistant", Content: []ContentBlock{{Type: "tool_use", ID: "B1", Name: "b"}}},
+		{Role: "user", Content: []ContentBlock{{Type: "tool_result", ToolUseID: "B1", Content: "ok"}}},
+	}
+	out := stripOrphanedToolUse(msgs)
+	// Both assistant messages with tool_use should keep them intact.
+	for _, i := range []int{1, 5} {
+		blocks := out[i].Content.([]ContentBlock)
+		hasToolUse := false
+		for _, b := range blocks {
+			if b.Type == "tool_use" {
+				hasToolUse = true
+			}
+		}
+		if !hasToolUse {
+			t.Errorf("paired tool_use at msg %d was wrongly stripped: %+v", i, blocks)
+		}
+	}
+}
+
+func TestStripOrphanedToolUse_OrphanedToolResultLeftAlone(t *testing.T) {
+	// Reverse orphan: a user message with tool_result blocks but NO
+	// preceding assistant tool_use. This shouldn't happen naturally but
+	// can appear after history compression drops the assistant. The
+	// function's job is only to strip orphaned tool_USE — orphaned
+	// tool_RESULT is the session sanitizer's job (session.go). Make
+	// sure we don't touch those.
+	msgs := []Message{
+		{Role: "user", Content: "start"},
+		{Role: "assistant", Content: []ContentBlock{{Type: "text", Text: "hi"}}},
+		{Role: "user", Content: []ContentBlock{
+			{Type: "tool_result", ToolUseID: "orphan-1", Content: "ghost"},
+		}},
+	}
+	out := stripOrphanedToolUse(msgs)
+	// User message at index 2 must still have its tool_result block —
+	// the Anthropic server will reject it eventually, but that's not
+	// this function's concern.
+	blocks, ok := out[2].Content.([]ContentBlock)
+	if !ok {
+		t.Fatalf("expected []ContentBlock at msg 2, got %T", out[2].Content)
+	}
+	if len(blocks) != 1 || blocks[0].Type != "tool_result" {
+		t.Errorf("orphaned tool_result was unexpectedly modified: %+v", blocks)
+	}
+}
+
+func TestStripOrphanedToolUse_NilContent(t *testing.T) {
+	// After session save/load there have been cases where Content ends
+	// up nil (e.g. corrupted row). Must not panic.
+	msgs := []Message{
+		{Role: "user", Content: nil},
+		{Role: "assistant", Content: nil},
+	}
+	_ = stripOrphanedToolUse(msgs) // no crash → pass
+}

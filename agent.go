@@ -1001,7 +1001,7 @@ func stripOrphanedToolUse(messages []Message) []Message {
 				kept = append(kept, b)
 			}
 			if len(kept) == 0 {
-				kept = append(kept, ContentBlock{Type: "text", Text: "[tool call dropped — no matching result]"})
+				kept = append(kept, orphanPlaceholderTyped())
 			}
 			return kept
 		case []interface{}:
@@ -1015,10 +1015,7 @@ func stripOrphanedToolUse(messages []Message) []Message {
 				kept = append(kept, raw)
 			}
 			if len(kept) == 0 {
-				kept = append(kept, map[string]interface{}{
-					"type": "text",
-					"text": "[tool call dropped — no matching result]",
-				})
+				kept = append(kept, orphanPlaceholderMap())
 			}
 			return kept
 		}
@@ -1058,4 +1055,21 @@ func stripOrphanedToolUse(messages []Message) []Message {
 		}
 	}
 	return messages
+}
+
+// orphanPlaceholderText is the user-visible message we substitute when
+// stripping tool_use blocks would leave an assistant message empty (which
+// Anthropic rejects). Kept as a single source so the typed and map-shaped
+// placeholders emitted by pruneToolUse stay in sync.
+const orphanPlaceholderText = "[tool call dropped — no matching result]"
+
+func orphanPlaceholderTyped() ContentBlock {
+	return ContentBlock{Type: "text", Text: orphanPlaceholderText}
+}
+
+func orphanPlaceholderMap() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "text",
+		"text": orphanPlaceholderText,
+	}
 }

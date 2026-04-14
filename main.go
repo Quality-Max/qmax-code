@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	Version = "1.8.2"
+	Version = "1.8.3"
 	Name    = "qmax-code"
 )
 
@@ -43,6 +43,17 @@ func main() {
 	InitErrorReporting()
 	defer FlushErrorReporting()
 	defer RecoverPanic()
+
+	// Handle "config" subcommand — lets users change persisted settings
+	// without hand-editing ~/.qmax-code/config.json.
+	//
+	//   qmax-code config                              → show current config
+	//   qmax-code config set default_framework rust_cargo
+	//   qmax-code config unset default_framework
+	if len(os.Args) > 1 && os.Args[1] == "config" {
+		handleConfigCommand(os.Args[2:])
+		return
+	}
 
 	// Handle "login" subcommand before flag parsing
 	if len(os.Args) > 1 && os.Args[1] == "login" {
