@@ -66,17 +66,33 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 
 	// Step 2.5: Detect the project's framework from the local working
 	// directory so the agent can default `generate_test_code` to the right
-	// value without the user having to specify it on every call. This is
-	// a pure filesystem check — no network, no config writes unless the
-	// user confirms.
+	// value without the user having to specify it on every call. We ask for
+	// confirmation before saving — users often run `qmax-code login` from
+	// the wrong cwd on first setup (e.g. ~/), and a silent save would stick
+	// them with a stale default.
 	detected := detectProjectFramework(".")
 	if detected != "" {
 		fmt.Println()
 		fmt.Printf("  Detected a %s project in this directory.\n", prettyFrameworkName(detected))
-		fmt.Printf("  I'll default new test generations to %s.\n", detected)
-		cfg := LoadQMaxCodeConfig()
-		cfg.DefaultFramework = detected
-		_ = cfg.Save()
+		confirm := promptChoice(
+			fmt.Sprintf("  Save %s as the default framework for future test generation?", detected),
+			[]string{"Yes, save it", "No, I'll pick per-call"},
+		)
+		if confirm == 0 {
+			cfg := LoadQMaxCodeConfig()
+			cfg.DefaultFramework = detected
+			_ = cfg.Save()
+			fmt.Printf("  Saved. You can change it later by editing ~/.qmax-code/config.json.\n")
+		} else {
+			fmt.Println("  OK, I'll ask for the framework each time.")
+		}
+	} else {
+		// Silent success is confusing — users should know detection ran
+		// and came back empty so they know to pass --framework explicitly.
+		fmt.Println()
+		fmt.Println("  Couldn't auto-detect a framework in this directory.")
+		fmt.Println("  Pass --framework rust_cargo | go_test | playwright | pytest when")
+		fmt.Println("  generating tests, or set it in ~/.qmax-code/config.json.")
 	}
 
 	// Step 3: Anthropic key check

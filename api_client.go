@@ -92,7 +92,39 @@ func (c *APIClient) ListScripts(ctx context.Context, projectID, limit int) strin
 	return c.get(ctx, path)
 }
 
+// allowedFrameworks is the whitelist the server (qa-rag-app/services/
+// github_action_setup_service.py::_ALLOWED_FRAMEWORKS) accepts. We enforce
+// it client-side too so bad values get rejected before hitting the wire —
+// saves a DB round-trip and gives the agent a clearer error message.
+// Keep in sync with the server list.
+var allowedFrameworks = map[string]bool{
+	"":           true, // omitted → server auto-detects
+	"playwright": true,
+	"pytest":     true,
+	"go":         true,
+	"rust":       true,
+	"go_test":    true,
+	"rust_cargo": true,
+	"cargo":      true,
+}
+
+// validateFramework returns an error string (JSON-encoded) if the value is
+// outside the allow-list, or "" if OK. Callers can short-circuit before
+// doing the HTTP POST.
+func validateFramework(framework string) string {
+	if allowedFrameworks[framework] {
+		return ""
+	}
+	return jsonError(fmt.Sprintf(
+		"Invalid framework %q. Allowed: playwright, pytest, go, rust, go_test, rust_cargo",
+		framework,
+	))
+}
+
 func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force bool, framework string) string {
+	if err := validateFramework(framework); err != "" {
+		return err
+	}
 	body := map[string]interface{}{
 		"test_case_id": testCaseID,
 	}
@@ -148,6 +180,9 @@ func (c *APIClient) RunNativeTest(ctx context.Context, scriptID int, baseURL str
 // the repo's analyzed languages. For Rust repos the server auto-detects
 // apt packages from Cargo.lock and injects them into the generated workflow.
 func (c *APIClient) SetupCICD(ctx context.Context, repoID int, framework, targetBranch, baseURL string) string {
+	if err := validateFramework(framework); err != "" {
+		return err
+	}
 	body := map[string]interface{}{}
 	if framework != "" {
 		body["framework"] = framework
@@ -615,11 +650,20 @@ func (c *APIClient) doRequest(req *http.Request) string {
 
 	if resp.StatusCode >= 400 {
 		errMsg := ""
-		// Try to extract error message from JSON response
+		// Try to extract error message from JSON response. The server may emit
+		// either a plain FastAPI `{"detail": "..."}` envelope OR an MCP-style
+		// `{"success": false, "error": "[CODE] ..."}` envelope where CODE is
+		// NOT_FOUND / FORBIDDEN / BAD_REQUEST. Both are preserved verbatim so
+		// an agent (or user) can parse the code when the HTTP status alone
+		// isn't enough (e.g. when this method is called via the MCP transport
+		// where there is no HTTP status in scope).
 		var errResp map[string]interface{}
 		if json.Unmarshal(data, &errResp) == nil {
 			if detail, ok := errResp["detail"].(string); ok {
 				errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, detail)
+			} else if errStr, ok := errResp["error"].(string); ok {
+				// MCP-style envelope — keep any [CODE] prefix intact.
+				errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, errStr)
 			}
 		}
 		if errMsg == "" {

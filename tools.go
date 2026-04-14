@@ -810,7 +810,19 @@ func min(a, b int) int {
 	return b
 }
 
-// runLocalTest downloads a script from QualityMax and runs it locally.
+// runLocalTest downloads a script from QualityMax and runs it — where "runs"
+// depends on the script's framework:
+//
+//	pytest / playwright → executed LOCALLY (pytest/npx on the user's machine)
+//	rust_cargo / go_test → delegated to the QualityMax SERVER runner, because
+//	  scaffolding a Cargo.toml / go.mod and running cargo/go locally is
+//	  toolchain-heavy and duplicates what services/native_test_execution_service.py
+//	  already does. The `case "rust_cargo", ...` branch below calls
+//	  sctx.API.RunNativeTest which POSTs /api/automation/execute.
+//
+// The function name reads as "local" but for native toolchains it transparently
+// falls back to remote. This is intentional — the agent's tool-call surface
+// doesn't need to know which path runs; users get "tests ran" either way.
 func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseURL string) string {
 	if sctx.API == nil {
 		return jsonError("Not connected to QualityMax. Run /connect first.")
