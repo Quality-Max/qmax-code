@@ -64,6 +64,21 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 	// Step 2: Project selection
 	projectID := selectProject(auth)
 
+	// Step 2.5: Detect the project's framework from the local working
+	// directory so the agent can default `generate_test_code` to the right
+	// value without the user having to specify it on every call. This is
+	// a pure filesystem check — no network, no config writes unless the
+	// user confirms.
+	detected := detectProjectFramework(".")
+	if detected != "" {
+		fmt.Println()
+		fmt.Printf("  Detected a %s project in this directory.\n", prettyFrameworkName(detected))
+		fmt.Printf("  I'll default new test generations to %s.\n", detected)
+		cfg := LoadQMaxCodeConfig()
+		cfg.DefaultFramework = detected
+		_ = cfg.Save()
+	}
+
 	// Step 3: Anthropic key check
 	cfg := LoadQMaxCodeConfig()
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
@@ -332,4 +347,55 @@ func intVal2(m map[string]interface{}, key string) int {
 		}
 	}
 	return 0
+}
+
+// detectProjectFramework inspects the given directory and returns the
+// qa-rag-app-canonical framework name for the toolchain it detects.
+// Returns "" when nothing recognizable is present. Priority:
+//   - Cargo.toml       → "rust_cargo"
+//   - go.mod           → "go_test"
+//   - playwright.config.* or .spec.ts in tests/ → "playwright"
+//   - pytest.ini / pyproject.toml with pytest / requirements*.txt → "pytest"
+//
+// Priority matters for polyglot repos (a Python-with-Rust-extension project
+// should still be a Rust project for CI purposes since the Rust crate is
+// the compile-heavy part).
+func detectProjectFramework(dir string) string {
+	exists := func(name string) bool {
+		_, err := os.Stat(dir + "/" + name)
+		return err == nil
+	}
+	if exists("Cargo.toml") {
+		return "rust_cargo"
+	}
+	if exists("go.mod") {
+		return "go_test"
+	}
+	if exists("playwright.config.ts") || exists("playwright.config.js") || exists("playwright.config.mjs") {
+		return "playwright"
+	}
+	if exists("pyproject.toml") || exists("pytest.ini") || exists("tox.ini") {
+		return "pytest"
+	}
+	if exists("package.json") {
+		// Default-ish — node project without an explicit test framework.
+		// Don't force a choice; let the user pick later.
+		return ""
+	}
+	return ""
+}
+
+func prettyFrameworkName(fw string) string {
+	switch fw {
+	case "rust_cargo":
+		return "Rust (cargo)"
+	case "go_test":
+		return "Go (go test)"
+	case "playwright":
+		return "Playwright"
+	case "pytest":
+		return "Python (pytest)"
+	default:
+		return fw
+	}
 }

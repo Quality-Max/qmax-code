@@ -92,12 +92,18 @@ func (c *APIClient) ListScripts(ctx context.Context, projectID, limit int) strin
 	return c.get(ctx, path)
 }
 
-func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force bool) string {
+func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force bool, framework string) string {
 	body := map[string]interface{}{
 		"test_case_id": testCaseID,
 	}
 	if force {
 		body["force"] = true
+	}
+	// framework override flows into the qa-rag-app generator so the user
+	// can request Rust/Go script generation instead of the default Playwright.
+	// Empty string → server picks based on project settings + repo analysis.
+	if framework != "" {
+		body["framework"] = framework
 	}
 	return c.post(ctx, "/api/automation/generate", body)
 }
@@ -116,6 +122,43 @@ func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, br
 		body["base_url"] = baseURL
 	}
 	return c.post(ctx, fmt.Sprintf("/api/playwright-execution/run/%d", scriptID), body)
+}
+
+// RunNativeTest executes a Rust (cargo test) / Go (go test -json) automation
+// script on the QualityMax server runner. The `/api/automation/execute`
+// endpoint dispatches by the script's framework field: Playwright/Cypress
+// go to the browser runner, Rust/Go go through services.native_test_execution_service
+// (normalized console_logs, passed/failed/total, stdout, stderr).
+//
+// Use this when the script is framework=rust_cargo or go_test. For
+// Playwright scripts, keep using RunTest — the cloud runner path there
+// handles video recording, which native runs skip.
+func (c *APIClient) RunNativeTest(ctx context.Context, scriptID int, baseURL string) string {
+	body := map[string]interface{}{
+		"script_id": scriptID,
+	}
+	if baseURL != "" {
+		body["custom_url"] = baseURL
+	}
+	return c.post(ctx, "/api/automation/execute", body)
+}
+
+// SetupCICD creates a GitHub Actions workflow PR on the linked repo.
+// framework is optional — leave empty to let the server auto-detect from
+// the repo's analyzed languages. For Rust repos the server auto-detects
+// apt packages from Cargo.lock and injects them into the generated workflow.
+func (c *APIClient) SetupCICD(ctx context.Context, repoID int, framework, targetBranch, baseURL string) string {
+	body := map[string]interface{}{}
+	if framework != "" {
+		body["framework"] = framework
+	}
+	if targetBranch != "" {
+		body["target_branch"] = targetBranch
+	}
+	if baseURL != "" {
+		body["base_url"] = baseURL
+	}
+	return c.post(ctx, fmt.Sprintf("/api/repositories/%d/setup-cicd", repoID), body)
 }
 
 func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string) string {

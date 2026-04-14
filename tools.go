@@ -95,10 +95,11 @@ func BuildToolDefs() []ToolDef {
 		},
 		{
 			Name:        "generate_test_code",
-			Description: "Generate Playwright test code for a test case using AI. Returns a script ID that can be run.",
+			Description: "Generate test code for a test case using AI. Returns a script ID that can be run. Default framework is playwright; pass framework=pytest / rust_cargo / go_test to generate native scripts for those toolchains.",
 			InputSchema: obj(props(
 				prop("test_case_id", "integer", "Test case ID to generate code for", true),
 				prop("force", "boolean", "Regenerate even if code exists", false),
+				prop("framework", "string", "Override target framework: playwright (default), pytest, rust_cargo, go_test. Omit to let the server pick based on project settings + repo analysis.", false),
 			)),
 		},
 		{
@@ -109,6 +110,24 @@ func BuildToolDefs() []ToolDef {
 				prop("headless", "boolean", "Run headless (default true)", false),
 				prop("browser", "string", "Browser: chromium, firefox, webkit", false),
 				prop("base_url", "string", "Base URL override", false),
+			)),
+		},
+		{
+			Name:        "run_native_test",
+			Description: "Execute a Rust (cargo test) or Go (go test -json) script on the QualityMax server runner. Returns the normalized result shape (status, passed_tests, failed_tests, total_tests, console_logs, test_output, test_errors). Use this for scripts where framework is rust_cargo or go_test. For Playwright scripts, use run_test. When failed, always show test_errors + console_logs to the user.",
+			InputSchema: obj(props(
+				prop("script_id", "integer", "Script ID to execute (must be a rust_cargo / go_test script)", true),
+				prop("base_url", "string", "Base URL exported as BASE_URL to the test subprocess (for integration tests that hit a staging endpoint)", false),
+			)),
+		},
+		{
+			Name:        "setup_cicd",
+			Description: "Create a Pull Request on the linked GitHub repo that adds a GitHub Actions workflow file running the project's test suite. Auto-detects the framework from the repo's analyzed languages (playwright / pytest / go / rust) when omitted, and for Rust auto-detects apt packages from Cargo.lock (glib-sys→libglib2.0-dev, openssl-sys→libssl-dev, libxdo-sys→libxdo-dev, etc.). Requires the GitHub App to be installed on the target repo. Returns PR URL, PR number, workflow file path, detected framework, and injected apt packages.",
+			InputSchema: obj(props(
+				prop("repo_id", "integer", "Code repository ID (from list_repositories)", true),
+				prop("framework", "string", "Optional override: playwright / pytest / go / rust / rust_cargo / go_test. Omit to auto-detect.", false),
+				prop("target_branch", "string", "Branch the workflow triggers on. Defaults to the repo's default branch.", false),
+				prop("base_url", "string", "Optional BASE_URL baked into the workflow.", false),
 			)),
 		},
 		{
@@ -558,10 +577,27 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		return api.ListScripts(ctx, intVal(input, "project_id", sctx.ProjectID), intVal(input, "limit", 0))
 
 	case "generate_test_code":
-		return api.GenerateTestCode(ctx, intVal(input, "test_case_id", 0), boolVal(input, "force"))
+		// If the caller didn't pass a framework, fall back to the one the
+		// wizard detected in the cwd (Cargo.toml → rust_cargo, go.mod →
+		// go_test, etc.). Lets Rust/Go users run `qmax-code generate` and
+		// get native scripts without having to spell out the framework
+		// on every call.
+		fw := strVal(input, "framework")
+		if fw == "" {
+			if cfg := LoadQMaxCodeConfig(); cfg != nil {
+				fw = cfg.DefaultFramework
+			}
+		}
+		return api.GenerateTestCode(ctx, intVal(input, "test_case_id", 0), boolVal(input, "force"), fw)
 
 	case "run_test":
 		return runTestWithProgress(ctx, api, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"))
+
+	case "run_native_test":
+		return api.RunNativeTest(ctx, intVal(input, "script_id", 0), strVal(input, "base_url"))
+
+	case "setup_cicd":
+		return api.SetupCICD(ctx, intVal(input, "repo_id", 0), strVal(input, "framework"), strVal(input, "target_branch"), strVal(input, "base_url"))
 
 	case "run_tests_batch":
 		return api.RunTestsBatch(ctx, strVal(input, "script_ids"), strVal(input, "base_url"))
@@ -848,8 +884,21 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 		}
 		cmd = exec.CommandContext(ctx, "npx", args...)
 
+	case "rust_cargo", "rust", "cargo", "go_test", "go":
+		// Native (Rust/Go) scripts are toolchain-heavy and need a scaffolded
+		// Cargo.toml / go.mod to build. Rather than duplicate that logic
+		// client-side, delegate to the server runner via run_native_test —
+		// the backend already has the full cargo/go scaffolding pipeline.
+		return sctx.API.RunNativeTest(ctx, scriptID, baseURL)
+
 	default:
-		return jsonError(fmt.Sprintf("Framework '%s' not supported for local execution. Supported: pytest, playwright", framework))
+		return jsonError(fmt.Sprintf(
+			"Framework '%s' not supported for local execution. "+
+				"Supported locally: pytest, playwright. "+
+				"For rust_cargo/go_test scripts, use the run_native_test tool — "+
+				"it runs on the QualityMax server with the full cargo/go toolchain.",
+			framework,
+		))
 	}
 
 	// 3. Run with timeout

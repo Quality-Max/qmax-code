@@ -10,6 +10,11 @@ import (
 type Config struct {
 	DefaultModel   string `json:"default_model,omitempty"`   // "auto", "sonnet", "opus", "haiku"
 	DefaultProject int    `json:"default_project,omitempty"`
+	// DefaultFramework is set by the first-run wizard based on filesystem
+	// detection (Cargo.toml → rust_cargo, go.mod → go_test, etc.). The agent
+	// reads this to default the `framework` param on generate_test_code so
+	// Rust/Go users don't get Playwright scripts by accident.
+	DefaultFramework string `json:"default_framework,omitempty"` // "", "playwright", "pytest", "rust_cargo", "go_test"
 	Professional   bool   `json:"professional,omitempty"` // disable cat personality
 	AutoSave       bool   `json:"auto_save"`              // auto-save session on exit (default true)
 	MaxTokenBudget int    `json:"max_token_budget,omitempty"`
