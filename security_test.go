@@ -90,12 +90,14 @@ func TestScanCodeSecurity_NoTestFunction(t *testing.T) {
 	violations := scanCodeSecurity(code)
 	found := false
 	for _, v := range violations {
-		if strings.Contains(v, "No test()") {
+		// Updated message wording after language-aware check — matches both
+		// the old "No test()" and the new "No test declaration".
+		if strings.Contains(v, "No test") {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("Should detect missing test() function")
+		t.Error("Should detect missing test declaration")
 	}
 }
 

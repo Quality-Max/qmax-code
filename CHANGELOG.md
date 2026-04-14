@@ -2,6 +2,41 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.8.4] — 2026-04-15
+
+### Fixed
+- **Language-aware security scanner** (`scanCodeSecurity`) — the pre-fix
+  version rejected any script not containing Playwright/Jest markers
+  (`test(`, `describe(`, `it(`). This silently blocked every Go, Rust,
+  and Python script update with "Security scan failed — No test() or
+  describe() found". A live user hit this trying to heal Go tests in
+  the Qmax Code project: every update attempt with valid Go (`func
+  TestFoo(t *testing.T)`) returned the same error with no path forward.
+
+  Now detects language (Go / Rust / Python / JS) from code shape and
+  runs language-appropriate checks:
+  - **Go**: `func Test|Benchmark|Fuzz|Example` as the test-declaration
+    marker; blocks `os/exec`, `syscall`, `unsafe`, `exec.Command`.
+  - **Rust**: `#[test]` / `#[tokio::test]` / `#[cfg(test)]` markers;
+    blocks `std::process::Command`, `unsafe {}`.
+  - **Python**: `def test_...` / `unittest.TestCase` / `pytest.fixture`
+    markers; blocks `subprocess.*`, `eval()`, `exec()`, `os.system`,
+    `__import__`.
+  - **JS/Playwright**: unchanged — the original dangerous-patterns
+    table only runs here now (it was already JS-specific, just wasn't
+    scoped).
+
+### Tests
+- **13 new tests** in `security_language_test.go` covering:
+  language detection for Go (package + testing.T/B/F, function
+  prefixes), Rust (`#[test]` / `#[tokio::test]`), Python (pytest /
+  unittest), JS (Playwright / Jest); regression tests that a valid
+  Go/Rust/pytest file passes with zero violations; per-language
+  dangerous patterns fire correctly (`os/exec`, `std::process::Command`,
+  `subprocess`); cross-language false-positive guard (`process.env`
+  in a Go comment doesn't trip the JS rule); `hasTestDeclaration`
+  table covering every language's positive/negative shapes.
+
 ## [1.8.3] — 2026-04-14
 
 ### Added
