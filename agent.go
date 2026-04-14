@@ -442,6 +442,18 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 		}
 	}
 
+	// Strip orphaned tool_use blocks. Anthropic requires every assistant
+	// tool_use to be immediately followed by a user message whose content
+	// is a list containing a matching tool_result. When the user sends a
+	// fresh prompt mid-tool-loop (after an error, interrupt, or confusing
+	// output), that invariant breaks and the API returns:
+	//   "messages.N.content: Input should be a valid list"
+	// on the next round-trip. Fix defensively by scanning for assistant
+	// messages with tool_use that aren't followed by a user tool_result
+	// list, and rewriting those assistant messages to keep only their
+	// text blocks.
+	sanitized = stripOrphanedToolUse(sanitized)
+
 	reqBody := APIRequest{
 		Model:     model,
 		MaxTokens: 8192,
@@ -921,4 +933,129 @@ You MUST call list_projects first to get the slug. Never guess it.
 	}
 
 	return prompt
+}
+
+// stripOrphanedToolUse removes tool_use blocks from assistant messages
+// whose matching tool_result never made it into history. Anthropic's API
+// rejects any request where a tool_use isn't immediately followed by a
+// user-role tool_result list; fresh user prompts after tool failures,
+// user interrupts, or history compression can leave tool_use blocks
+// dangling, producing "messages.N.content: Input should be a valid list".
+//
+// Strategy: for each assistant message with tool_use blocks, check that
+// the *next* message is a user message whose content contains a
+// tool_result for every tool_use_id. If any are missing, drop the
+// tool_use blocks from the assistant message (keeping text). Edge case:
+// if this leaves the assistant message empty, insert a placeholder text
+// block so the API doesn't reject the message for being empty.
+func stripOrphanedToolUse(messages []Message) []Message {
+	// Helper: extract block types + tool_use_ids from a Content value.
+	// Handles both []ContentBlock (typed) and []interface{} (post-JSON).
+	collectIDs := func(content interface{}, blockType string) []string {
+		var ids []string
+		switch v := content.(type) {
+		case []ContentBlock:
+			for _, b := range v {
+				if b.Type == blockType {
+					switch blockType {
+					case "tool_use":
+						ids = append(ids, b.ID)
+					case "tool_result":
+						ids = append(ids, b.ToolUseID)
+					}
+				}
+			}
+		case []interface{}:
+			for _, raw := range v {
+				block, ok := raw.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if t, _ := block["type"].(string); t == blockType {
+					switch blockType {
+					case "tool_use":
+						if id, ok := block["id"].(string); ok {
+							ids = append(ids, id)
+						}
+					case "tool_result":
+						if id, ok := block["tool_use_id"].(string); ok {
+							ids = append(ids, id)
+						}
+					}
+				}
+			}
+		}
+		return ids
+	}
+
+	// Drop tool_use blocks from a message's content, returning the pruned
+	// value. Preserves block type (typed vs interface list).
+	pruneToolUse := func(content interface{}) interface{} {
+		switch v := content.(type) {
+		case []ContentBlock:
+			kept := make([]ContentBlock, 0, len(v))
+			for _, b := range v {
+				if b.Type == "tool_use" {
+					continue
+				}
+				kept = append(kept, b)
+			}
+			if len(kept) == 0 {
+				kept = append(kept, ContentBlock{Type: "text", Text: "[tool call dropped — no matching result]"})
+			}
+			return kept
+		case []interface{}:
+			kept := make([]interface{}, 0, len(v))
+			for _, raw := range v {
+				if block, ok := raw.(map[string]interface{}); ok {
+					if t, _ := block["type"].(string); t == "tool_use" {
+						continue
+					}
+				}
+				kept = append(kept, raw)
+			}
+			if len(kept) == 0 {
+				kept = append(kept, map[string]interface{}{
+					"type": "text",
+					"text": "[tool call dropped — no matching result]",
+				})
+			}
+			return kept
+		}
+		return content
+	}
+
+	for i := 0; i < len(messages); i++ {
+		if messages[i].Role != "assistant" {
+			continue
+		}
+		toolUseIDs := collectIDs(messages[i].Content, "tool_use")
+		if len(toolUseIDs) == 0 {
+			continue
+		}
+
+		// Is the next message a user tool_result list covering every ID?
+		orphaned := true
+		if i+1 < len(messages) && messages[i+1].Role == "user" {
+			resultIDs := collectIDs(messages[i+1].Content, "tool_result")
+			got := make(map[string]bool, len(resultIDs))
+			for _, id := range resultIDs {
+				got[id] = true
+			}
+			missing := 0
+			for _, id := range toolUseIDs {
+				if !got[id] {
+					missing++
+				}
+			}
+			if missing == 0 {
+				orphaned = false
+			}
+		}
+
+		if orphaned {
+			messages[i].Content = pruneToolUse(messages[i].Content)
+		}
+	}
+	return messages
 }
