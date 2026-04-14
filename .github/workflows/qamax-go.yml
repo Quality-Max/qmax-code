@@ -86,7 +86,7 @@ jobs:
         if: always()
         env:
           QAMAX_API_KEY: ${{ secrets.QAMAX_API_KEY }}
-          QAMAX_PROJECT_ID: ${{ vars.QAMAX_PROJECT_ID || '164' }}
+          QAMAX_PROJECT_ID: ${{ vars.QAMAX_PROJECT_ID || '183' }}
         run: |
           # Build JSON payload safely using jq to avoid shell injection
           PAYLOAD=$(jq -n \
