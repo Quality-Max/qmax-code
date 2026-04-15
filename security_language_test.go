@@ -152,6 +152,116 @@ func TestEvil(t *testing.T) {
 	}
 }
 
+func TestScanCodeSecurity_GoOsExecAllowedWithMarker(t *testing.T) {
+	// Legitimate CLI-integration tests (e.g. healing tests for qmax-code
+	// itself) must be able to spawn the binary they're testing. The
+	// `// qmax:allow=os/exec` and `// qmax:allow=exec.Command` markers
+	// are the auditable opt-in. Default-deny stays — see the
+	// TestScanCodeSecurity_GoWithOsExecRejected case above.
+	code := `package main_test
+
+// qmax:allow=os/exec
+// qmax:allow=exec.Command
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestCLI(t *testing.T) {
+	cmd := exec.Command("qmax-code", "--version")
+	if err := cmd.Run(); err != nil {
+		t.Skip("requires qmax-code on PATH")
+	}
+}
+`
+	violations := scanCodeSecurity(code)
+	for _, v := range violations {
+		if strings.Contains(v, "os/exec") || strings.Contains(v, "exec.Command") {
+			t.Errorf("With qmax:allow markers, os/exec + exec.Command must NOT be flagged. Got: %v", violations)
+		}
+	}
+}
+
+func TestScanCodeSecurity_GoOsExecPartialMarker(t *testing.T) {
+	// Allowing only os/exec must still block exec.Command. Granular
+	// markers — opt-ins are per-rule, not all-or-nothing.
+	code := `package main_test
+
+// qmax:allow=os/exec
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestX(t *testing.T) {
+	exec.Command("rm", "-rf", "/").Run()
+}
+`
+	violations := scanCodeSecurity(code)
+	osExecOK, cmdBlocked := true, false
+	for _, v := range violations {
+		if strings.Contains(v, "os/exec import") {
+			osExecOK = false
+		}
+		if strings.Contains(v, "exec.Command") {
+			cmdBlocked = true
+		}
+	}
+	if !osExecOK {
+		t.Errorf("os/exec import should be allowed by marker; violations: %v", violations)
+	}
+	if !cmdBlocked {
+		t.Errorf("exec.Command should still be blocked (no marker for it); violations: %v", violations)
+	}
+}
+
+func TestScanCodeSecurity_GoCommaSeparatedMarker(t *testing.T) {
+	code := `package main_test
+
+// qmax:allow=os/exec, exec.Command
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestX(t *testing.T) { _ = exec.Command("ls").Run() }
+`
+	violations := scanCodeSecurity(code)
+	for _, v := range violations {
+		if strings.Contains(v, "os/exec") || strings.Contains(v, "exec.Command") {
+			t.Errorf("Comma-separated marker should grant both rules. Got: %v", violations)
+		}
+	}
+}
+
+func TestParseQmaxAllows(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+		want []string
+	}{
+		{"none", "package x\n// regular comment\n", nil},
+		{"single", "// qmax:allow=os/exec\n", []string{"os/exec"}},
+		{"two lines", "// qmax:allow=os/exec\n// qmax:allow=exec.Command\n", []string{"os/exec", "exec.Command"}},
+		{"comma list", "// qmax:allow=os/exec, exec.Command, syscall\n", []string{"os/exec", "exec.Command", "syscall"}},
+		{"case insensitive prefix", "// QMAX:ALLOW=os/exec\n", []string{"os/exec"}},
+		{"trailing whitespace tolerated", "//   qmax:allow=os/exec   \n", []string{"os/exec"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseQmaxAllows(c.code)
+			for _, w := range c.want {
+				if !got[w] {
+					t.Errorf("expected %q in allows; got %v", w, got)
+				}
+			}
+			if len(got) != len(c.want) {
+				t.Errorf("expected %d allows, got %d (%v)", len(c.want), len(got), got)
+			}
+		})
+	}
+}
+
 func TestScanCodeSecurity_RustProcessCommandRejected(t *testing.T) {
 	code := `#[test]
 fn test_x() {

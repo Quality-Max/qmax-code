@@ -105,18 +105,29 @@ func scanCodeSecurity(code string) []string {
 
 	// Go-specific dangerous patterns. Reject shell execution + direct
 	// syscalls + arbitrary file writes outside the runner's temp dir.
+	//
+	// Opt-in escape hatch: legitimate CLI-integration tests (e.g. tests for
+	// qmax-code itself, or for any project whose unit-of-test IS the binary)
+	// must spawn a subprocess. They can opt in to specific rules with a
+	// magic-comment marker like `// qmax:allow=os/exec` or
+	// `// qmax:allow=exec.Command` near the top of the file. The marker is
+	// auditable in the script content, default-deny stays in effect for
+	// everything else, and the runner's binary allow-list remains the
+	// actual security boundary at execution time.
 	if lang == "go" {
+		allows := parseQmaxAllows(code)
 		goDangers := []struct {
-			pat  *regexp.Regexp
-			why  string
+			pat   *regexp.Regexp
+			why   string
+			allow string // qmax:allow=<this> disables the rule
 		}{
-			{regexp.MustCompile(`\bos/exec\b`), `os/exec import — arbitrary command execution`},
-			{regexp.MustCompile(`\bsyscall\b`), `syscall import — direct system calls`},
-			{regexp.MustCompile(`\bunsafe\b`), `unsafe package — memory safety bypass`},
-			{regexp.MustCompile(`exec\.Command\s*\(`), `exec.Command — shell execution`},
+			{regexp.MustCompile(`"os/exec"`), `os/exec import — arbitrary command execution`, "os/exec"},
+			{regexp.MustCompile(`\bsyscall\b`), `syscall import — direct system calls`, "syscall"},
+			{regexp.MustCompile(`\bunsafe\b`), `unsafe package — memory safety bypass`, "unsafe"},
+			{regexp.MustCompile(`exec\.Command\s*\(`), `exec.Command — shell execution`, "exec.Command"},
 		}
 		for _, d := range goDangers {
-			if d.pat.MatchString(code) {
+			if d.pat.MatchString(code) && !allows[d.allow] {
 				violations = append(violations, d.why)
 			}
 		}
@@ -193,6 +204,33 @@ func scanCodeSecurity(code string) []string {
 	}
 
 	return violations
+}
+
+// qmaxAllowRE matches comment-marker opt-ins of the form
+// `// qmax:allow=<rule>` (case-insensitive on the `qmax:allow` part,
+// case-sensitive on the rule name to avoid surprises). Multiple rules
+// can be granted on separate lines or comma-separated:
+//   // qmax:allow=os/exec
+//   // qmax:allow=os/exec, exec.Command
+// Only `//`-style line comments are recognized — block comments are
+// intentionally ignored to keep the marker visible to grep + reviewers.
+var qmaxAllowRE = regexp.MustCompile(`(?i)//\s*qmax:allow=([^\r\n]+)`)
+
+// parseQmaxAllows extracts the set of rule names the file opts into via
+// `// qmax:allow=...` markers. Returned as a set keyed by the exact rule
+// name (e.g. `os/exec`, `exec.Command`). Missing markers => empty set =>
+// default-deny stays in effect.
+func parseQmaxAllows(code string) map[string]bool {
+	allows := make(map[string]bool)
+	for _, m := range qmaxAllowRE.FindAllStringSubmatch(code, -1) {
+		for _, raw := range strings.Split(m[1], ",") {
+			name := strings.TrimSpace(raw)
+			if name != "" {
+				allows[name] = true
+			}
+		}
+	}
+	return allows
 }
 
 // Command allowlist — only these command prefixes are safe
