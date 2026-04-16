@@ -2,6 +2,13 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] — 2026-04-16
+
+### Added
+- **Review preferences tools** — `get_review_preferences` and `set_review_preferences` now available as agent tools, letting users configure what the AI reviewer focuses on directly from the CLI
+- **Capability lanes** — agent detects user persona (vibecoder, founder, pro dev, pro QA) and adapts tool suggestions and verbosity accordingly
+- **Discovery nudges** — contextual hints that surface relevant QualityMax features based on what the user is doing
+
 ## [1.8.4] — 2026-04-15
 
 ### Fixed
