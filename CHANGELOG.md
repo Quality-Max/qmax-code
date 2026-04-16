@@ -2,6 +2,17 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.11.0] — 2026-04-16
+
+### Added
+- **Full Ollama agent mode** — Gemma handles everything including tool dispatch via prompt-based `<action>` blocks. 10 actions: list_projects, list_test_cases, list_scripts, run_test, start_crawl, review_repo, get_script, get_project_summary, check_test_status, create_pr.
+- **Three switchable modes** — `/ollama` cycles: OFF → CHAT → FULL
+- **Dual model support** — 4B for chat, 12B for tool dispatch (`ollama_agent_model`)
+- **Tool intent detection** — `needsTools()` prevents hallucination in CHAT mode
+
+### Fixed
+- Version var for `-ldflags -X`, `/ollama` autocomplete, `/set` usage hint, context canceled on API calls, anti-hallucination prompt
+
 ## [1.10.0] — 2026-04-16
 
 ### Added
