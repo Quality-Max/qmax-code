@@ -49,14 +49,14 @@ func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
 	// Build system prompt with action instructions
 	system := a.buildSystemPrompt() + ollamaToolPrompt
 
-	ctx, cancel := context.WithCancel(context.Background())
-	a.cancel = cancel
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	a.cancel = cancel1
 
 	// Phase 1: Get Gemma's response (may contain <action> block)
 	// Use the agent model (12B) for better tool dispatch accuracy
-	ollamaText, err := a.ollama.ChatStreamingWithModel(ctx, a.ollama.agentModel, system, a.history, term)
+	ollamaText, err := a.ollama.ChatStreamingWithModel(ctx1, a.ollama.agentModel, system, a.history, term)
 	a.cancel = nil
-	cancel()
+	cancel1()
 
 	if err != nil || ollamaText == "" {
 		return "", false
@@ -74,14 +74,16 @@ func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
 		return ollamaText, true
 	}
 
-	// Phase 2: Execute the action via QualityMax API
+	// Phase 2: Execute the action via QualityMax API (fresh context)
 	if a.config.Verbose {
 		fmt.Fprintf(term.rl.Stderr(), "[ollama-agent] action=%s params=%v\n", action, params)
 	}
 	term.PrintToolIcon(action)
 	term.PrintToolStart(action, params)
 
-	toolResult := a.executeOllamaAction(action, params, ctx)
+	apiCtx, apiCancel := context.WithCancel(context.Background())
+	defer apiCancel()
+	toolResult := a.executeOllamaAction(action, params, apiCtx)
 	term.PrintToolResult(action, truncateStr(toolResult, 200))
 
 	// Phase 3: Feed results back to Gemma for formatting
