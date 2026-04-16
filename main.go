@@ -213,6 +213,9 @@ func main() {
 	})
 	agent.appConfig = appConfig
 	agent.ollama = NewOllamaClient(appConfig)
+	if agent.ollama != nil {
+		agent.ollamaMode = OllamaModeFull // default to full when configured
+	}
 
 	// One-shot mode
 	if *oneShot != "" {
@@ -481,20 +484,27 @@ func runREPL(agent *Agent, quietMode bool) {
 			term.PrintSystem("Keys: model, project, professional, autosave, budget, ollama")
 			continue
 		case input == "/ollama":
-			// Quick toggle
-			if agent.ollama != nil {
-				agent.ollama = nil
-				term.PrintSystem("Ollama disabled. Using Claude for all calls.")
-			} else {
-				cfg := agent.appConfig
-				if cfg != nil && cfg.OllamaURL != "" {
-					agent.ollama = NewOllamaClient(cfg)
-					term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", maskURL(cfg.OllamaURL), cfg.OllamaModel))
-				} else {
-					term.PrintError("Ollama not configured. Set it first:")
-					term.PrintSystem("  qmax-code config set ollama_url https://user:pass@llm.example.com")
-					term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
-				}
+			// Cycle through modes: off → chat → full → off
+			cfg := agent.appConfig
+			if cfg == nil || cfg.OllamaURL == "" {
+				term.PrintError("Ollama not configured. Set it first:")
+				term.PrintSystem("  qmax-code config set ollama_url https://user:pass@llm.example.com")
+				term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
+				continue
+			}
+			if agent.ollama == nil {
+				agent.ollama = NewOllamaClient(cfg)
+			}
+			switch agent.ollamaMode {
+			case OllamaModeOff:
+				agent.ollamaMode = OllamaModeChat
+				term.PrintSystem(fmt.Sprintf("Ollama: CHAT mode (%s) — chat via Gemma, tools via Claude", agent.ollama.model))
+			case OllamaModeChat:
+				agent.ollamaMode = OllamaModeFull
+				term.PrintSystem(fmt.Sprintf("Ollama: FULL mode (%s) — everything via Gemma (no Claude)", agent.ollama.agentModel))
+			case OllamaModeFull:
+				agent.ollamaMode = OllamaModeOff
+				term.PrintSystem("Ollama: OFF — all calls via Claude")
 			}
 			continue
 		case strings.HasPrefix(input, "/set "):

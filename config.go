@@ -23,8 +23,9 @@ type Config struct {
 	// Ollama integration — use a self-hosted LLM for the cheap chat tier.
 	// When configured, iteration-0 (conversational) calls go to Ollama instead
 	// of Haiku, saving API costs. Tool orchestration stays on Claude.
-	OllamaURL   string `json:"ollama_url,omitempty"`   // e.g. "https://user:pass@llm.qualitymax.io"
-	OllamaModel string `json:"ollama_model,omitempty"` // e.g. "gemma3:4b-it-q4_K_M"
+	OllamaURL        string `json:"ollama_url,omitempty"`         // e.g. "https://user:pass@llm.qualitymax.io"
+	OllamaModel      string `json:"ollama_model,omitempty"`       // e.g. "gemma3:4b-it-q4_K_M" (chat)
+	OllamaAgentModel string `json:"ollama_agent_model,omitempty"` // e.g. "gemma3:12b-it-q4_K_M" (tools, heavier tasks)
 }
 
 const qmaxCodeConfigDir = ".qmax-code"

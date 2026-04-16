@@ -153,6 +153,9 @@ func setConfigField(key, value string) error {
 	case "ollama_model":
 		cfg.OllamaModel = value
 
+	case "ollama_agent_model":
+		cfg.OllamaAgentModel = value
+
 	default:
 		return fmt.Errorf("unknown config key %q", key)
 	}

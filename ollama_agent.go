@@ -1,0 +1,210 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// OllamaAgentMode provides a full Ollama-powered agent that handles both
+// chat AND tool-needing requests. Since Gemma doesn't support native
+// function calling, we use prompt-based tool dispatch:
+//
+// 1. Gemma classifies user intent into an action + params
+// 2. Go code maps the action to an actual QualityMax API call
+// 3. Results are fed back to Gemma for formatting
+//
+// This allows qmax-code to run entirely on the self-hosted GPU.
+
+// ollamaToolActions is the compact action set Gemma can choose from.
+// Each maps to one or more real QualityMax API calls.
+const ollamaToolPrompt = `
+When the user asks you to DO something (not just chat), respond with a JSON action block:
+<action>{"name": "ACTION_NAME", "params": {...}}</action>
+
+Available actions:
+- list_projects: List all projects. No params needed.
+- list_test_cases: List test cases. Params: {"project_id": int, "search": "optional text"}
+- list_scripts: List automation scripts. Params: {"project_id": int}
+- run_test: Run a test script. Params: {"script_id": int}
+- start_crawl: Start AI crawl. Params: {"project_id": int, "url": "https://..."}
+- review_repo: Run AI code review. Params: {"repo_id": int}
+- get_script: Get script code. Params: {"script_id": int}
+- get_project_summary: Get project details. Params: {"project_id": int}
+- check_test_status: Check execution status. Params: {"execution_id": "uuid"}
+- create_pr: Create a PR with tests. Params: {"repo_id": int, "project_id": int}
+
+If the user is just chatting (greetings, questions about QA concepts, asking for advice), respond normally WITHOUT an action block.
+If you need more info to pick an action, ask the user.
+`
+
+// RunOllamaAgent runs a full conversation turn using only Ollama.
+// Returns the final text response and whether it succeeded.
+func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
+	if a.ollama == nil || !a.ollama.Available() {
+		return "", false
+	}
+
+	// Build system prompt with action instructions
+	system := a.buildSystemPrompt() + ollamaToolPrompt
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancel = cancel
+
+	// Phase 1: Get Gemma's response (may contain <action> block)
+	// Use the agent model (12B) for better tool dispatch accuracy
+	ollamaText, err := a.ollama.ChatStreamingWithModel(ctx, a.ollama.agentModel, system, a.history, term)
+	a.cancel = nil
+	cancel()
+
+	if err != nil || ollamaText == "" {
+		return "", false
+	}
+
+	// Check if response contains an action block
+	action, params, remaining := parseActionBlock(ollamaText)
+	if action == "" {
+		// Pure chat response — no tool needed
+		a.history = append(a.history, Message{
+			Role:    "assistant",
+			Content: []ContentBlock{{Type: "text", Text: ollamaText}},
+		})
+		term.FinishMarkdown(ollamaText)
+		return ollamaText, true
+	}
+
+	// Phase 2: Execute the action via QualityMax API
+	if a.config.Verbose {
+		fmt.Fprintf(term.rl.Stderr(), "[ollama-agent] action=%s params=%v\n", action, params)
+	}
+	term.PrintToolIcon(action)
+	term.PrintToolStart(action, params)
+
+	toolResult := a.executeOllamaAction(action, params, ctx)
+	term.PrintToolResult(action, truncateStr(toolResult, 200))
+
+	// Phase 3: Feed results back to Gemma for formatting
+	// Build a follow-up asking Gemma to present the results
+	a.history = append(a.history, Message{
+		Role:    "assistant",
+		Content: []ContentBlock{{Type: "text", Text: remaining}},
+	})
+	a.history = append(a.history, Message{
+		Role:    "user",
+		Content: fmt.Sprintf("[Tool result for %s]:\n%s\n\nSummarize these results for the user concisely.", action, truncateToolResult(toolResult)),
+	})
+
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	a.cancel = cancel2
+	summary, err := a.ollama.ChatStreamingWithModel(ctx2, a.ollama.agentModel, system, a.history, term)
+	a.cancel = nil
+	cancel2()
+
+	if err != nil || summary == "" {
+		// Fallback: just show raw result
+		summary = toolResult
+	}
+
+	a.history = append(a.history, Message{
+		Role:    "assistant",
+		Content: []ContentBlock{{Type: "text", Text: summary}},
+	})
+	term.FinishMarkdown(summary)
+	return summary, true
+}
+
+// parseActionBlock extracts an <action>{...}</action> block from Gemma's response.
+// Returns the action name, params map, and any text outside the action block.
+func parseActionBlock(text string) (string, map[string]interface{}, string) {
+	startTag := "<action>"
+	endTag := "</action>"
+
+	startIdx := strings.Index(text, startTag)
+	if startIdx == -1 {
+		return "", nil, text
+	}
+	endIdx := strings.Index(text[startIdx:], endTag)
+	if endIdx == -1 {
+		return "", nil, text
+	}
+
+	jsonStr := text[startIdx+len(startTag) : startIdx+endIdx]
+	remaining := strings.TrimSpace(text[:startIdx] + text[startIdx+endIdx+len(endTag):])
+
+	var action struct {
+		Name   string                 `json:"name"`
+		Params map[string]interface{} `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(jsonStr), &action); err != nil {
+		return "", nil, text
+	}
+
+	if action.Params == nil {
+		action.Params = map[string]interface{}{}
+	}
+	return action.Name, action.Params, remaining
+}
+
+// executeOllamaAction maps an action name to a real API call.
+func (a *Agent) executeOllamaAction(action string, params map[string]interface{}, ctx context.Context) string {
+	api := a.config.Context.API
+	if api == nil {
+		return `{"error": "Not connected to QualityMax. Run /connect first."}`
+	}
+
+	switch action {
+	case "list_projects":
+		return api.ListProjects(ctx)
+	case "list_test_cases":
+		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		search := strVal(params, "search")
+		return api.ListTestCases(ctx, projectID, 20, search)
+	case "list_scripts":
+		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		return api.ListScripts(ctx, projectID, 20)
+	case "run_test":
+		scriptID := intVal(params, "script_id", 0)
+		if scriptID == 0 {
+			return `{"error": "script_id is required"}`
+		}
+		return api.RunTest(ctx, scriptID, true, "", "")
+	case "start_crawl":
+		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		url := strVal(params, "url")
+		if url == "" {
+			return `{"error": "url is required"}`
+		}
+		return api.StartCrawl(ctx, projectID, url, 2, 10, "", "")
+	case "review_repo":
+		repoID := intVal(params, "repo_id", 0)
+		if repoID == 0 {
+			return `{"error": "repo_id is required"}`
+		}
+		return api.ReviewRepo(ctx, repoID)
+	case "get_script":
+		scriptID := intVal(params, "script_id", 0)
+		return api.GetScript(ctx, scriptID)
+	case "get_project_summary":
+		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		return api.GetProjectSummary(ctx, projectID)
+	case "check_test_status":
+		execID := strVal(params, "execution_id")
+		return api.CheckTestStatus(ctx, execID)
+	case "create_pr":
+		repoID := intVal(params, "repo_id", 0)
+		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		return api.CreatePR(ctx, repoID, projectID)
+	default:
+		return fmt.Sprintf(`{"error": "Unknown action: %s"}`, action)
+	}
+}
+
+// truncateToolResult keeps tool output to a reasonable size for Gemma's context.
+func truncateToolResult(result string) string {
+	const maxLen = 4000
+	if len(result) <= maxLen {
+		return result
+	}
+	return result[:maxLen] + "\n... (truncated)"
+}

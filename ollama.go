@@ -21,9 +21,10 @@ import (
 
 // OllamaClient wraps HTTP calls to an Ollama instance with a circuit breaker.
 type OllamaClient struct {
-	baseURL string // e.g. "https://user:pass@llm.qualitymax.io"
-	model   string // e.g. "gemma3:4b-it-q4_K_M"
-	http    *http.Client
+	baseURL    string // e.g. "https://user:pass@llm.qualitymax.io"
+	model      string // e.g. "gemma3:4b-it-q4_K_M" (fast, for chat)
+	agentModel string // e.g. "gemma3:12b-it-q4_K_M" (smarter, for tool dispatch)
+	http       *http.Client
 
 	mu              sync.Mutex
 	failures        int
@@ -42,12 +43,25 @@ func NewOllamaClient(cfg *Config) *OllamaClient {
 	if cfg.OllamaURL == "" || cfg.OllamaModel == "" {
 		return nil
 	}
+	agentModel := cfg.OllamaAgentModel
+	if agentModel == "" {
+		agentModel = cfg.OllamaModel // fall back to same model
+	}
 	return &OllamaClient{
 		baseURL:         strings.TrimRight(cfg.OllamaURL, "/"),
 		model:           cfg.OllamaModel,
-		http:            &http.Client{Timeout: 60 * time.Second},
+		agentModel:      agentModel,
+		http:            &http.Client{Timeout: 120 * time.Second},
 		cooldownSeconds: ollamaCooldownSec,
 	}
+}
+
+// ChatStreamingWithModel is like ChatStreaming but uses a specific model.
+func (o *OllamaClient) ChatStreamingWithModel(ctx context.Context, model, system string, history []Message, term *Terminal) (string, error) {
+	savedModel := o.model
+	o.model = model
+	defer func() { o.model = savedModel }()
+	return o.ChatStreaming(ctx, system, history, term)
 }
 
 // Available returns true if the circuit breaker is closed (not tripped).

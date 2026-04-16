@@ -30,17 +30,38 @@ type AgentConfig struct {
 	Professional bool // disable cat personality, be direct
 }
 
+// OllamaMode controls how much work Ollama handles.
+type OllamaMode int
+
+const (
+	OllamaModeOff  OllamaMode = iota // All calls go to Claude
+	OllamaModeChat                    // Chat only (simple Q&A), tools via Claude
+	OllamaModeFull                    // Everything including tool dispatch
+)
+
+func (m OllamaMode) String() string {
+	switch m {
+	case OllamaModeChat:
+		return "chat"
+	case OllamaModeFull:
+		return "full"
+	default:
+		return "off"
+	}
+}
+
 // Agent is the LLM-powered QA orchestration engine.
 type Agent struct {
-	config    AgentConfig
-	appConfig *Config // persistent user preferences
-	history   []Message
-	tools     []ToolDef
-	client    *http.Client
-	usage     TokenUsage
-	cancel    context.CancelFunc // cancel the current streaming request
-	logger    *Logger
-	ollama    *OllamaClient // optional self-hosted LLM for cheap chat tier
+	config     AgentConfig
+	appConfig  *Config // persistent user preferences
+	history    []Message
+	tools      []ToolDef
+	client     *http.Client
+	usage      TokenUsage
+	cancel     context.CancelFunc // cancel the current streaming request
+	logger     *Logger
+	ollama     *OllamaClient // optional self-hosted LLM
+	ollamaMode OllamaMode    // off, chat, or full
 }
 
 // Message represents a conversation message.
@@ -355,34 +376,42 @@ func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 			fmt.Fprintf(term.rl.Stderr(), "[model] %s (iteration %d)\n", model, iterations)
 		}
 
-		// Try Ollama for the chat tier (iteration 0, no tools needed).
-		// If Ollama succeeds, we skip Claude entirely for this turn.
-		// Skip Ollama if the user's message likely needs tool calls —
-		// Gemma can't use tools and will hallucinate data instead.
-		if iterations == 0 && a.ollama != nil && a.ollama.Available() && a.config.AutoRoute && !a.needsTools() {
-			if a.config.Verbose {
-				fmt.Fprintf(term.rl.Stderr(), "[ollama] trying %s\n", a.ollama.model)
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			a.cancel = cancel
-			ollamaText, ollamaErr := a.ollama.ChatStreaming(ctx, a.buildSystemPrompt(), a.history, term)
-			a.cancel = nil
-			cancel()
-			if ollamaErr == nil && ollamaText != "" {
-				a.logger.Info("ollama", "chat_ok", map[string]interface{}{"model": a.ollama.model, "len": len(ollamaText)})
-				// Store as []ContentBlock — the format Claude's API expects for
-				// assistant messages. This ensures history stays valid if Claude
-				// handles subsequent turns.
-				a.history = append(a.history, Message{
-					Role:    "assistant",
-					Content: []ContentBlock{{Type: "text", Text: ollamaText}},
-				})
-				term.FinishMarkdown(ollamaText)
-				return ollamaText, nil
-			}
-			// Ollama failed or empty — fall through to Claude
-			if a.config.Verbose && ollamaErr != nil {
-				fmt.Fprintf(term.rl.Stderr(), "[ollama] failed, falling back to Claude: %v\n", ollamaErr)
+		// Ollama routing based on mode:
+		// - OllamaModeFull: Gemma handles everything (chat + tools via prompt dispatch)
+		// - OllamaModeChat: Gemma handles chat only, tool requests go to Claude
+		// - OllamaModeOff: everything goes to Claude
+		if iterations == 0 && a.ollama != nil && a.ollama.Available() && a.ollamaMode != OllamaModeOff {
+			if a.ollamaMode == OllamaModeFull {
+				if a.config.Verbose {
+					fmt.Fprintf(term.rl.Stderr(), "[ollama-full] trying %s\n", a.ollama.agentModel)
+				}
+				result, ok := a.RunOllamaAgent(term)
+				if ok && result != "" {
+					return result, nil
+				}
+				if a.config.Verbose {
+					fmt.Fprintf(term.rl.Stderr(), "[ollama-full] failed, falling back to Claude\n")
+				}
+			} else if a.ollamaMode == OllamaModeChat && !a.needsTools() {
+				if a.config.Verbose {
+					fmt.Fprintf(term.rl.Stderr(), "[ollama-chat] trying %s\n", a.ollama.model)
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				a.cancel = cancel
+				ollamaText, ollamaErr := a.ollama.ChatStreaming(ctx, a.buildSystemPrompt(), a.history, term)
+				a.cancel = nil
+				cancel()
+				if ollamaErr == nil && ollamaText != "" {
+					a.history = append(a.history, Message{
+						Role:    "assistant",
+						Content: []ContentBlock{{Type: "text", Text: ollamaText}},
+					})
+					term.FinishMarkdown(ollamaText)
+					return ollamaText, nil
+				}
+				if a.config.Verbose && ollamaErr != nil {
+					fmt.Fprintf(term.rl.Stderr(), "[ollama-chat] failed, falling back to Claude: %v\n", ollamaErr)
+				}
 			}
 		}
 
