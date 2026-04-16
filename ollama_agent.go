@@ -120,36 +120,68 @@ func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
 	return summary, true
 }
 
-// parseActionBlock extracts an <action>{...}</action> block from Gemma's response.
+// parseActionBlock extracts an action from Gemma's response.
+// Supports both <action>{...}</action> tags and bare JSON with "name" field.
 // Returns the action name, params map, and any text outside the action block.
 func parseActionBlock(text string) (string, map[string]interface{}, string) {
+	// Try <action> tags first
 	startTag := "<action>"
 	endTag := "</action>"
 
 	startIdx := strings.Index(text, startTag)
-	if startIdx == -1 {
-		return "", nil, text
-	}
-	endIdx := strings.Index(text[startIdx:], endTag)
-	if endIdx == -1 {
-		return "", nil, text
+	if startIdx != -1 {
+		endIdx := strings.Index(text[startIdx:], endTag)
+		if endIdx != -1 {
+			jsonStr := text[startIdx+len(startTag) : startIdx+endIdx]
+			remaining := strings.TrimSpace(text[:startIdx] + text[startIdx+endIdx+len(endTag):])
+			if action, params, ok := tryParseActionJSON(jsonStr); ok {
+				return action, params, remaining
+			}
+		}
 	}
 
-	jsonStr := text[startIdx+len(startTag) : startIdx+endIdx]
-	remaining := strings.TrimSpace(text[:startIdx] + text[startIdx+endIdx+len(endTag):])
+	// Fallback: look for bare JSON with "name" field anywhere in the text.
+	// Gemma sometimes outputs {"name": "list_projects", "params": {}} without tags.
+	jsonStart := strings.Index(text, `{"name"`)
+	if jsonStart == -1 {
+		jsonStart = strings.Index(text, `{ "name"`)
+	}
+	if jsonStart != -1 {
+		// Find the matching closing brace
+		depth := 0
+		for i := jsonStart; i < len(text); i++ {
+			if text[i] == '{' {
+				depth++
+			} else if text[i] == '}' {
+				depth--
+				if depth == 0 {
+					jsonStr := text[jsonStart : i+1]
+					remaining := strings.TrimSpace(text[:jsonStart] + text[i+1:])
+					if action, params, ok := tryParseActionJSON(jsonStr); ok {
+						return action, params, remaining
+					}
+					break
+				}
+			}
+		}
+	}
 
+	return "", nil, text
+}
+
+// tryParseActionJSON attempts to parse a JSON string as an action.
+func tryParseActionJSON(jsonStr string) (string, map[string]interface{}, bool) {
 	var action struct {
 		Name   string                 `json:"name"`
 		Params map[string]interface{} `json:"params"`
 	}
-	if err := json.Unmarshal([]byte(jsonStr), &action); err != nil {
-		return "", nil, text
+	if err := json.Unmarshal([]byte(jsonStr), &action); err != nil || action.Name == "" {
+		return "", nil, false
 	}
-
 	if action.Params == nil {
 		action.Params = map[string]interface{}{}
 	}
-	return action.Name, action.Params, remaining
+	return action.Name, action.Params, true
 }
 
 // executeOllamaAction maps an action name to a real API call.
