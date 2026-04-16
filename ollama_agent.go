@@ -20,23 +20,27 @@ import (
 // ollamaToolActions is the compact action set Gemma can choose from.
 // Each maps to one or more real QualityMax API calls.
 const ollamaToolPrompt = `
-When the user asks you to DO something (not just chat), respond with a JSON action block:
+
+CRITICAL TOOL RULES:
+1. You have NO direct knowledge of the user's projects, tests, or data.
+2. When the user asks to list, show, run, create, check, or do ANYTHING with their data, you MUST output ONLY an action block — nothing else.
+3. Do NOT make up or hallucinate data. You do not know their projects, test cases, or results.
+4. For normal chat (greetings, QA concepts, advice), respond normally without action blocks.
+
+Action format — output ONLY this, no other text:
 <action>{"name": "ACTION_NAME", "params": {...}}</action>
 
 Available actions:
-- list_projects: List all projects. No params needed.
-- list_test_cases: List test cases. Params: {"project_id": int, "search": "optional text"}
+- list_projects: List all projects. No params.
+- list_test_cases: List test cases. Params: {"project_id": int, "search": "optional"}
 - list_scripts: List automation scripts. Params: {"project_id": int}
-- run_test: Run a test script. Params: {"script_id": int}
-- start_crawl: Start AI crawl. Params: {"project_id": int, "url": "https://..."}
-- review_repo: Run AI code review. Params: {"repo_id": int}
+- run_test: Run a test. Params: {"script_id": int}
+- start_crawl: AI crawl a site. Params: {"project_id": int, "url": "https://..."}
+- review_repo: AI code review. Params: {"repo_id": int}
 - get_script: Get script code. Params: {"script_id": int}
-- get_project_summary: Get project details. Params: {"project_id": int}
-- check_test_status: Check execution status. Params: {"execution_id": "uuid"}
-- create_pr: Create a PR with tests. Params: {"repo_id": int, "project_id": int}
-
-If the user is just chatting (greetings, questions about QA concepts, asking for advice), respond normally WITHOUT an action block.
-If you need more info to pick an action, ask the user.
+- get_project_summary: Project details. Params: {"project_id": int}
+- check_test_status: Check execution. Params: {"execution_id": "uuid"}
+- create_pr: Create PR with tests. Params: {"repo_id": int, "project_id": int}
 `
 
 // RunOllamaAgent runs a full conversation turn using only Ollama.
