@@ -212,6 +212,7 @@ func main() {
 		Professional: appConfig.Professional,
 	})
 	agent.appConfig = appConfig
+	agent.ollama = NewOllamaClient(appConfig)
 
 	// One-shot mode
 	if *oneShot != "" {
@@ -698,7 +699,7 @@ Commands:
   /keys          Set API keys (interactive menu)
   /screenshot    Capture a screenshot and analyze it
   /paste         Paste from clipboard (image or text)
-  /set <k> <v>   Update config (model, project, professional, autosave, budget)
+  /set <k> <v>   Update config (model, project, professional, autosave, budget, ollama)
   /save          Save current session
   /sessions      List recent sessions
   /resume [id]   Resume a session (default: last)
@@ -712,6 +713,8 @@ Config examples:
   /set professional true    Disable cat personality
   /set autosave false       Disable auto-save on exit
   /set budget 100000        Set max token budget warning
+  /set ollama on            Enable self-hosted LLM for chat (saves API costs)
+  /set ollama off           Disable Ollama, use Claude for all calls
 
 Shortcuts:
   Ctrl+C         Cancel current operation (double-tap to exit)
@@ -746,6 +749,12 @@ func printConfigInfo(cfg *Config, term *Terminal) {
 	fmt.Printf("  %-20s %v\n", "Professional:", cfg.Professional)
 	fmt.Printf("  %-20s %v\n", "Auto-save:", cfg.AutoSave)
 	fmt.Printf("  %-20s %d\n", "Token budget:", cfg.MaxTokenBudget)
+	if cfg.OllamaURL != "" {
+		fmt.Printf("  %-20s %s\n", "Ollama URL:", maskURL(cfg.OllamaURL))
+		fmt.Printf("  %-20s %s\n", "Ollama model:", cfg.OllamaModel)
+	} else {
+		fmt.Printf("  %-20s %s\n", "Ollama:", "(not configured)")
+	}
 	fmt.Println()
 }
 
@@ -833,6 +842,26 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 		fmt.Println()
 		return // auth.json handles persistence
+
+	case "ollama":
+		switch strings.ToLower(value) {
+		case "true", "1", "yes", "on", "enabled":
+			if cfg.OllamaURL == "" {
+				term.PrintError("No Ollama URL configured. Set it first:")
+				term.PrintSystem("  qmax-code config set ollama_url https://user:pass@llm.example.com")
+				term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
+				return
+			}
+			agent.ollama = NewOllamaClient(cfg)
+			term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", maskURL(cfg.OllamaURL), cfg.OllamaModel))
+		case "false", "0", "no", "off", "disabled":
+			agent.ollama = nil
+			term.PrintSystem("Ollama disabled. Using Claude for all calls.")
+		default:
+			term.PrintError("Value must be true/false (or enabled/disabled).")
+			return
+		}
+		return // no config persistence needed — runtime toggle
 
 	case "anthropic-key", "anthropic_key":
 		// Save Anthropic API key to OS keychain

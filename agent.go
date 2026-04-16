@@ -40,6 +40,7 @@ type Agent struct {
 	usage     TokenUsage
 	cancel    context.CancelFunc // cancel the current streaming request
 	logger    *Logger
+	ollama    *OllamaClient // optional self-hosted LLM for cheap chat tier
 }
 
 // Message represents a conversation message.
@@ -353,6 +354,33 @@ func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 		if a.config.Verbose {
 			fmt.Fprintf(term.rl.Stderr(), "[model] %s (iteration %d)\n", model, iterations)
 		}
+
+		// Try Ollama for the chat tier (iteration 0, no tools needed).
+		// If Ollama succeeds, we skip Claude entirely for this turn.
+		if iterations == 0 && a.ollama != nil && a.ollama.Available() && a.config.AutoRoute {
+			if a.config.Verbose {
+				fmt.Fprintf(term.rl.Stderr(), "[ollama] trying %s\n", a.ollama.model)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			a.cancel = cancel
+			ollamaText, ollamaErr := a.ollama.ChatStreaming(ctx, a.buildSystemPrompt(), a.history, term)
+			a.cancel = nil
+			cancel()
+			if ollamaErr == nil && ollamaText != "" {
+				a.logger.Info("ollama", "chat_ok", map[string]interface{}{"model": a.ollama.model, "len": len(ollamaText)})
+				// Ollama can't do tool use — if the response suggests it needs tools,
+				// fall through to Claude. Otherwise, return directly.
+				content := []ContentBlock{{Type: "text", Text: ollamaText}}
+				a.history = append(a.history, Message{Role: "assistant", Content: content})
+				term.FinishMarkdown(ollamaText)
+				return ollamaText, nil
+			}
+			// Ollama failed or empty — fall through to Claude
+			if a.config.Verbose && ollamaErr != nil {
+				fmt.Fprintf(term.rl.Stderr(), "[ollama] failed, falling back to Claude: %v\n", ollamaErr)
+			}
+		}
+
 		content, stopReason, err := a.callStreamingAPI(term, model)
 		if err != nil {
 			a.logger.Error("api", err.Error())

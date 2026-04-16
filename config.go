@@ -19,6 +19,12 @@ type Config struct {
 	AutoSave       bool   `json:"auto_save"`              // auto-save session on exit (default true)
 	MaxTokenBudget int    `json:"max_token_budget,omitempty"`
 	AnthropicKey string `json:"-"` // NOT stored in JSON — use keychain instead
+
+	// Ollama integration — use a self-hosted LLM for the cheap chat tier.
+	// When configured, iteration-0 (conversational) calls go to Ollama instead
+	// of Haiku, saving API costs. Tool orchestration stays on Claude.
+	OllamaURL   string `json:"ollama_url,omitempty"`   // e.g. "https://user:pass@llm.qualitymax.io"
+	OllamaModel string `json:"ollama_model,omitempty"` // e.g. "gemma3:4b-it-q4_K_M"
 }
 
 const qmaxCodeConfigDir = ".qmax-code"
@@ -40,6 +46,14 @@ func LoadQMaxCodeConfig() *Config {
 	// Load Anthropic key from OS keychain (never stored in JSON)
 	if key, err := LoadFromKeychain("anthropic_key"); err == nil && key != "" {
 		cfg.AnthropicKey = key
+	}
+
+	// Env vars override config file for Ollama (useful for Railway/CI)
+	if url := os.Getenv("OLLAMA_BASE_URL"); url != "" {
+		cfg.OllamaURL = url
+	}
+	if model := os.Getenv("OLLAMA_MODEL"); model != "" {
+		cfg.OllamaModel = model
 	}
 
 	return cfg
