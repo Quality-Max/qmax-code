@@ -357,7 +357,9 @@ func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 
 		// Try Ollama for the chat tier (iteration 0, no tools needed).
 		// If Ollama succeeds, we skip Claude entirely for this turn.
-		if iterations == 0 && a.ollama != nil && a.ollama.Available() && a.config.AutoRoute {
+		// Skip Ollama if the user's message likely needs tool calls —
+		// Gemma can't use tools and will hallucinate data instead.
+		if iterations == 0 && a.ollama != nil && a.ollama.Available() && a.config.AutoRoute && !a.needsTools() {
 			if a.config.Verbose {
 				fmt.Fprintf(term.rl.Stderr(), "[ollama] trying %s\n", a.ollama.model)
 			}
@@ -368,10 +370,13 @@ func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 			cancel()
 			if ollamaErr == nil && ollamaText != "" {
 				a.logger.Info("ollama", "chat_ok", map[string]interface{}{"model": a.ollama.model, "len": len(ollamaText)})
-				// Ollama can't do tool use — if the response suggests it needs tools,
-				// fall through to Claude. Otherwise, return directly.
-				content := []ContentBlock{{Type: "text", Text: ollamaText}}
-				a.history = append(a.history, Message{Role: "assistant", Content: content})
+				// Store as []ContentBlock — the format Claude's API expects for
+				// assistant messages. This ensures history stays valid if Claude
+				// handles subsequent turns.
+				a.history = append(a.history, Message{
+					Role:    "assistant",
+					Content: []ContentBlock{{Type: "text", Text: ollamaText}},
+				})
 				term.FinishMarkdown(ollamaText)
 				return ollamaText, nil
 			}
@@ -422,6 +427,55 @@ func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 	}
 
 	return "", fmt.Errorf("agent loop exceeded maximum iterations")
+}
+
+// needsTools checks if the latest user message likely requires tool calls.
+// If so, we skip Ollama (which can't use tools and will hallucinate data).
+func (a *Agent) needsTools() bool {
+	if len(a.history) == 0 {
+		return false
+	}
+	// Get the last user message
+	var lastUserMsg string
+	for i := len(a.history) - 1; i >= 0; i-- {
+		if a.history[i].Role == "user" {
+			lastUserMsg = extractPlainText(a.history[i].Content)
+			break
+		}
+	}
+	if lastUserMsg == "" {
+		return false
+	}
+
+	lower := strings.ToLower(lastUserMsg)
+
+	// Action verbs that almost always need tools
+	actionPrefixes := []string{
+		"list ", "show ", "run ", "execute ", "start ", "crawl ",
+		"generate ", "create ", "import ", "export ", "delete ",
+		"review ", "check ", "test ", "deploy ", "setup ",
+		"trigger ", "enhance ", "update ", "fix ", "heal ",
+	}
+	for _, prefix := range actionPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+
+	// Specific tool-needing keywords anywhere in the message
+	toolKeywords := []string{
+		"project", "test case", "script", "execution", "crawl",
+		"repository", "repo ", "coverage", "k6 ", "qtml",
+		"ci/cd", "cicd", "framework", "pr ", "pull request",
+		"how many", "show me", "give me", "get me", "fetch",
+	}
+	for _, kw := range toolKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // modelForIteration picks the model: haiku for first call (chat), sonnet for tool loops.
