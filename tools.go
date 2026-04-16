@@ -443,9 +443,25 @@ func BuildToolDefs() []ToolDef {
 		},
 		{
 			Name:        "review_repo",
-			Description: "Start an AI-powered code review for a repository. Analyzes testing quality, security, and suggests improvements.",
+			Description: "Start an AI-powered code review for a repository. Analyzes testing quality, security, and suggests improvements. Respects the user's saved review preferences (which categories to check/skip).",
 			InputSchema: obj(props(
 				prop("repo_id", "integer", "Repository ID", true),
+			)),
+		},
+		{
+			Name:        "get_review_preferences",
+			Description: "Get the user's AI code-review preferences (which categories to check, which to skip). Returns effective preferences: per-repo overrides merged over global defaults. Call without repository_id for global defaults only.",
+			InputSchema: obj(props(
+				prop("repository_id", "integer", "Repository ID. Omit to get global defaults only.", false),
+			)),
+		},
+		{
+			Name:        "set_review_preferences",
+			Description: "Set or update AI code-review preferences. Categories: security, performance, test_coverage, type_safety, accessibility, style, secrets_scanning, ai_safety_for_agents (booleans). Plus optional custom_focus (string, max 500 chars). Use scope='global' for defaults, scope='repo' with repository_id for per-repo overrides.",
+			InputSchema: obj(props(
+				prop("scope", "string", "global or repo", true),
+				prop("repository_id", "integer", "Required when scope is repo", false),
+				prop("preferences", "object", "Key-value map of review categories (boolean) and optional custom_focus (string)", true),
 			)),
 		},
 		{
@@ -630,6 +646,12 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 
 	case "review_repo":
 		return api.ReviewRepo(ctx, intVal(input, "repo_id", 0))
+
+	case "get_review_preferences":
+		return api.GetReviewPreferences(ctx, intVal(input, "repository_id", 0))
+
+	case "set_review_preferences":
+		return api.SetReviewPreferences(ctx, strVal(input, "scope"), intVal(input, "repository_id", 0), input["preferences"])
 
 	case "repo_coverage":
 		return api.RepoCoverage(ctx, intVal(input, "repo_id", 0))
@@ -1306,6 +1328,8 @@ func ToolCost(name string) string {
 		return "high" // significant AI + execution cost
 	case "import_repo", "import_document", "create_pr", "update_script", "rollback_script":
 		return "medium"
+	case "get_review_preferences", "set_review_preferences":
+		return "free"
 	default:
 		return "free"
 	}

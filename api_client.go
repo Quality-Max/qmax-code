@@ -281,6 +281,25 @@ func (c *APIClient) ReviewRepo(ctx context.Context, repoID int) string {
 	return c.post(ctx, fmt.Sprintf("/api/repositories/%d/ai-review", repoID), map[string]interface{}{})
 }
 
+func (c *APIClient) GetReviewPreferences(ctx context.Context, repoID int) string {
+	body := map[string]interface{}{}
+	if repoID > 0 {
+		body["repository_id"] = repoID
+	}
+	return c.post(ctx, "/api/mcp/tool/get_review_preferences", body)
+}
+
+func (c *APIClient) SetReviewPreferences(ctx context.Context, scope string, repoID int, preferences interface{}) string {
+	body := map[string]interface{}{
+		"scope":       scope,
+		"preferences": preferences,
+	}
+	if repoID > 0 {
+		body["repository_id"] = repoID
+	}
+	return c.post(ctx, "/api/mcp/tool/set_review_preferences", body)
+}
+
 func (c *APIClient) RepoCoverage(ctx context.Context, repoID int) string {
 	return c.get(ctx, fmt.Sprintf("/api/repositories/%d/coverage", repoID))
 }
