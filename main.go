@@ -476,6 +476,27 @@ func runREPL(agent *Agent, quietMode bool) {
 		case input == "/config":
 			printConfigInfo(agent.appConfig, term)
 			continue
+		case input == "/set":
+			term.PrintError("Usage: /set <key> <value>")
+			term.PrintSystem("Keys: model, project, professional, autosave, budget, ollama")
+			continue
+		case input == "/ollama":
+			// Quick toggle
+			if agent.ollama != nil {
+				agent.ollama = nil
+				term.PrintSystem("Ollama disabled. Using Claude for all calls.")
+			} else {
+				cfg := agent.appConfig
+				if cfg != nil && cfg.OllamaURL != "" {
+					agent.ollama = NewOllamaClient(cfg)
+					term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", maskURL(cfg.OllamaURL), cfg.OllamaModel))
+				} else {
+					term.PrintError("Ollama not configured. Set it first:")
+					term.PrintSystem("  qmax-code config set ollama_url https://user:pass@llm.example.com")
+					term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
+				}
+			}
+			continue
 		case strings.HasPrefix(input, "/set "):
 			handleSetCommand(input, agent, term)
 			continue
@@ -695,6 +716,7 @@ Commands:
   /project <id>  Set the active project
   /context       Show current session context
   /cost          Show session token usage and estimated cost
+  /ollama        Toggle Ollama on/off (self-hosted LLM for chat)
   /config        Show current config settings
   /keys          Set API keys (interactive menu)
   /screenshot    Capture a screenshot and analyze it
