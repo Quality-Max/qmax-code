@@ -29,6 +29,7 @@ var slashMenuItems = []SlashMenuItem{
 	{"/screenshot", "Capture & analyze a screenshot"},
 	{"/paste", "Paste from clipboard (image or text)"},
 	{"/set", "Update config"},
+	{"/ollama", "Toggle Ollama on/off"},
 	{"/clear", "Clear history"},
 	{"/quit", "Exit"},
 }
