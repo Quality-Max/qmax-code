@@ -13,10 +13,10 @@ import (
 	"time"
 )
 
-const (
-	Version = "1.8.4"
-	Name    = "qmax-code"
-)
+// Version is set at build time via -ldflags "-X main.Version=x.y.z"
+var Version = "1.10.0"
+
+const Name = "qmax-code"
 
 func main() {
 	// Flags
