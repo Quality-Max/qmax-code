@@ -2,6 +2,14 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.10.0] — 2026-04-16
+
+### Added
+- **Ollama integration** — self-hosted LLM (Gemma 3 4B) as the cheap chat tier. When configured, conversational responses go to your GPU instead of Claude Haiku, saving API costs. Tool orchestration stays on Claude Sonnet.
+- **Circuit breaker** — 3 consecutive failures trip a 120s cooldown, then transparent fallback to Claude
+- **Runtime toggle** — `/set ollama on|off` to switch mid-session
+- **Config support** — `ollama_url` and `ollama_model` via config file or env vars (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`)
+
 ## [1.9.0] — 2026-04-16
 
 ### Added
