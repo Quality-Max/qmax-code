@@ -85,6 +85,13 @@ func printConfig() {
 	} else {
 		fmt.Println("    anthropic_key     = (not set)")
 	}
+	if cfg.OllamaURL != "" {
+		// Mask credentials in URL for display
+		fmt.Printf("    ollama_url        = %q\n", maskURL(cfg.OllamaURL))
+		fmt.Printf("    ollama_model      = %q\n", cfg.OllamaModel)
+	} else {
+		fmt.Println("    ollama_url        = (not set)")
+	}
 }
 
 // setConfigField writes the given value into the Config. Empty value
@@ -139,6 +146,12 @@ func setConfigField(key, value string) error {
 			}
 			cfg.MaxTokenBudget = n
 		}
+
+	case "ollama_url":
+		cfg.OllamaURL = value
+
+	case "ollama_model":
+		cfg.OllamaModel = value
 
 	default:
 		return fmt.Errorf("unknown config key %q", key)
