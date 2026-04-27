@@ -92,11 +92,9 @@ func (c *APIClient) ListScripts(ctx context.Context, projectID, limit int) strin
 	return c.get(ctx, path)
 }
 
-// allowedFrameworks is the whitelist the server (qa-rag-app/services/
-// github_action_setup_service.py::_ALLOWED_FRAMEWORKS) accepts. We enforce
-// it client-side too so bad values get rejected before hitting the wire —
-// saves a DB round-trip and gives the agent a clearer error message.
-// Keep in sync with the server list.
+// allowedFrameworks mirrors the public framework values accepted by the
+// QualityMax API. We validate client-side so bad values get rejected before
+// hitting the wire and the agent can show a clearer error message.
 var allowedFrameworks = map[string]bool{
 	"":           true, // omitted → server auto-detects
 	"playwright": true,
@@ -131,8 +129,8 @@ func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force 
 	if force {
 		body["force"] = true
 	}
-	// framework override flows into the qa-rag-app generator so the user
-	// can request Rust/Go script generation instead of the default Playwright.
+	// framework lets users request Rust/Go script generation instead of the
+	// default Playwright path.
 	// Empty string → server picks based on project settings + repo analysis.
 	if framework != "" {
 		body["framework"] = framework
@@ -144,8 +142,8 @@ func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force 
 
 func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, browser, baseURL string) string {
 	body := map[string]interface{}{
-		"headless":         headless,
-		"use_browserbase":  false, // Use QualityMax server runner, not BrowserBase
+		"headless":        headless,
+		"use_browserbase": false,
 	}
 	if browser != "" {
 		body["browser"] = browser
@@ -157,10 +155,8 @@ func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, br
 }
 
 // RunNativeTest executes a Rust (cargo test) / Go (go test -json) automation
-// script on the QualityMax server runner. The `/api/automation/execute`
-// endpoint dispatches by the script's framework field: Playwright/Cypress
-// go to the browser runner, Rust/Go go through services.native_test_execution_service
-// (normalized console_logs, passed/failed/total, stdout, stderr).
+// script through the QualityMax execution API. The backend dispatches by the
+// script's framework field and returns a normalized result shape.
 //
 // Use this when the script is framework=rust_cargo or go_test. For
 // Playwright scripts, keep using RunTest — the cloud runner path there
@@ -310,7 +306,7 @@ func (c *APIClient) RepoQuality(ctx context.Context, repoID int) string {
 
 // --- Import operations ---
 
-func (c *APIClient) ImportRepo(ctx context.Context, url string, projectID int, createProject bool, projectName, baseURL string) string {
+func (c *APIClient) ImportRepo(ctx context.Context, url string, projectID int, createProject bool, projectName, baseURL, trainingConsent string) string {
 	body := map[string]interface{}{
 		"repo_url": url,
 	}
@@ -326,7 +322,14 @@ func (c *APIClient) ImportRepo(ctx context.Context, url string, projectID int, c
 	if baseURL != "" {
 		body["base_url"] = baseURL
 	}
-	body["training_consent"] = "opt_in"
+	switch trainingConsent {
+	case "opt_in", "opt_out":
+		body["training_consent"] = trainingConsent
+	case "":
+		// Omit by default; consent should be explicit.
+	default:
+		return jsonError(`training_consent must be "opt_in" or "opt_out"`)
+	}
 	return c.post(ctx, "/api/repositories/import", body)
 }
 
@@ -661,7 +664,7 @@ func (c *APIClient) doRequest(req *http.Request) string {
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return jsonError(fmt.Sprintf("request failed: %s", err))
+		return jsonError(fmt.Sprintf("request failed: %s", redactSensitive(err.Error())))
 	}
 	defer resp.Body.Close()
 
@@ -688,6 +691,7 @@ func (c *APIClient) doRequest(req *http.Request) string {
 		if errMsg == "" {
 			errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(data))
 		}
+		errMsg = redactSensitive(errMsg)
 
 		// Report server errors (5xx) and auth errors (401/403) to Bugsink
 		if resp.StatusCode >= 500 || resp.StatusCode == 401 || resp.StatusCode == 403 {
@@ -705,6 +709,7 @@ func (c *APIClient) doRequest(req *http.Request) string {
 }
 
 func jsonError(msg string) string {
+	msg = redactSensitive(msg)
 	escaped, _ := json.Marshal(msg)
 	return fmt.Sprintf(`{"error": %s}`, string(escaped))
 }

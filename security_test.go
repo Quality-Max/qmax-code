@@ -85,6 +85,26 @@ func TestScanCodeSecurity_AllowedURLs(t *testing.T) {
 	}
 }
 
+func TestRedactSensitiveMasksKnownCredentialShapes(t *testing.T) {
+	input := `Authorization: Bearer abc.def-123
+api_key="qm-live-secret"
+token: sk-ant-supersecret
+raw=sk-ant-rawsecret
+url=https://user:pass@llm.example.com/v1`
+
+	got := redactSensitive(input)
+	for _, leaked := range []string{"abc.def-123", "qm-live-secret", "sk-ant-supersecret", "user:pass@"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("redacted output leaked %q: %s", leaked, got)
+		}
+	}
+	for _, want := range []string{"Bearer [REDACTED]", `api_key="[REDACTED]"`, "sk-ant-[REDACTED]", "user:[REDACTED]@"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("redacted output missing %q: %s", want, got)
+		}
+	}
+}
+
 func TestScanCodeSecurity_NoTestFunction(t *testing.T) {
 	code := `console.log('not a test file');`
 	violations := scanCodeSecurity(code)

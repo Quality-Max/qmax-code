@@ -2,21 +2,35 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
 )
 
-const bugsinkDSN = "https://4a5a87da918c49d997ca431b1e666fc5@bugs.qualitymax.io/5"
+const (
+	telemetryEnabledEnv = "QMAX_CODE_TELEMETRY"
+	telemetryDSNEnv     = "QMAX_CODE_TELEMETRY_DSN"
+)
 
-// InitErrorReporting sets up Sentry/Bugsink error reporting.
+// InitErrorReporting sets up Sentry-compatible error reporting when explicitly
+// enabled. Public builds should not report anything unless the user opts in.
 func InitErrorReporting() {
+	if !envEnabled(telemetryEnabledEnv) {
+		return
+	}
+
+	dsn := os.Getenv(telemetryDSNEnv)
+	if dsn == "" {
+		return
+	}
+
 	err := sentry.Init(sentry.ClientOptions{
-		Dsn:              bugsinkDSN,
+		Dsn:              dsn,
 		Release:          fmt.Sprintf("qmax-code@%s", Version),
 		Environment:      "production",
 		AttachStacktrace: true,
-		// Don't send in debug/dev mode
 		BeforeSend: func(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
 			return event
 		},
@@ -27,6 +41,15 @@ func InitErrorReporting() {
 	}
 }
 
+func envEnabled(key string) bool {
+	switch strings.ToLower(os.Getenv(key)) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	default:
+		return false
+	}
+}
+
 // FlushErrorReporting flushes pending events before exit.
 func FlushErrorReporting() {
 	sentry.Flush(2 * time.Second)
@@ -34,10 +57,13 @@ func FlushErrorReporting() {
 
 // CaptureError reports a non-fatal error to Bugsink.
 func CaptureError(err error, context map[string]interface{}) {
+	if err != nil {
+		err = fmt.Errorf("%s", redactSensitive(err.Error()))
+	}
 	if context != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			for k, v := range context {
-				scope.SetTag(k, fmt.Sprintf("%v", v))
+				scope.SetTag(k, redactSensitive(fmt.Sprintf("%v", v)))
 			}
 			sentry.CaptureException(err)
 		})
@@ -48,7 +74,7 @@ func CaptureError(err error, context map[string]interface{}) {
 
 // CaptureMessage reports an informational message to Bugsink.
 func CaptureMessage(msg string) {
-	sentry.CaptureMessage(msg)
+	sentry.CaptureMessage(redactSensitive(msg))
 }
 
 // RecoverPanic catches panics and reports them to Bugsink before re-panicking.

@@ -22,7 +22,7 @@ func main() {
 	// Flags
 	projectID := flag.Int("project-id", 0, "Default project ID for this session")
 	model := flag.String("model", "", "Claude model: auto (haiku+sonnet), sonnet, opus, haiku, or full ID")
-	apiKey := flag.String("api-key", "", "Anthropic API key (or set ANTHROPIC_API_KEY)")
+	anthropicAPIKey := flag.String("anthropic-api-key", "", "Anthropic API key (or set ANTHROPIC_API_KEY)")
 	cloudURL := flag.String("cloud-url", "", "QualityMax cloud URL (or use qmax login)")
 	oneShot := flag.String("p", "", "Run a single prompt and exit (non-interactive)")
 	resumeID := flag.String("resume", "", "Resume a previous session by ID (or 'last')")
@@ -39,7 +39,7 @@ func main() {
 		return
 	}
 
-	// Initialize error reporting (Bugsink)
+	// Initialize error reporting only when explicitly enabled.
 	InitErrorReporting()
 	defer FlushErrorReporting()
 	defer RecoverPanic()
@@ -57,12 +57,17 @@ func main() {
 
 	// Handle "login" subcommand before flag parsing
 	if len(os.Args) > 1 && os.Args[1] == "login" {
+		loginFlags := flag.NewFlagSet("login", flag.ExitOnError)
+		qualityMaxAPIKey := loginFlags.String("api-key", "", "QualityMax API key")
+		_ = loginFlags.Parse(os.Args[2:])
+
 		var cfg *AuthConfig
 		var err error
-		if *apiKey != "" {
-			cfg, err = LoginWithAPIKey(*apiKey)
-		} else if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "qm-") {
-			cfg, err = LoginWithAPIKey(os.Args[2])
+		args := loginFlags.Args()
+		if *qualityMaxAPIKey != "" {
+			cfg, err = LoginWithAPIKey(*qualityMaxAPIKey)
+		} else if len(args) > 0 && strings.HasPrefix(args[0], "qm-") {
+			cfg, err = LoginWithAPIKey(args[0])
 		} else {
 			// Browser-based login (Railway-style)
 			AnimateMax(MoodWaving, "Let's get you logged in!")
@@ -70,7 +75,7 @@ func main() {
 		}
 		if err != nil {
 			AnimateMax(MoodSad, "Login failed: "+err.Error())
-			fmt.Fprintf(os.Stderr, "\n  Try: qmax-code login qm-YOUR-API-KEY\n")
+			fmt.Fprintf(os.Stderr, "\n  Try: qmax-code login --api-key qm-YOUR-API-KEY\n")
 			os.Exit(1)
 		}
 		AnimateMax(MoodHappy, fmt.Sprintf("Logged in as %s", cfg.Email))
@@ -110,7 +115,7 @@ func main() {
 	effectiveModel = resolveModel(effectiveModel)
 
 	// Resolve Anthropic API key: flag > env > keychain
-	anthropicKey := *apiKey
+	anthropicKey := *anthropicAPIKey
 	if anthropicKey == "" {
 		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 	}

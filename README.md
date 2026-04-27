@@ -52,8 +52,11 @@ curl -sL https://raw.githubusercontent.com/Quality-Max/qmax-code/main/install.sh
 # 1. Set your Anthropic API key
 export ANTHROPIC_API_KEY=sk-ant-...
 
-# 2. Login to QualityMax (paste your API key from Settings > API Keys)
+# 2. Login to QualityMax
 qmax-code login
+
+# Or use a QualityMax API key from Settings > API Keys
+qmax-code login --api-key qm-YOUR-API-KEY
 
 # 3. Start using
 qmax-code
@@ -97,6 +100,15 @@ Get your QualityMax API key at: https://app.qualitymax.io/settings
 - Anthropic API key (`ANTHROPIC_API_KEY`)
 - QualityMax account (free at [qualitymax.io](https://qualitymax.io))
 - qmax CLI is **optional** — qmax-code works standalone via REST API
+
+## Auth and telemetry
+
+- Anthropic: set `ANTHROPIC_API_KEY`, pass `--anthropic-api-key`, or save it through the interactive key prompt.
+- QualityMax: run `qmax-code login` for browser login, or `qmax-code login --api-key qm-YOUR-API-KEY`.
+- QualityMax credentials are stored in `~/.qmax-code/auth.json` with `0600` permissions. Run `/disconnect` in the REPL to remove saved QualityMax auth.
+- Anthropic keys saved by the prompt are stored in the OS keychain under the `qmax-code` service; remove them with your platform keychain tool, or use `ANTHROPIC_API_KEY` for session-only auth.
+- Telemetry/error reporting is off by default. To opt in, set `QMAX_CODE_TELEMETRY=1` and `QMAX_CODE_TELEMETRY_DSN`.
+- Known credential patterns are redacted from API errors, command output, local test output, and optional telemetry before display or reporting.
 
 ## Build
 

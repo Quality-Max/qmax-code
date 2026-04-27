@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -28,6 +29,47 @@ var dangerousPatterns = []struct {
 	{regexp.MustCompile(`exec\s*\(|execSync\s*\(`), "exec/execSync — shell command execution"},
 	{regexp.MustCompile(`spawn\s*\(|spawnSync\s*\(`), "spawn — process spawning"},
 	{regexp.MustCompile(`globalThis|global\[`), "global scope manipulation"},
+}
+
+var sensitivePatterns = []struct {
+	pattern     *regexp.Regexp
+	replacement string
+}{
+	{regexp.MustCompile(`(https?://)([^/\s:@]+):([^@\s/]+)@`), "${1}${2}:[REDACTED]@"},
+	{regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]+`), "sk-ant-[REDACTED]"},
+	{regexp.MustCompile(`qm-[A-Za-z0-9_-]+`), "qm-[REDACTED]"},
+	{regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+`), "${1}[REDACTED]"},
+	{regexp.MustCompile(`(?i)("?(?:api[_-]?key|token|anthropic[_-]?key)"?\s*[:=]\s*)"?[^"',\s}]+`), `${1}"[REDACTED]"`},
+}
+
+// redactSensitive removes common credential shapes before text is shown,
+// returned to the agent, or sent to optional telemetry.
+func redactSensitive(text string) string {
+	if text == "" {
+		return ""
+	}
+	redacted := text
+	for _, sp := range sensitivePatterns {
+		redacted = sp.pattern.ReplaceAllString(redacted, sp.replacement)
+	}
+	return redactURLCredentials(redacted)
+}
+
+func redactURLCredentials(text string) string {
+	fields := strings.Fields(text)
+	for _, field := range fields {
+		trimmed := strings.Trim(field, `"'(),[]{}<>`)
+		if !strings.Contains(trimmed, "://") {
+			continue
+		}
+		u, err := url.Parse(trimmed)
+		if err != nil || u.User == nil {
+			continue
+		}
+		u.User = url.UserPassword(u.User.Username(), "[REDACTED]")
+		text = strings.ReplaceAll(text, trimmed, u.String())
+	}
+	return text
 }
 
 // detectLanguage returns one of "js" (Playwright/Jest/Cypress), "go",
@@ -210,8 +252,10 @@ func scanCodeSecurity(code string) []string {
 // `// qmax:allow=<rule>` (case-insensitive on the `qmax:allow` part,
 // case-sensitive on the rule name to avoid surprises). Multiple rules
 // can be granted on separate lines or comma-separated:
-//   // qmax:allow=os/exec
-//   // qmax:allow=os/exec, exec.Command
+//
+//	// qmax:allow=os/exec
+//	// qmax:allow=os/exec, exec.Command
+//
 // Only `//`-style line comments are recognized — block comments are
 // intentionally ignored to keep the marker visible to grep + reviewers.
 var qmaxAllowRE = regexp.MustCompile(`(?i)//\s*qmax:allow=([^\r\n]+)`)

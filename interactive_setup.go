@@ -366,7 +366,7 @@ func intVal2(m map[string]interface{}, key string) int {
 }
 
 // detectProjectFramework inspects the given directory and returns the
-// qa-rag-app-canonical framework name for the toolchain it detects.
+// QualityMax framework name for the toolchain it detects.
 // Returns "" when nothing recognizable is present. Priority:
 //   - Cargo.toml       → "rust_cargo"
 //   - go.mod           → "go_test"

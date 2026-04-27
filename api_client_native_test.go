@@ -206,6 +206,62 @@ func TestGenerateTestCode_RejectsInvalidFramework(t *testing.T) {
 	}
 }
 
+// ---- ImportRepo ----
+
+func TestImportRepo_OmitsTrainingConsentByDefault(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]interface{}
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	})
+
+	out := client.ImportRepo(context.Background(), "https://github.com/acme/app", 42, false, "", "", "")
+
+	if gotPath != "/api/repositories/import" {
+		t.Errorf("path: got %q, want /api/repositories/import", gotPath)
+	}
+	if strings.Contains(out, "error") {
+		t.Fatalf("unexpected error: %s", out)
+	}
+	if _, ok := gotBody["training_consent"]; ok {
+		t.Errorf("training_consent should be omitted by default, got %+v", gotBody)
+	}
+}
+
+func TestImportRepo_AcceptsExplicitTrainingConsent(t *testing.T) {
+	var gotBody map[string]interface{}
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	})
+
+	_ = client.ImportRepo(context.Background(), "https://github.com/acme/app", 42, false, "", "", "opt_out")
+
+	if gotBody["training_consent"] != "opt_out" {
+		t.Errorf("training_consent: got %v, want opt_out", gotBody["training_consent"])
+	}
+}
+
+func TestImportRepo_RejectsInvalidTrainingConsent(t *testing.T) {
+	calls := 0
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+	})
+
+	out := client.ImportRepo(context.Background(), "https://github.com/acme/app", 42, false, "", "", "yes")
+
+	if calls != 0 {
+		t.Errorf("expected no HTTP call for invalid training_consent, got %d", calls)
+	}
+	if !strings.Contains(out, "training_consent") {
+		t.Errorf("expected training_consent validation error, got %q", out)
+	}
+}
+
 // ---- validateFramework (direct unit test of the allow-list) ----
 
 func TestValidateFramework_AllowList(t *testing.T) {

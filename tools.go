@@ -489,6 +489,7 @@ func BuildToolDefs() []ToolDef {
 				prop("create_project", "boolean", "Create a new project for this repo", false),
 				prop("project_name", "string", "Name for the new project", false),
 				prop("base_url", "string", "Base URL for testing", false),
+				prop("training_consent", "string", "Optional explicit consent value: opt_in or opt_out. Omit if the user has not chosen.", false),
 			)),
 		},
 		{
@@ -661,7 +662,7 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 
 	case "import_repo":
 		return api.ImportRepo(ctx, strVal(input, "url"), intVal(input, "project_id", sctx.ProjectID),
-			boolVal(input, "create_project"), strVal(input, "project_name"), strVal(input, "base_url"))
+			boolVal(input, "create_project"), strVal(input, "project_name"), strVal(input, "base_url"), strVal(input, "training_consent"))
 
 	case "import_document":
 		return api.ImportDocument(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "text"), strVal(input, "source_name"))
@@ -839,15 +840,13 @@ func min(a, b int) int {
 	return b
 }
 
-// runLocalTest downloads a script from QualityMax and runs it — where "runs"
-// depends on the script's framework:
+// runLocalTest downloads a script from QualityMax and runs it. Execution
+// location depends on the script's framework:
 //
 //	pytest / playwright → executed LOCALLY (pytest/npx on the user's machine)
-//	rust_cargo / go_test → delegated to the QualityMax SERVER runner, because
+//	rust_cargo / go_test → delegated to the QualityMax execution API because
 //	  scaffolding a Cargo.toml / go.mod and running cargo/go locally is
-//	  toolchain-heavy and duplicates what services/native_test_execution_service.py
-//	  already does. The `case "rust_cargo", ...` branch below calls
-//	  sctx.API.RunNativeTest which POSTs /api/automation/execute.
+//	  toolchain-heavy.
 //
 // The function name reads as "local" but for native toolchains it transparently
 // falls back to remote. This is intentional — the agent's tool-call surface
@@ -928,8 +927,7 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 	case "rust_cargo", "rust", "cargo", "go_test", "go":
 		// Native (Rust/Go) scripts are toolchain-heavy and need a scaffolded
 		// Cargo.toml / go.mod to build. Rather than duplicate that logic
-		// client-side, delegate to the server runner via run_native_test —
-		// the backend already has the full cargo/go scaffolding pipeline.
+		// client-side, delegate to the QualityMax execution API.
 		return sctx.API.RunNativeTest(ctx, scriptID, baseURL)
 
 	default:
@@ -937,12 +935,11 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 			"Framework '%s' not supported for local execution. "+
 				"Supported locally: pytest, playwright. "+
 				"For rust_cargo/go_test scripts, use the run_native_test tool — "+
-				"it runs on the QualityMax server runner which ships the full "+
-				"cargo + rustc toolchain and a Go 1.22+ module cache. "+
+				"it runs through the QualityMax execution API. "+
 				"(Local execution of those frameworks would require us to "+
 				"scaffold a Cargo.toml / go.mod per run, plus download a few "+
 				"hundred MB of dependencies on your machine — running on the "+
-				"server is faster and avoids polluting your local $GOPATH / "+
+				"managed runner is faster and avoids polluting your local $GOPATH / "+
 				"$CARGO_HOME.)",
 			framework,
 		))
@@ -964,9 +961,9 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 
 	// 4. Build result
 	passed := runErr == nil
-	output := stdout.String()
+	output := redactSensitive(stdout.String())
 	if stderr.Len() > 0 {
-		output += "\n--- stderr ---\n" + stderr.String()
+		output += "\n--- stderr ---\n" + redactSensitive(stderr.String())
 	}
 
 	// Trim output if too long
@@ -1222,14 +1219,14 @@ func runQMax(sctx *SessionContext, ctx context.Context, args ...string) string {
 			return `{"error": "cancelled"}`
 		}
 		if stderr.Len() > 0 {
-			return fmt.Sprintf(`{"error": %q}`, stderr.String())
+			return fmt.Sprintf(`{"error": %q}`, redactSensitive(stderr.String()))
 		}
-		return fmt.Sprintf(`{"error": %q}`, err.Error())
+		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
 	}
 
-	output := strings.TrimSpace(stdout.String())
+	output := strings.TrimSpace(redactSensitive(stdout.String()))
 	if output == "" {
-		output = strings.TrimSpace(stderr.String())
+		output = strings.TrimSpace(redactSensitive(stderr.String()))
 	}
 	return output
 }
@@ -1247,12 +1244,12 @@ func runShell(ctx context.Context, name string, args ...string) string {
 		}
 		combined := stdout.String() + stderr.String()
 		if combined != "" {
-			return truncateOutput(combined, 8000)
+			return truncateOutput(redactSensitive(combined), 8000)
 		}
-		return fmt.Sprintf(`{"error": %q}`, err.Error())
+		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
 	}
 
-	return truncateOutput(stdout.String(), 8000)
+	return truncateOutput(redactSensitive(stdout.String()), 8000)
 }
 
 // truncateOutput limits output to maxLen characters.
@@ -1894,20 +1891,20 @@ func fetchScriptCode(sctx *SessionContext, ctx context.Context, scriptID string)
 	url := fmt.Sprintf("%s/api/automation/scripts/%s", apiURL, scriptID)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, err.Error())
+		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, err.Error())
+		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if resp.StatusCode != 200 {
-		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, string(body))
+		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, redactSensitive(string(body)))
 	}
 	return string(body)
 }
@@ -1928,7 +1925,7 @@ func updateScriptCode(sctx *SessionContext, ctx context.Context, scriptID, name,
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, err.Error())
+		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
@@ -1936,13 +1933,13 @@ func updateScriptCode(sctx *SessionContext, ctx context.Context, scriptID, name,
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, err.Error())
+		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if resp.StatusCode != 200 {
-		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, string(body))
+		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, redactSensitive(string(body)))
 	}
 	return string(body)
 }
@@ -2279,7 +2276,7 @@ func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
 
 	respData, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return jsonError(fmt.Sprintf("Vision API error %d: %s", resp.StatusCode, string(respData)))
+		return jsonError(fmt.Sprintf("Vision API error %d: %s", resp.StatusCode, redactSensitive(string(respData))))
 	}
 
 	var result map[string]interface{}
