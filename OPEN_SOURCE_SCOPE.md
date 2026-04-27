@@ -4,6 +4,32 @@ This note tracks the first-pass scope for preparing `qmax-code` for a public
 repository. It separates code that is probably safe to publish from code that
 needs product, security, or legal review before release.
 
+## Intended Source Boundary
+
+`qmax-code` can be public while the main QualityMax monorepo remains closed.
+The public repository should be treated as the client/agent boundary; the
+closed monorepo remains the product/backend boundary.
+
+Public `qmax-code` may contain:
+
+- Terminal UX, command parsing, install/build/release scripts, and docs.
+- Client-side auth flows and cloud API calls that are intentionally supported.
+- LLM orchestration, tool definitions, local execution helpers, and safety
+  guards that define the CLI behavior.
+- Provider adapters for Anthropic/Ollama and public configuration.
+
+Closed QualityMax monorepo should retain:
+
+- Crawl engine implementation, test generation services, repository analysis,
+  scoring/coverage algorithms, billing/accounts, and backend authorization.
+- Server-side prompts, ranking heuristics, private model routing, and any
+  proprietary datasets or training/evaluation logic.
+- Unreleased roadmap behavior and experimental endpoints not intended for
+  public client support.
+
+Before public release, every cloud route/tool should be classified as:
+`public-core`, `public-cloud`, `experimental-gated`, or `private/remove`.
+
 ## Phase 0: Repository Hygiene
 
 - Add an explicit `LICENSE`.
@@ -61,6 +87,33 @@ Initial API surface inventory:
 - Local-agent surface: `read_file`, `write_file`, `run_command`,
   `run_local_test`. These are useful but should be documented as trusted-local
   agent powers, not as a remote sandbox.
+
+Proposed launch classification:
+
+| Surface | Suggested class | Notes |
+| --- | --- | --- |
+| Auth and config | public-core | Browser login, API-key login, env/keychain config. |
+| Projects and test cases | public-core | Basic CRUD/listing is expected client behavior. |
+| Automation scripts | public-core | List/get/update plus security scanning are core to the agent. |
+| Test generation and execution | public-cloud | Public client can call closed generation/execution services. |
+| Crawl | public-cloud | Acceptable if AI crawl is an advertised feature. |
+| Repository import | public-cloud | Keep explicit consent and clear data-use docs. |
+| Review, coverage, quality, gap tests | product-review | Reveals product positioning and analysis categories. |
+| PR creation and CI/CD setup | product-review | Public if supported broadly; otherwise gate. |
+| k6 | experimental-gated | Looks broad/beta; decide if ready for public support. |
+| QTML | experimental-gated | Public only if QTML is meant as a stable format. |
+| Framework export/install/run | experimental-gated | Useful, but exposes packaging assumptions. |
+| Screenshot/page analysis | product-review | Clarify whether this is local model, Anthropic, or cloud-backed. |
+| Background job health | private/remove | More operational than user-facing unless documented. |
+| Local file/shell tools | public-core with warning | Must be documented as trusted local agent powers. |
+
+Recommended default launch posture:
+
+- Keep `public-core` and clearly documented `public-cloud` surfaces enabled.
+- Hide `experimental-gated` tools from the default tool registry until each has
+  public docs and support expectations.
+- Remove or keep private any route/tool that exists only for operations,
+  debugging, or backend health.
 
 Phase 2 cleanup completed:
 
