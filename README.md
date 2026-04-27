@@ -110,6 +110,10 @@ Get your QualityMax API key at: https://app.qualitymax.io/settings
 - Telemetry/error reporting is off by default. To opt in, set `QMAX_CODE_TELEMETRY=1` and `QMAX_CODE_TELEMETRY_DSN`.
 - Known credential patterns are redacted from API errors, command output, local test output, and optional telemetry before display or reporting.
 
+## Local safety
+
+qmax-code is a trusted local terminal agent. Tools such as `read_file`, `write_file`, `run_command`, and `run_local_test` can access your workspace or run local commands with your user permissions. See [SECURITY.md](SECURITY.md) for the trust model and local backup paths.
+
 ## Build
 
 ```bash

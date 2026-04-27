@@ -134,16 +134,22 @@ Likely okay:
 Needs security review:
 
 - The agent exposes `read_file`, `write_file`, and `run_command` tools. There is
-  some validation, but a public project should document the trust model and test
-  the boundary.
+  some validation, and `SECURITY.md` now documents the trusted-local model.
 - `runLocalTest` downloads test code from QualityMax and executes Python or
   Playwright locally, then reports results back. This is powerful and should be
-  treated as a prominent security notice.
-- Shell validation is prefix-based and allows broad commands such as `python`,
-  `node`, `npm`, `npx`, and `pip`; suitable for a trusted local agent, but not a
-  strong sandbox.
-- Script healing stores backups under `~/.qmax-code/script-backups`; document
-  retention and cleanup.
+  treated as a prominent security notice; `SECURITY.md` now calls this out.
+- Shell validation now checks the first executable token and blocks shell
+  control tokens such as pipes, command substitution, redirection, and chaining.
+  This is still not a sandbox.
+- Script healing stores backups under `~/.qmax-code/script-backups`; this is now
+  documented in `SECURITY.md`.
+
+Phase 3 cleanup completed:
+
+- Added `SECURITY.md` with credential, telemetry, local command, local test, and
+  script backup notes.
+- Added command validation tests for prefix-confusion and shell-control tokens.
+- Tightened `validateCommand` from prefix matching to executable-name matching.
 
 ## Phase 4: Prompt and Model Strategy
 

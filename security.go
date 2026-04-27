@@ -277,34 +277,31 @@ func parseQmaxAllows(code string) map[string]bool {
 	return allows
 }
 
-// Command allowlist — only these command prefixes are safe
-var allowedCommands = []string{
-	"git ",
-	"git\t",
-	"ls ",
-	"ls\t",
-	"ls\n",
-	"pwd",
-	"cat ",
-	"head ",
-	"tail ",
-	"wc ",
-	"find ",
-	"grep ",
-	"npm ",
-	"npx ",
-	"node ",
-	"go ",
-	"python ",
-	"python3 ",
-	"pip ",
-	"echo ",
-	"which ",
-	"env",
-	"uname",
-	"date",
-	"whoami",
-	"qmax ",
+// Command allowlist — only these executable names are available to run_command.
+var allowedCommands = map[string]bool{
+	"git":     true,
+	"ls":      true,
+	"pwd":     true,
+	"cat":     true,
+	"head":    true,
+	"tail":    true,
+	"wc":      true,
+	"find":    true,
+	"grep":    true,
+	"npm":     true,
+	"npx":     true,
+	"node":    true,
+	"go":      true,
+	"python":  true,
+	"python3": true,
+	"pip":     true,
+	"echo":    true,
+	"which":   true,
+	"env":     true,
+	"uname":   true,
+	"date":    true,
+	"whoami":  true,
+	"qmax":    true,
 }
 
 // Dangerous shell operators that should be blocked
@@ -327,6 +324,18 @@ var dangerousShellOps = []string{
 	":(){ ", // fork bomb
 }
 
+var blockedShellTokens = []string{
+	";",
+	"&&",
+	"||",
+	"|",
+	"$(",
+	"`",
+	">",
+	"<",
+	"\n",
+}
+
 // validateCommand checks if a shell command is safe to execute.
 // Returns empty string if safe, or reason if blocked.
 func validateCommand(cmd string) string {
@@ -344,18 +353,17 @@ func validateCommand(cmd string) string {
 			return fmt.Sprintf("dangerous operation: %s", dangerous)
 		}
 	}
-
-	// Check against allowlist
-	// The command must start with one of the allowed prefixes
-	allowed := false
-	for _, prefix := range allowedCommands {
-		if strings.HasPrefix(cmd, prefix) || cmd == strings.TrimSpace(prefix) {
-			allowed = true
-			break
+	for _, token := range blockedShellTokens {
+		if strings.Contains(cmd, token) {
+			return fmt.Sprintf("shell control token not allowed: %s", token)
 		}
 	}
 
-	if !allowed {
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 {
+		return "empty command"
+	}
+	if !allowedCommands[fields[0]] {
 		return "command not in allowlist. Allowed: git, ls, cat, npm, npx, node, go, python, qmax, etc."
 	}
 
