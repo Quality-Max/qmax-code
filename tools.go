@@ -2236,7 +2236,7 @@ func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
 
 	// Direct Claude Vision call
 	reqBody := map[string]interface{}{
-		"model":      "claude-haiku-4-5-20251001",
+		"model":      ModelHaiku,
 		"max_tokens": 2000,
 		"messages": []map[string]interface{}{
 			{
@@ -2259,13 +2259,13 @@ func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
 	}
 
 	data, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(data))
+	req, err := http.NewRequest("POST", AnthropicMessagesURL, bytes.NewReader(data))
 	if err != nil {
 		return jsonError("Failed to create vision request: " + err.Error())
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-version", AnthropicVersion)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)

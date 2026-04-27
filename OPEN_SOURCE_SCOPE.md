@@ -158,10 +158,25 @@ Needs product/legal review:
 - `agent.go` contains the full system prompt and autonomous healing policy.
   This may be acceptable, but it is product-defining behavior and should be
   intentionally open-sourced rather than leaked accidentally.
-- Model names and provider calls are hardcoded in places. Consider centralizing
-  provider selection and publishing supported provider docs.
-- Ollama mode and fallback behavior are publishable, but remove private host
-  examples before release.
+- The system prompt includes product behavior: capability lanes, review
+  preferences, discovery nudges, autonomous healing, retry limits, and code
+  generation safety rules. Treat it as public product behavior if this repo is
+  opened.
+
+Phase 4 cleanup completed:
+
+- Centralized Anthropic model IDs, API URL, and API version constants.
+- Reused the central model constants for shorthand resolution and screenshot
+  vision analysis.
+- Replaced model-family-specific Ollama comments/status text with generic
+  "local model" wording.
+- Removed private host examples from Ollama configuration comments.
+
+Likely okay with docs:
+
+- Anthropic and Ollama provider adapters are client behavior and can be public.
+- Prompt-based local-model tool dispatch is publishable as long as the enabled
+  tool surface is intentionally classified in Phase 2.
 
 ## Phase 5: Public Release Prep
 

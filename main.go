@@ -279,11 +279,11 @@ func main() {
 func resolveModel(m string) string {
 	switch strings.ToLower(m) {
 	case "sonnet":
-		return "claude-sonnet-4-20250514"
+		return ModelSonnet
 	case "opus":
-		return "claude-opus-4-20250514"
+		return ModelOpus
 	case "haiku":
-		return "claude-haiku-4-5-20251001"
+		return ModelHaiku
 	default:
 		return m
 	}
@@ -503,10 +503,10 @@ func runREPL(agent *Agent, quietMode bool) {
 			switch agent.ollamaMode {
 			case OllamaModeOff:
 				agent.ollamaMode = OllamaModeChat
-				term.PrintSystem(fmt.Sprintf("Ollama: CHAT mode (%s) — chat via Gemma, tools via Claude", agent.ollama.model))
+				term.PrintSystem(fmt.Sprintf("Ollama: CHAT mode (%s) — chat via local model, tools via Claude", agent.ollama.model))
 			case OllamaModeChat:
 				agent.ollamaMode = OllamaModeFull
-				term.PrintSystem(fmt.Sprintf("Ollama: FULL mode (%s) — everything via Gemma (no Claude)", agent.ollama.agentModel))
+				term.PrintSystem(fmt.Sprintf("Ollama: FULL mode (%s) — everything via local model (no Claude)", agent.ollama.agentModel))
 			case OllamaModeFull:
 				agent.ollamaMode = OllamaModeOff
 				term.PrintSystem("Ollama: OFF — all calls via Claude")

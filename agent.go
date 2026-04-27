@@ -12,11 +12,13 @@ import (
 	"time"
 )
 
-// Model IDs for smart routing
+// Anthropic defaults for smart routing and direct API calls.
 const (
-	ModelHaiku  = "claude-haiku-4-5-20251001"
-	ModelSonnet = "claude-sonnet-4-20250514"
-	ModelOpus   = "claude-opus-4-20250514"
+	AnthropicMessagesURL = "https://api.anthropic.com/v1/messages"
+	AnthropicVersion     = "2023-06-01"
+	ModelHaiku           = "claude-haiku-4-5-20251001"
+	ModelSonnet          = "claude-sonnet-4-20250514"
+	ModelOpus            = "claude-opus-4-20250514"
 )
 
 // AgentConfig holds configuration for the LLM agent.
@@ -35,8 +37,8 @@ type OllamaMode int
 
 const (
 	OllamaModeOff  OllamaMode = iota // All calls go to Claude
-	OllamaModeChat                    // Chat only (simple Q&A), tools via Claude
-	OllamaModeFull                    // Everything including tool dispatch
+	OllamaModeChat                   // Chat only (simple Q&A), tools via Claude
+	OllamaModeFull                   // Everything including tool dispatch
 )
 
 func (m OllamaMode) String() string {
@@ -377,8 +379,8 @@ func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 		}
 
 		// Ollama routing based on mode:
-		// - OllamaModeFull: Gemma handles everything (chat + tools via prompt dispatch)
-		// - OllamaModeChat: Gemma handles chat only, tool requests go to Claude
+		// - OllamaModeFull: local model handles everything via prompt dispatch
+		// - OllamaModeChat: local model handles chat only, tool requests go to Claude
 		// - OllamaModeOff: everything goes to Claude
 		if iterations == 0 && a.ollama != nil && a.ollama.Available() && a.ollamaMode != OllamaModeOff {
 			if a.ollamaMode == OllamaModeFull {
@@ -586,13 +588,13 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 		cancel()
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", AnthropicMessagesURL, bytes.NewReader(data))
 	if err != nil {
 		return nil, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", a.config.AnthropicKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-version", AnthropicVersion)
 
 	a.logger.Info("api", "request", map[string]interface{}{"model": model, "messages": len(a.history)})
 
@@ -614,8 +616,8 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 		apiErr := fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
 		a.logger.Error("api", apiErr.Error())
 		CaptureError(apiErr, map[string]interface{}{
-			"model":        model,
-			"status_code":  fmt.Sprintf("%d", resp.StatusCode),
+			"model":         model,
+			"status_code":   fmt.Sprintf("%d", resp.StatusCode),
 			"message_count": fmt.Sprintf("%d", len(a.history)),
 		})
 		return nil, "", apiErr
@@ -788,13 +790,13 @@ func (a *Agent) callAPI() (*APIResponse, error) {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(data))
+	req, err := http.NewRequest("POST", AnthropicMessagesURL, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", a.config.AnthropicKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-version", AnthropicVersion)
 
 	if a.config.Verbose {
 		fmt.Printf("[API] Request: %d bytes, %d messages\n", len(data), len(a.history))
