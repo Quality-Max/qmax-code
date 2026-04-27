@@ -38,6 +38,8 @@ Before public release, every cloud route/tool should be classified as:
 - Replace "closed-source companion" language in `README.md` when the license
   decision is made.
 - Add public-facing `SECURITY.md`, `CONTRIBUTING.md`, and release policy.
+  `SECURITY.md` and `CONTRIBUTING.md` now exist; license and release policy
+  still need maintainer decisions.
 - Review asset rights for `assets/max-the-cat.mp4` and any referenced README
   images before publishing.
 - Keep generated/customer-specific reports out of source. The local
@@ -181,11 +183,30 @@ Likely okay with docs:
 ## Phase 5: Public Release Prep
 
 - Run a dependency/license review for `go.mod`.
-- Add CI that works for forks without private QualityMax secrets.
+- CI now uses `go-version-file: go.mod` so workflow Go versions stay aligned
+  with the module.
+- QualityMax reporting in CI now skips when the reporting secret is unavailable,
+  which keeps public forks cleaner.
 - Split private release publishing from public release workflows.
 - Decide whether public builds include telemetry, direct QualityMax cloud API,
   or only an OSS/local mode.
 - Create an issue checklist for any intentionally deferred proprietary cleanup.
+
+Phase 5 cleanup completed:
+
+- Added `CONTRIBUTING.md` with development, security-sensitive change, and
+  public source boundary guidance.
+- Updated CI/release workflows to use the Go version from `go.mod`.
+- Gated QualityMax test-result reporting on the presence of `QAMAX_API_KEY`.
+
+Still needs maintainer/legal decision:
+
+- Public license choice.
+- Final release policy and whether to keep publishing to the separate releases
+  repository.
+- Dependency/license review. Local attempt was blocked by sandboxed network DNS
+  resolution for `proxy.golang.org`; rerun in a networked environment before
+  public release.
 
 ## Initial Risk Ranking
 

@@ -30,7 +30,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
           check-latest: true
 
       - name: Cache Go modules
@@ -88,6 +88,11 @@ jobs:
           QAMAX_API_KEY: ${{ secrets.QAMAX_API_KEY }}
           QAMAX_PROJECT_ID: ${{ vars.QAMAX_PROJECT_ID || '164' }}
         run: |
+          if [ -z "$QAMAX_API_KEY" ]; then
+            echo "QAMAX_API_KEY not set — skipping QualityMax report"
+            exit 0
+          fi
+
           # Build JSON payload safely using jq to avoid shell injection
           PAYLOAD=$(jq -n \
             --arg project_id "$QAMAX_PROJECT_ID" \
