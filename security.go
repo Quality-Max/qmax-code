@@ -39,7 +39,12 @@ var sensitivePatterns = []struct {
 	{regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]+`), "sk-ant-[REDACTED]"},
 	{regexp.MustCompile(`qm-[A-Za-z0-9_-]+`), "qm-[REDACTED]"},
 	{regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+`), "${1}[REDACTED]"},
-	{regexp.MustCompile(`(?i)("?(?:api[_-]?key|token|anthropic[_-]?key)"?\s*[:=]\s*)"?[^"',\s}]+`), `${1}"[REDACTED]"`},
+	// Quoted values: consume both quotes so we don't leave a dangling closing
+	// quote behind. Must run before the unquoted variant.
+	{regexp.MustCompile(`(?i)("?(?:api[_-]?key|token|anthropic[_-]?key)"?\s*[:=]\s*)"[^"]*"`), `${1}"[REDACTED]"`},
+	// Unquoted values: no quote in, no quote out — preserves shape in
+	// shell/env/log lines (`token=abc` should not become `token="[REDACTED]"`).
+	{regexp.MustCompile(`(?i)("?(?:api[_-]?key|token|anthropic[_-]?key)"?\s*[:=]\s*)[^"',\s}]+`), `${1}[REDACTED]`},
 }
 
 // redactSensitive removes common credential shapes before text is shown,
