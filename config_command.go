@@ -92,6 +92,26 @@ func printConfig() {
 	} else {
 		fmt.Println("    ollama_url        = (not set)")
 	}
+	backend := cfg.Backend
+	if backend == "" {
+		backend = "api"
+	}
+	fmt.Printf("    backend           = %q", backend)
+	switch backend {
+	case "cc":
+		if bin := FindClaudeCode(); bin != "" {
+			fmt.Printf("  (claude found: %s)", bin)
+		} else {
+			fmt.Print("  (WARNING: claude binary not found in PATH)")
+		}
+	case "codex":
+		if bin := FindCodex(); bin != "" {
+			fmt.Printf("  (codex found: %s)", bin)
+		} else {
+			fmt.Print("  (WARNING: codex binary not found in PATH)")
+		}
+	}
+	fmt.Println()
 }
 
 // setConfigField writes the given value into the Config. Empty value
@@ -155,6 +175,14 @@ func setConfigField(key, value string) error {
 
 	case "ollama_agent_model":
 		cfg.OllamaAgentModel = value
+
+	case "backend":
+		switch value {
+		case "", "api", "cc", "codex":
+			cfg.Backend = value
+		default:
+			return fmt.Errorf("invalid backend %q; allowed: api, cc, codex", value)
+		}
 
 	default:
 		return fmt.Errorf("unknown config key %q", key)
