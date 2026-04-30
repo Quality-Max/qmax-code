@@ -14,7 +14,7 @@ import (
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
-var Version = "1.10.0"
+var Version = "1.12.0"
 
 const Name = "qmax-code"
 
@@ -31,6 +31,7 @@ func main() {
 	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
 	quiet := flag.Bool("q", false, "Quiet mode — no banner, minimal output (for CI)")
 	showVersion := flag.Bool("version", false, "Show version")
+	backendFlag := flag.String("backend", "", "Orchestration backend: cc, codex, or api (overrides saved config)")
 	flag.Parse()
 	_ = quiet // reserved for future CI mode
 
@@ -43,6 +44,17 @@ func main() {
 	InitErrorReporting()
 	defer FlushErrorReporting()
 	defer RecoverPanic()
+
+	// Handle "serve --mcp" subcommand: start MCP server for Claude Code integration.
+	// CC spawns this automatically when qmax-code is listed as an MCP server.
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		if len(os.Args) > 2 && os.Args[2] == "--mcp" {
+			RunMCPServer()
+			return
+		}
+		fmt.Fprintln(os.Stderr, "Usage: qmax-code serve --mcp")
+		os.Exit(2)
+	}
 
 	// Handle "config" subcommand — lets users change persisted settings
 	// without hand-editing ~/.qmax-code/config.json.
@@ -99,6 +111,21 @@ func main() {
 		appConfig.Professional = true
 	}
 
+	// --backend flag overrides saved config for this session only.
+	if *backendFlag != "" {
+		switch *backendFlag {
+		case "cc", "codex", "api", "":
+			if *backendFlag == "api" {
+				appConfig.Backend = ""
+			} else {
+				appConfig.Backend = *backendFlag
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "Error: --backend must be cc, codex, or api\n")
+			os.Exit(2)
+		}
+	}
+
 	// Resolve model: CLI flag > saved config > "auto"
 	effectiveModel := *model
 	if effectiveModel == "" {
@@ -147,8 +174,55 @@ func main() {
 		}
 	}
 
-	// If connected but missing Anthropic key, prompt for it
-	if anthropicKey == "" {
+	// CLI backend mode: route all LLM inference through a local CLI subprocess.
+	// Neither an Anthropic API key nor an OpenAI key is required — the user's
+	// subscription (CC or OpenAI/Codex) covers inference.
+	// qmax tools are served to the CLI via the embedded MCP server.
+	var cliAgent CLIAgent
+	cliBackend := appConfig.Backend // "cc" | "codex" | "" (API)
+
+	if cliBackend == "cc" {
+		claudeBin := FindClaudeCode()
+		if claudeBin == "" {
+			fmt.Fprintln(os.Stderr, "\nError: backend=cc but 'claude' CLI was not found.")
+			fmt.Fprintln(os.Stderr, "  Install Claude Code: https://claude.ai/download")
+			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
+			os.Exit(1)
+		}
+		consent := promptOrchConsent(appConfig, "cc")
+		if !consent.Proceed {
+			fmt.Fprintln(os.Stderr, "  CC backend not activated. Falling back to direct API.")
+			cliBackend = ""
+			appConfig.Backend = ""
+		} else {
+			appConfig.OrchPermissionMode = consent.PermissionMode
+			appConfig.OrchGlobalInstall = consent.GlobalInstall
+			_ = appConfig.Save()
+			anthropicKey = "__cc_mode__" // skip Anthropic key gate below
+		}
+	} else if cliBackend == "codex" {
+		codexBin := FindCodex()
+		if codexBin == "" {
+			fmt.Fprintln(os.Stderr, "\nError: backend=codex but 'codex' CLI was not found.")
+			fmt.Fprintln(os.Stderr, "  Install Codex CLI: npm install -g @openai/codex")
+			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
+			os.Exit(1)
+		}
+		consent := promptOrchConsent(appConfig, "codex")
+		if !consent.Proceed {
+			fmt.Fprintln(os.Stderr, "  Codex backend not activated. Falling back to direct API.")
+			cliBackend = ""
+			appConfig.Backend = ""
+		} else {
+			appConfig.OrchPermissionMode = consent.PermissionMode
+			appConfig.OrchGlobalInstall = consent.GlobalInstall
+			_ = appConfig.Save()
+			anthropicKey = "__codex_mode__" // skip Anthropic key gate below
+		}
+	}
+
+	// If connected but missing Anthropic key, prompt for it (skipped in CLI backend modes).
+	if cliBackend == "" && anthropicKey == "" {
 		fmt.Println()
 		fmt.Println("  Anthropic API key needed (this powers the AI).")
 		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
@@ -163,9 +237,12 @@ func main() {
 		}
 	}
 
-	if anthropicKey == "" {
+	if cliBackend == "" && anthropicKey == "" {
 		fmt.Fprintln(os.Stderr, "\nError: Anthropic API key required.")
 		fmt.Fprintln(os.Stderr, "  export ANTHROPIC_API_KEY=sk-ant-...")
+		fmt.Fprintln(os.Stderr, "  Or use a CLI backend (no API key needed):")
+		fmt.Fprintln(os.Stderr, "    qmax-code config set backend cc      # Claude Code subscription")
+		fmt.Fprintln(os.Stderr, "    qmax-code config set backend codex   # OpenAI/Codex subscription")
 		os.Exit(1)
 	}
 
@@ -189,6 +266,7 @@ func main() {
 		ProjectFile: projectFile,
 		API:         apiClient,
 		Auth:        auth,
+		Backend:     appConfig.Backend,
 	}
 
 	// Build agent with smart model routing
@@ -215,6 +293,30 @@ func main() {
 	agent.ollama = NewOllamaClient(appConfig)
 	if agent.ollama != nil {
 		agent.ollamaMode = OllamaModeFull // default to full when configured
+	}
+
+	// Build the CLI agent if a CLI backend was selected and consented to above.
+	// Global MCP install (~/.claude/settings.json or ~/.codex/config.json) is
+	// performed only when the user opted into it during the consent prompt.
+	switch cliBackend {
+	case "cc":
+		if appConfig.OrchGlobalInstall && !IsOrchSetupDone("cc") {
+			if res, err := SetupCCIntegration(); err == nil && !res.AlreadyHadMCP {
+				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
+			}
+		}
+		cliAgent = NewCCAgent(FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, ctx)
+	case "codex":
+		if appConfig.OrchGlobalInstall && !IsOrchSetupDone("codex") {
+			if res, err := SetupCodexIntegration(); err == nil && !res.AlreadyHadMCP {
+				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
+			}
+		}
+		ca := NewCodexAgent(FindCodex(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, ctx)
+		if err := ca.writeMCPConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not write Codex MCP config: %v\n", err)
+		}
+		cliAgent = ca
 	}
 
 	// One-shot mode
@@ -267,7 +369,7 @@ func main() {
 	}
 
 	// Interactive REPL
-	runREPL(agent, *quiet)
+	runREPL(agent, cliAgent, *quiet)
 }
 
 // resolveModel expands shorthand model names to full model IDs.
@@ -284,9 +386,12 @@ func resolveModel(m string) string {
 	}
 }
 
-func runREPL(agent *Agent, quietMode bool) {
+func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	term := NewTerminal()
 	defer term.Close()
+	if cliAgent != nil {
+		defer cliAgent.Cleanup()
+	}
 
 	// Session ID for this conversation
 	sessionID := generateSessionID()
@@ -481,8 +586,166 @@ func runREPL(agent *Agent, quietMode bool) {
 			continue
 		case input == "/set":
 			term.PrintError("Usage: /set <key> <value>")
-			term.PrintSystem("Keys: model, project, professional, autosave, budget, ollama")
+			term.PrintSystem("Keys: model, project, professional, autosave, budget, ollama, backend")
 			continue
+		case input == "/orch":
+			// Show the unified model + effort TUI picker and apply the selection instantly.
+			cfg := agent.appConfig
+			if cfg == nil {
+				term.PrintError("Config not loaded.")
+				continue
+			}
+
+			result := ShowModelPicker(cfg.Backend, cfg.ModelOverride, cfg.Effort)
+			if !result.Confirmed {
+				continue
+			}
+
+			// Validate the chosen CLI is actually installed.
+			switch result.Backend {
+			case "cc":
+				if FindClaudeCode() == "" {
+					term.PrintError("Claude Code ('claude') not found. Install it first.")
+					term.PrintSystem("  https://claude.ai/download")
+					continue
+				}
+			case "codex":
+				if FindCodex() == "" {
+					term.PrintError("Codex CLI ('codex') not found.")
+					term.PrintSystem("  npm install -g @openai/codex")
+					continue
+				}
+			}
+
+			// Consent gate: required before activating CC/Codex (autonomous shell + edits).
+			if result.Backend != "" {
+				consent := promptOrchConsent(cfg, result.Backend)
+				if !consent.Proceed {
+					term.PrintSystem("Backend not changed.")
+					continue
+				}
+				cfg.OrchPermissionMode = consent.PermissionMode
+				cfg.OrchGlobalInstall = consent.GlobalInstall
+				if consent.GlobalInstall && !IsOrchSetupDone(result.Backend) {
+					RunOrchSetup(result.Backend, term)
+				}
+			}
+
+			// Tear down current CLI agent.
+			if cliAgent != nil {
+				cliAgent.Cleanup()
+				cliAgent = nil
+			}
+
+			// Spin up the new agent with selected model + effort.
+			switch result.Backend {
+			case "cc":
+				cliAgent = NewCCAgent(FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, agent.config.Context)
+				term.PrintSystem(fmt.Sprintf("Backend: Claude Code  model: %s  effort: %s", result.ModelID, result.Effort))
+			case "codex":
+				ca := NewCodexAgent(FindCodex(), result.ModelID, result.Effort, cfg.OrchPermissionMode, agent.config.Context)
+				if err := ca.writeMCPConfig(); err != nil {
+					term.PrintSystem(fmt.Sprintf("Warning: Codex MCP config: %v", err))
+				}
+				cliAgent = ca
+				term.PrintSystem(fmt.Sprintf("Backend: Codex  model: %s  effort: %s", result.ModelID, result.Effort))
+			default:
+				term.PrintSystem("Backend: Anthropic API (direct)")
+			}
+
+			cfg.Backend = result.Backend
+			cfg.ModelOverride = result.ModelID
+			cfg.Effort = result.Effort
+			agent.config.Context.Backend = result.Backend
+			_ = cfg.Save()
+			continue
+
+		case input == "/cc", input == "/codex", input == "/api":
+			// Instant backend switching — no restart needed.
+			cfg := agent.appConfig
+			if cfg == nil {
+				term.PrintError("Config not loaded.")
+				continue
+			}
+
+			var wantBackend string
+			switch input {
+			case "/cc":
+				wantBackend = "cc"
+			case "/codex":
+				wantBackend = "codex"
+			case "/api":
+				wantBackend = ""
+			}
+
+			// If same backend requested, turn it off (toggle behaviour).
+			if cfg.Backend == wantBackend && wantBackend != "" {
+				wantBackend = ""
+			}
+
+			// Tear down current CLI agent.
+			if cliAgent != nil {
+				cliAgent.Cleanup()
+				cliAgent = nil
+			}
+
+			switch wantBackend {
+			case "cc":
+				bin := FindClaudeCode()
+				if bin == "" {
+					term.PrintError("'claude' CLI not found. Install Claude Code first.")
+					term.PrintSystem("  https://claude.ai/download")
+					continue
+				}
+				consent := promptOrchConsent(cfg, "cc")
+				if !consent.Proceed {
+					term.PrintSystem("Backend not changed.")
+					continue
+				}
+				cfg.OrchPermissionMode = consent.PermissionMode
+				cfg.OrchGlobalInstall = consent.GlobalInstall
+				if consent.GlobalInstall && !IsOrchSetupDone("cc") {
+					RunOrchSetup("cc", term)
+				}
+				cliAgent = NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, agent.config.Context)
+				cfg.Backend = "cc"
+				_ = cfg.Save()
+				term.PrintSystem(fmt.Sprintf("Backend → Claude Code (%s) · %s mode", bin, cfg.OrchPermissionMode))
+
+			case "codex":
+				bin := FindCodex()
+				if bin == "" {
+					term.PrintError("'codex' CLI not found.")
+					term.PrintSystem("  npm install -g @openai/codex")
+					continue
+				}
+				consent := promptOrchConsent(cfg, "codex")
+				if !consent.Proceed {
+					term.PrintSystem("Backend not changed.")
+					continue
+				}
+				cfg.OrchPermissionMode = consent.PermissionMode
+				cfg.OrchGlobalInstall = consent.GlobalInstall
+				if consent.GlobalInstall && !IsOrchSetupDone("codex") {
+					RunOrchSetup("codex", term)
+				}
+				ca := NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, agent.config.Context)
+				if err := ca.writeMCPConfig(); err != nil {
+					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
+				}
+				cliAgent = ca
+				cfg.Backend = "codex"
+				_ = cfg.Save()
+				term.PrintSystem(fmt.Sprintf("Backend → Codex (%s) · %s mode", bin, cfg.OrchPermissionMode))
+
+			default:
+				cfg.Backend = ""
+				_ = cfg.Save()
+				term.PrintSystem("Backend → Anthropic API (direct)")
+			}
+			agent.config.Context.Backend = cfg.Backend
+			continue
+
 		case input == "/ollama":
 			// Cycle through modes: off → chat → full → off
 			cfg := agent.appConfig
@@ -557,10 +820,17 @@ func runREPL(agent *Agent, quietMode bool) {
 		// Detect image file paths dragged/pasted into input
 		cleanInput, images := DetectAndLoadImages(input)
 
-		// Run through the LLM agent with streaming
+		// Run through the LLM agent with streaming.
+		// CC mode: delegate entirely to Claude Code subprocess (uses CC subscription).
+		// Normal mode: use direct Anthropic API.
 		var llmResult string
 		var err error
-		if len(images) > 0 {
+		if cliAgent != nil {
+			if len(images) > 0 {
+				term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
+			}
+			llmResult, err = cliAgent.Run(cleanInput, term)
+		} else if len(images) > 0 {
 			names := make([]string, len(images))
 			for i, img := range images {
 				names[i] = img.FileName
@@ -575,7 +845,18 @@ func runREPL(agent *Agent, quietMode bool) {
 		}
 		if err != nil {
 			term.PrintError(err.Error())
-			CaptureError(err, map[string]interface{}{"input": truncateStr(input, 100)})
+			// Telemetry policy: never capture prompt content, file content, or model
+			// output. Only structural metadata that helps diagnose without revealing
+			// what the user was working on.
+			backendTag := "api"
+			if cliAgent != nil {
+				backendTag = agent.config.Context.Backend
+			}
+			CaptureError(err, map[string]interface{}{
+				"backend":      backendTag,
+				"input_len":    fmt.Sprintf("%d", len(input)),
+				"image_count":  fmt.Sprintf("%d", len(images)),
+			})
 			autoSave() // save even on error — preserves context
 			continue
 		}
@@ -726,6 +1007,10 @@ Commands:
   /project <id>  Set the active project
   /context       Show current session context
   /cost          Show session token usage and estimated cost
+  /orch          Cycle orchestration backend: off → CC → Codex → off
+  /cc            Switch to Claude Code backend (CC subscription, no API tokens)
+  /codex         Switch to Codex CLI backend (OpenAI subscription, no API tokens)
+  /api           Switch back to direct Anthropic API
   /ollama        Toggle Ollama on/off (self-hosted LLM for chat)
   /config        Show current config settings
   /keys          Set API keys (interactive menu)
@@ -747,6 +1032,9 @@ Config examples:
   /set budget 100000        Set max token budget warning
   /set ollama on            Enable self-hosted LLM for chat (saves API costs)
   /set ollama off           Disable Ollama, use Claude for all calls
+  /set backend cc           Use Claude Code subscription (no API key needed)
+  /set backend codex        Use OpenAI Codex subscription (no API key needed)
+  /set backend api          Use Anthropic API directly (default)
 
 Shortcuts:
   Ctrl+C         Cancel current operation (double-tap to exit)
@@ -895,6 +1183,34 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		}
 		return // no config persistence needed — runtime toggle
 
+	case "backend":
+		// /set backend cc|codex|api — persist backend choice.
+		// For live switching use /cc, /codex, or /api instead.
+		switch strings.ToLower(value) {
+		case "cc":
+			if bin := FindClaudeCode(); bin == "" {
+				term.PrintError("'claude' CLI not found. Install Claude Code first.")
+				term.PrintSystem("  https://claude.ai/download")
+				return
+			}
+			cfg.Backend = "cc"
+			term.PrintSystem("Backend set to CC. Use /cc to switch live, or restart to apply.")
+		case "codex":
+			if bin := FindCodex(); bin == "" {
+				term.PrintError("'codex' CLI not found.")
+				term.PrintSystem("  npm install -g @openai/codex")
+				return
+			}
+			cfg.Backend = "codex"
+			term.PrintSystem("Backend set to Codex. Use /codex to switch live, or restart to apply.")
+		case "", "api":
+			cfg.Backend = ""
+			term.PrintSystem("Backend set to Anthropic API. Restart or use /api to switch live.")
+		default:
+			term.PrintError("Valid backends: cc, codex, api")
+			return
+		}
+
 	case "anthropic-key", "anthropic_key":
 		// Save Anthropic API key to OS keychain
 		os.Setenv("ANTHROPIC_API_KEY", value)
@@ -908,7 +1224,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, professional, autosave, budget, apikey")
+		term.PrintSystem("Keys: model, project, professional, autosave, budget, apikey, backend")
 		return
 	}
 

@@ -21,6 +21,7 @@ type SessionContext struct {
 	ProjectFile string      // name of .qmax.yml file if detected
 	API         *APIClient  // direct API client (standalone mode, no qmax CLI needed)
 	Auth        *AuthConfig // authentication credentials
+	Backend     string      // "" | "cc" | "codex" — active CLI inference backend
 }
 
 // QMaxConfig mirrors the qmax CLI config (~/.qamax/config.json).

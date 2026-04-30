@@ -16,6 +16,10 @@ type SlashMenuItem struct {
 
 var slashMenuItems = []SlashMenuItem{
 	{"/help", "Show help"},
+	{"/orch", "Model + effort picker (CC / Codex / API)"},
+	{"/cc", "Switch to Claude Code backend"},
+	{"/codex", "Switch to Codex CLI backend"},
+	{"/api", "Switch to direct Anthropic API"},
 	{"/connect", "Log in to QualityMax (browser)"},
 	{"/disconnect", "Log out"},
 	{"/status", "Auth + session info"},
