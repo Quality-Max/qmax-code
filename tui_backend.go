@@ -92,6 +92,11 @@ var (
 				Foreground(lipgloss.Color("214")).
 				Background(lipgloss.Color("236")).
 				Bold(true)
+
+	pickerStatusIconCodex = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("107")).
+				Background(lipgloss.Color("236")).
+				Bold(true)
 )
 
 // ─── Model catalogue ──────────────────────────────────────────────────────────
@@ -427,10 +432,7 @@ func (m modelPickerModel) renderStatusBar() string {
 	case "cc":
 		icon = pickerStatusIcon.Render("✦")
 	case "codex":
-		icon = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("107")).
-			Background(lipgloss.Color("236")).
-			Bold(true).Render("⊗")
+		icon = pickerStatusIconCodex.Render("⊗")
 	default:
 		icon = pickerStatusIcon.Render("○")
 	}

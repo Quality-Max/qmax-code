@@ -111,6 +111,9 @@ func main() {
 	// Load persistent user config
 	appConfig := LoadQMaxCodeConfig()
 
+	// Apply color theme before constructing any UI components.
+	ApplyTheme(ThemeByName(appConfig.Theme))
+
 	// Apply --professional flag (CLI flag overrides saved config)
 	if *professional {
 		appConfig.Professional = true
@@ -591,7 +594,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			continue
 		case input == "/set":
 			term.PrintError("Usage: /set <key> <value>")
-			term.PrintSystem("Keys: model, project, professional, autosave, budget, ollama, backend")
+			term.PrintSystem("Keys: model, project, professional, autosave, budget, ollama, backend, theme")
 			continue
 		case input == "/orch":
 			// Show the unified model + effort TUI picker and apply the selection instantly.
@@ -1049,6 +1052,7 @@ Config examples:
   /set backend cc           Use Claude Code subscription (no API key needed)
   /set backend codex        Use OpenAI Codex subscription (no API key needed)
   /set backend api          Use Anthropic API directly (default)
+  /set theme ocean          Switch color theme (historic, ocean, neon, ember, aurora)
 
 Shortcuts:
   Ctrl+C         Cancel current operation (double-tap to exit)
@@ -1225,6 +1229,23 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 			return
 		}
 
+	case "theme":
+		valid := ThemeNames()
+		found := false
+		for _, n := range valid {
+			if n == strings.ToLower(value) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			term.PrintError(fmt.Sprintf("Unknown theme %q. Available: %s", value, strings.Join(valid, ", ")))
+			return
+		}
+		cfg.Theme = strings.ToLower(value)
+		ApplyTheme(ThemeByName(cfg.Theme))
+		term.PrintSystem(fmt.Sprintf("Theme set to: %s (takes full effect on restart)", cfg.Theme))
+
 	case "anthropic-key", "anthropic_key":
 		// Save Anthropic API key to OS keychain
 		os.Setenv("ANTHROPIC_API_KEY", value)
@@ -1238,7 +1259,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, professional, autosave, budget, apikey, backend")
+		term.PrintSystem("Keys: model, project, professional, autosave, budget, apikey, backend, theme")
 		return
 	}
 

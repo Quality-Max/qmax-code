@@ -91,7 +91,7 @@ type Terminal struct {
 // NewTerminal creates a new interactive terminal with markdown rendering.
 func NewTerminal() *Terminal {
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset),
+		Prompt:          fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, themePromptName, colorReset, themePromptArrow, colorReset),
 		HistoryFile:     "/tmp/qmax-code-history",
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
@@ -110,7 +110,7 @@ func NewTerminal() *Terminal {
 		renderer = nil
 	}
 
-	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset)
+	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, themePromptName, colorReset, themePromptArrow, colorReset)
 	return &Terminal{
 		rl:            rl,
 		renderer:      renderer,
@@ -121,9 +121,9 @@ func NewTerminal() *Terminal {
 // SetSessionPrompt updates the prompt to include the session ID.
 func (t *Terminal) SetSessionPrompt(sessionID string) {
 	t.currentPrompt = fmt.Sprintf("%s%sqmax%s %s[%s]%s %s>%s ",
-		colorBold, colorCyan, colorReset,
+		colorBold, themePromptName, colorReset,
 		colorDim, sessionID, colorReset,
-		colorMagenta, colorReset)
+		themePromptArrow, colorReset)
 	t.rl.SetPrompt(t.currentPrompt)
 }
 
@@ -170,13 +170,13 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
   %s%s ╚══▀▀═╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝%s   %s%s%s
   %s%s                code %s%s
 `,
-		colorBold, colorCyan, colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[0], colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[1], colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[2], colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[3], colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[4], colorReset,
-		colorBold, colorMagenta, version, colorReset,
+		colorBold, themeBannerColor, colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[0], colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[1], colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[2], colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[3], colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[4], colorReset,
+		colorBold, themePromptArrow, version, colorReset,
 	)
 	fmt.Print(banner)
 
@@ -200,32 +200,32 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 
 	// Show context info
 	if ctx.ProjectID > 0 {
-		fmt.Printf("  %s▸ Project #%d active%s\n", colorGreen, ctx.ProjectID, colorReset)
+		fmt.Printf("  %s▸ Project #%d active%s\n", themeStatusColor, ctx.ProjectID, colorReset)
 	}
 
 	switch ctx.Backend {
 	case "cc":
-		fmt.Printf("  %s▸ Backend: Claude Code (CC subscription — no API tokens)%s\n", colorGreen, colorReset)
+		fmt.Printf("  %s▸ Backend: Claude Code (CC subscription — no API tokens)%s\n", themeStatusColor, colorReset)
 		if ctx.Auth != nil && ctx.Auth.Email != "" {
-			fmt.Printf("  %s▸ QualityMax: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
+			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, colorReset)
 		}
 	case "codex":
-		fmt.Printf("  %s▸ Backend: Codex CLI (OpenAI subscription — no API tokens)%s\n", colorGreen, colorReset)
+		fmt.Printf("  %s▸ Backend: Codex CLI (OpenAI subscription — no API tokens)%s\n", themeStatusColor, colorReset)
 		if ctx.Auth != nil && ctx.Auth.Email != "" {
-			fmt.Printf("  %s▸ QualityMax: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
+			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, colorReset)
 		}
 	default:
 		// API mode — show direct API or qmax CLI connection status.
 		if ctx.API != nil {
-			fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", colorGreen, colorReset)
+			fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", themeStatusColor, colorReset)
 			if ctx.Auth != nil && ctx.Auth.Email != "" {
-				fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
+				fmt.Printf("  %s▸ Logged in as: %s%s\n", themeStatusColor, ctx.Auth.Email, colorReset)
 			}
 			fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.Auth.GetCloudURL(), colorReset)
 		} else if ctx.QMaxBin != "" {
-			fmt.Printf("  %s▸ qmax CLI: %s%s\n", colorGreen, ctx.QMaxBin, colorReset)
+			fmt.Printf("  %s▸ qmax CLI: %s%s\n", themeStatusColor, ctx.QMaxBin, colorReset)
 			if ctx.QMaxCfg.Email != "" {
-				fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.QMaxCfg.Email, colorReset)
+				fmt.Printf("  %s▸ Logged in as: %s%s\n", themeStatusColor, ctx.QMaxCfg.Email, colorReset)
 			}
 			if ctx.QMaxCfg.CloudURL != "" {
 				fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.QMaxCfg.CloudURL, colorReset)
@@ -437,19 +437,19 @@ func (t *Terminal) PrintStatusInfo(ctx *SessionContext, usage TokenUsage, model 
 
 	// Connection status (primary)
 	if ctx.API != nil && ctx.Auth != nil && ctx.Auth.IsAuthenticated() {
-		fmt.Printf("  %-20s %s%s Connected%s\n", "QualityMax:", "\033[32m", "●", "\033[0m")
+		fmt.Printf("  %-20s %s%s Connected%s\n", "QualityMax:", themeStatusColor, "●", colorReset)
 		fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.Auth.Email)
 		fmt.Printf("  %-20s %s\n", "API:", ctx.Auth.GetCloudURL())
 		fmt.Printf("  %-20s standalone (direct API)\n", "Mode:")
 	} else if ctx.QMaxBin != "" {
-		fmt.Printf("  %-20s %s%s Connected (via CLI)%s\n", "QualityMax:", "\033[32m", "●", "\033[0m")
+		fmt.Printf("  %-20s %s%s Connected (via CLI)%s\n", "QualityMax:", themeStatusColor, "●", colorReset)
 		if ctx.QMaxCfg.Email != "" {
 			fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.QMaxCfg.Email)
 		}
 		fmt.Printf("  %-20s %s\n", "CLI:", ctx.QMaxBin)
 	} else {
-		fmt.Printf("  %-20s %s%s Not connected%s\n", "QualityMax:", "\033[33m", "●", "\033[0m")
-		fmt.Printf("  %-20s run %s/connect%s to log in\n", "", "\033[1m", "\033[0m")
+		fmt.Printf("  %-20s %s%s Not connected%s\n", "QualityMax:", colorYellow, "●", colorReset)
+		fmt.Printf("  %-20s run %s/connect%s to log in\n", "", colorBold, colorReset)
 	}
 
 	fmt.Println()
