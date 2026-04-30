@@ -24,7 +24,36 @@ type Config struct {
 	// optionally, tool dispatch.
 	OllamaURL        string `json:"ollama_url,omitempty"`         // e.g. "https://user:pass@llm.example.com"
 	OllamaModel      string `json:"ollama_model,omitempty"`       // e.g. "gemma3:4b-it-q4_K_M" (chat)
-	OllamaAgentModel string `json:"ollama_agent_model,omitempty"` // e.g. "gemma3:12b-it-q4_K_M" (tool dispatch)
+	OllamaAgentModel string `json:"ollama_agent_model,omitempty"` // e.g. "gemma3:12b-it-q4_K_M" (tools, heavier tasks)
+
+	// Backend selects the LLM inference backend.
+	//   ""  / "api" → Anthropic API directly (default, requires ANTHROPIC_API_KEY)
+	//   "cc"        → Claude Code CLI subprocess (uses CC subscription, no API key needed)
+	//   "codex"     → OpenAI Codex CLI subprocess (uses OpenAI subscription, no API key needed)
+	// In both CLI modes qmax tools are served to the CLI via an embedded MCP server.
+	Backend string `json:"backend,omitempty"`
+
+	// ModelOverride is the specific model ID selected via the /orch TUI picker.
+	// Empty means "let the CLI pick its default". Used with CC and Codex backends.
+	ModelOverride string `json:"model_override,omitempty"`
+
+	// Effort controls how thorough the CLI agent should be: "low", "medium", "high".
+	// Injected into the system prompt on every turn.
+	Effort string `json:"effort,omitempty"`
+
+	// OrchPermissionMode records the autonomy level the user consented to for
+	// CC/Codex backends:
+	//   ""           = no consent yet; activation will prompt
+	//   "standard"   = curated allowlist auto-approved (reads, test runners,
+	//                  qmax MCP tools); edits and destructive shell still gated
+	//   "unattended" = --dangerously-skip-permissions / --full-auto, full autonomy
+	// Persistence avoids re-prompting once chosen; user can revoke via /orch.
+	OrchPermissionMode string `json:"orch_permission_mode,omitempty"`
+
+	// OrchGlobalInstall records that the user opted into writing the qmax MCP
+	// entry into the CLI's global config (~/.claude/settings.json or
+	// ~/.codex/config.json). False = use a per-session temp config only.
+	OrchGlobalInstall bool `json:"orch_global_install,omitempty"`
 }
 
 const qmaxCodeConfigDir = ".qmax-code"

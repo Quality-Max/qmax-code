@@ -203,22 +203,36 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 		fmt.Printf("  %s▸ Project #%d active%s\n", colorGreen, ctx.ProjectID, colorReset)
 	}
 
-	if ctx.API != nil {
-		fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", colorGreen, colorReset)
+	switch ctx.Backend {
+	case "cc":
+		fmt.Printf("  %s▸ Backend: Claude Code (CC subscription — no API tokens)%s\n", colorGreen, colorReset)
 		if ctx.Auth != nil && ctx.Auth.Email != "" {
-			fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
+			fmt.Printf("  %s▸ QualityMax: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
 		}
-		fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.Auth.GetCloudURL(), colorReset)
-	} else if ctx.QMaxBin != "" {
-		fmt.Printf("  %s▸ qmax CLI: %s%s\n", colorGreen, ctx.QMaxBin, colorReset)
-		if ctx.QMaxCfg.Email != "" {
-			fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.QMaxCfg.Email, colorReset)
+	case "codex":
+		fmt.Printf("  %s▸ Backend: Codex CLI (OpenAI subscription — no API tokens)%s\n", colorGreen, colorReset)
+		if ctx.Auth != nil && ctx.Auth.Email != "" {
+			fmt.Printf("  %s▸ QualityMax: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
 		}
-		if ctx.QMaxCfg.CloudURL != "" {
-			fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.QMaxCfg.CloudURL, colorReset)
+	default:
+		// API mode — show direct API or qmax CLI connection status.
+		if ctx.API != nil {
+			fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", colorGreen, colorReset)
+			if ctx.Auth != nil && ctx.Auth.Email != "" {
+				fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
+			}
+			fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.Auth.GetCloudURL(), colorReset)
+		} else if ctx.QMaxBin != "" {
+			fmt.Printf("  %s▸ qmax CLI: %s%s\n", colorGreen, ctx.QMaxBin, colorReset)
+			if ctx.QMaxCfg.Email != "" {
+				fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.QMaxCfg.Email, colorReset)
+			}
+			if ctx.QMaxCfg.CloudURL != "" {
+				fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.QMaxCfg.CloudURL, colorReset)
+			}
+		} else {
+			fmt.Printf("  %s▸ Not connected%s — type %s/connect%s to log in\n", colorYellow, colorReset, colorBold, colorReset)
 		}
-	} else {
-		fmt.Printf("  %s▸ Not connected%s — type %s/connect%s to log in\n", colorYellow, colorReset, colorBold, colorReset)
 	}
 
 	fmt.Printf("  %sType /help for commands or just tell me what to test. 🐾%s\n\n", colorDim, colorReset)
