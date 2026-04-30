@@ -612,10 +612,13 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		apiErr := fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
-		a.logger.Error("api", apiErr.Error())
-		CaptureError(apiErr, map[string]interface{}{
-			"model":        model,
-			"status_code":  fmt.Sprintf("%d", resp.StatusCode),
+		a.logger.Error("api", apiErr.Error()) // local logger only — not sent off-machine
+		// Telemetry: send only the structural fields and the API error code.
+		// The body (which may include echoed-back prompt content in validation
+		// errors) is logged locally but NOT forwarded to Bugsink.
+		CaptureError(fmt.Errorf("anthropic API error %d", resp.StatusCode), map[string]interface{}{
+			"model":         model,
+			"status_code":   fmt.Sprintf("%d", resp.StatusCode),
 			"message_count": fmt.Sprintf("%d", len(a.history)),
 		})
 		return nil, "", apiErr

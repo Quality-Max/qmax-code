@@ -845,7 +845,18 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		}
 		if err != nil {
 			term.PrintError(err.Error())
-			CaptureError(err, map[string]interface{}{"input": truncateStr(input, 100)})
+			// Telemetry policy: never capture prompt content, file content, or model
+			// output. Only structural metadata that helps diagnose without revealing
+			// what the user was working on.
+			backendTag := "api"
+			if cliAgent != nil {
+				backendTag = agent.config.Context.Backend
+			}
+			CaptureError(err, map[string]interface{}{
+				"backend":      backendTag,
+				"input_len":    fmt.Sprintf("%d", len(input)),
+				"image_count":  fmt.Sprintf("%d", len(images)),
+			})
 			autoSave() // save even on error — preserves context
 			continue
 		}
