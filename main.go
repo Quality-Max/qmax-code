@@ -401,6 +401,9 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		defer cliAgent.Cleanup()
 	}
 
+	// Prompt queue — collects prompts typed while the agent is running.
+	pq := &promptQueue{}
+
 	// Session ID for this conversation
 	sessionID := generateSessionID()
 
@@ -478,25 +481,42 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	var lastCtrlC time.Time
 
 	for {
-		result := ReadInput(term.currentPrompt, inputHistory)
+		var input string
 
-		// Handle Ctrl+C: double-tap within 1s exits
-		if result.CtrlC {
-			now := time.Now()
-			if now.Sub(lastCtrlC) < time.Second {
-				saveAndExit()
-				fmt.Fprintf(os.Stderr, "Goodbye!\n")
-				return
+		// Drain the prompt queue before blocking on interactive input.
+		// This processes prompts the user typed while the agent was running.
+		if queued, ok := pq.pop(); ok {
+			input = queued
+			remaining := pq.len()
+			fmt.Println()
+			if remaining > 0 {
+				term.PrintSystem(fmt.Sprintf("processing queued prompt  (%d more in queue)", remaining))
+			} else {
+				term.PrintSystem("processing queued prompt")
 			}
-			lastCtrlC = now
-			continue
-		}
+			fmt.Println()
+			inputHistory = append(inputHistory, input)
+		} else {
+			result := ReadInput(term.currentPrompt, inputHistory)
 
-		input := strings.TrimSpace(result.Text)
-		if input == "" {
-			continue
+			// Handle Ctrl+C: double-tap within 1s exits
+			if result.CtrlC {
+				now := time.Now()
+				if now.Sub(lastCtrlC) < time.Second {
+					saveAndExit()
+					fmt.Fprintf(os.Stderr, "Goodbye!\n")
+					return
+				}
+				lastCtrlC = now
+				continue
+			}
+
+			input = strings.TrimSpace(result.Text)
+			if input == "" {
+				continue
+			}
+			inputHistory = append(inputHistory, input)
 		}
-		inputHistory = append(inputHistory, input)
 
 		// Built-in commands
 		switch {
@@ -595,6 +615,30 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		case input == "/set":
 			term.PrintError("Usage: /set <key> <value>")
 			term.PrintSystem("Keys: model, project, professional, autosave, budget, ollama, backend, theme")
+			continue
+
+		case input == "/queue":
+			items := pq.peek()
+			if len(items) == 0 {
+				term.PrintSystem("Queue is empty. Type /queue <prompt> to add, or just type while the agent is running.")
+			} else {
+				term.PrintSystem(fmt.Sprintf("%d prompt(s) queued:", len(items)))
+				for i, it := range items {
+					truncated := it
+					if len(truncated) > 80 {
+						truncated = truncated[:77] + "..."
+					}
+					fmt.Printf("  %s[%d]%s %s\n", colorDim, i+1, colorReset, truncated)
+				}
+			}
+			continue
+
+		case strings.HasPrefix(input, "/queue "):
+			queued := strings.TrimSpace(strings.TrimPrefix(input, "/queue "))
+			if queued != "" {
+				pq.push(queued)
+				term.PrintSystem(fmt.Sprintf("queued [%d]: %s", pq.len(), queued))
+			}
 			continue
 		case input == "/orch":
 			// Show the unified model + effort TUI picker and apply the selection instantly.
@@ -829,6 +873,11 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		cleanInput, images := DetectAndLoadImages(input)
 
 		// Run through the LLM agent with streaming.
+		// Start the queue reader so the user can type the next prompt while
+		// the agent is working.  It is stopped (and fully drained) before
+		// the next ReadInput call so stdin is never shared between readers.
+		stopQueueReader := startQueueReader(pq, term)
+
 		// CC mode: delegate entirely to Claude Code subprocess (uses CC subscription).
 		// Normal mode: use direct Anthropic API.
 		var llmResult string
@@ -859,6 +908,16 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			llmResult, err = agent.RunStreamingWithImages(cleanInput, images, term)
 		} else {
 			llmResult, err = agent.RunStreaming(input, term)
+		}
+
+		// Stop queue reader and wait for the goroutine to exit before we
+		// touch stdin again (either via the queue loop or ReadInput).
+		stopQueueReader()
+
+		// If prompts were queued during this run, surface them.
+		if n := pq.len(); n > 0 {
+			fmt.Println()
+			term.PrintSystem(fmt.Sprintf("%d prompt(s) queued — processing next automatically", n))
 		}
 		if err != nil {
 			term.PrintError(err.Error())
@@ -1053,6 +1112,11 @@ Config examples:
   /set backend codex        Use OpenAI Codex subscription (no API key needed)
   /set backend api          Use Anthropic API directly (default)
   /set theme ocean          Switch color theme (historic, ocean, neon, ember, aurora)
+
+Queue:
+  /queue                    Show pending queue
+  /queue <prompt>           Add a prompt to the queue immediately
+  (type while agent runs)   Prompts entered during processing are auto-queued
 
 Shortcuts:
   Ctrl+C         Cancel current operation (double-tap to exit)

@@ -34,6 +34,7 @@ var slashMenuItems = []SlashMenuItem{
 	{"/keys", "Set API keys (interactive)"},
 	{"/screenshot", "Capture & analyze a screenshot"},
 	{"/paste", "Paste from clipboard (image or text)"},
+	{"/queue", "Show or add to prompt queue"},
 	{"/set", "Update config"},
 	{"/ollama", "Toggle Ollama on/off"},
 	{"/clear", "Clear history"},
