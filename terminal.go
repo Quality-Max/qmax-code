@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/glamour"
@@ -79,19 +81,90 @@ var toolIcons = map[string]string{
 	"rollback_script":    "⏪",
 }
 
+// spinnerFrames is the braille animation cycle.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// spinnerMessages are shown next to the spinner while Claude is thinking.
+var spinnerMessages = []string{
+	"drinking cat milk",
+	"watching the dog's tail",
+	"scaring the bugs",
+	"feeding the kitten",
+	"knocking tests off the table",
+	"chasing the cursor",
+	"napping on the keyboard",
+	"consulting with senior cat",
+	"pawing at the error logs",
+	"sitting on the warm server",
+	"demanding treats from the API",
+	"judging your code silently",
+	"batting at floating variables",
+	"ignoring the flaky tests",
+	"dreaming about tuna endpoints",
+	"staring at a wall suspiciously",
+	"filing a bug against gravity",
+	"debugging with paws",
+	"sniffing the dependency tree",
+	"meowing at the CI pipeline",
+	"questioning life choices",
+	"blaming the last commit",
+	"checking if tests pass by vibes",
+	"doing absolutely nothing (probably)",
+}
+
+// spinner is a running thinking animation.
+type spinner struct {
+	done sync.Once
+	stop chan struct{}
+	wg   sync.WaitGroup
+}
+
+func newSpinner() *spinner {
+	s := &spinner{stop: make(chan struct{})}
+	msg := spinnerMessages[rand.Intn(len(spinnerMessages))]
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		ticker := time.NewTicker(80 * time.Millisecond)
+		defer ticker.Stop()
+		i := 0
+		for {
+			select {
+			case <-s.stop:
+				fmt.Print("\r\033[K") // erase spinner line
+				return
+			case <-ticker.C:
+				frame := spinnerFrames[i%len(spinnerFrames)]
+				i++
+				fmt.Printf("\r  %s%s %s...%s",
+					colorDim, frame, msg, colorReset)
+			}
+		}
+	}()
+	return s
+}
+
+func (s *spinner) Stop() {
+	s.done.Do(func() {
+		close(s.stop)
+		s.wg.Wait()
+	})
+}
+
 // Terminal handles all user-facing I/O with colors, glamour, and personality.
 type Terminal struct {
 	rl            *readline.Instance
 	renderer      *glamour.TermRenderer
-	streaming     bool           // true when we're in the middle of streaming text
+	streaming     bool            // true when we're in the middle of streaming text
 	streamBuf     strings.Builder // buffers streamed text for post-render
 	currentPrompt string          // track prompt for readline recreation
+	thinking      *spinner        // active thinking spinner, if any
 }
 
 // NewTerminal creates a new interactive terminal with markdown rendering.
 func NewTerminal() *Terminal {
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset),
+		Prompt:          fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, themePromptName, colorReset, themePromptArrow, colorReset),
 		HistoryFile:     "/tmp/qmax-code-history",
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
@@ -110,7 +183,7 @@ func NewTerminal() *Terminal {
 		renderer = nil
 	}
 
-	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, colorCyan, colorReset, colorMagenta, colorReset)
+	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, themePromptName, colorReset, themePromptArrow, colorReset)
 	return &Terminal{
 		rl:            rl,
 		renderer:      renderer,
@@ -121,16 +194,33 @@ func NewTerminal() *Terminal {
 // SetSessionPrompt updates the prompt to include the session ID.
 func (t *Terminal) SetSessionPrompt(sessionID string) {
 	t.currentPrompt = fmt.Sprintf("%s%sqmax%s %s[%s]%s %s>%s ",
-		colorBold, colorCyan, colorReset,
+		colorBold, themePromptName, colorReset,
 		colorDim, sessionID, colorReset,
-		colorMagenta, colorReset)
+		themePromptArrow, colorReset)
 	t.rl.SetPrompt(t.currentPrompt)
 }
 
 // Close cleans up the terminal.
 func (t *Terminal) Close() {
+	t.StopThinking()
 	if t.rl != nil {
 		t.rl.Close()
+	}
+}
+
+// StartThinking shows an animated spinner with a funny cat-themed message.
+// Safe to call even if a spinner is already running (replaces it).
+func (t *Terminal) StartThinking() {
+	t.StopThinking()
+	t.thinking = newSpinner()
+}
+
+// StopThinking stops the spinner and erases it from the terminal.
+// Idempotent — safe to call when no spinner is active.
+func (t *Terminal) StopThinking() {
+	if t.thinking != nil {
+		t.thinking.Stop()
+		t.thinking = nil
 	}
 }
 
@@ -170,13 +260,13 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
   %s%s ╚══▀▀═╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝%s   %s%s%s
   %s%s                code %s%s
 `,
-		colorBold, colorCyan, colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[0], colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[1], colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[2], colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[3], colorReset,
-		colorBold, colorCyan, colorReset, colorYellow, catLines[4], colorReset,
-		colorBold, colorMagenta, version, colorReset,
+		colorBold, themeBannerColor, colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[0], colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[1], colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[2], colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[3], colorReset,
+		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[4], colorReset,
+		colorBold, themePromptArrow, version, colorReset,
 	)
 	fmt.Print(banner)
 
@@ -200,32 +290,32 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 
 	// Show context info
 	if ctx.ProjectID > 0 {
-		fmt.Printf("  %s▸ Project #%d active%s\n", colorGreen, ctx.ProjectID, colorReset)
+		fmt.Printf("  %s▸ Project #%d active%s\n", themeStatusColor, ctx.ProjectID, colorReset)
 	}
 
 	switch ctx.Backend {
 	case "cc":
-		fmt.Printf("  %s▸ Backend: Claude Code (CC subscription — no API tokens)%s\n", colorGreen, colorReset)
+		fmt.Printf("  %s▸ Backend: Claude Code (CC subscription — no API tokens)%s\n", themeStatusColor, colorReset)
 		if ctx.Auth != nil && ctx.Auth.Email != "" {
-			fmt.Printf("  %s▸ QualityMax: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
+			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, colorReset)
 		}
 	case "codex":
-		fmt.Printf("  %s▸ Backend: Codex CLI (OpenAI subscription — no API tokens)%s\n", colorGreen, colorReset)
+		fmt.Printf("  %s▸ Backend: Codex CLI (OpenAI subscription — no API tokens)%s\n", themeStatusColor, colorReset)
 		if ctx.Auth != nil && ctx.Auth.Email != "" {
-			fmt.Printf("  %s▸ QualityMax: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
+			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, colorReset)
 		}
 	default:
 		// API mode — show direct API or qmax CLI connection status.
 		if ctx.API != nil {
-			fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", colorGreen, colorReset)
+			fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", themeStatusColor, colorReset)
 			if ctx.Auth != nil && ctx.Auth.Email != "" {
-				fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.Auth.Email, colorReset)
+				fmt.Printf("  %s▸ Logged in as: %s%s\n", themeStatusColor, ctx.Auth.Email, colorReset)
 			}
 			fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.Auth.GetCloudURL(), colorReset)
 		} else if ctx.QMaxBin != "" {
-			fmt.Printf("  %s▸ qmax CLI: %s%s\n", colorGreen, ctx.QMaxBin, colorReset)
+			fmt.Printf("  %s▸ qmax CLI: %s%s\n", themeStatusColor, ctx.QMaxBin, colorReset)
 			if ctx.QMaxCfg.Email != "" {
-				fmt.Printf("  %s▸ Logged in as: %s%s\n", colorGreen, ctx.QMaxCfg.Email, colorReset)
+				fmt.Printf("  %s▸ Logged in as: %s%s\n", themeStatusColor, ctx.QMaxCfg.Email, colorReset)
 			}
 			if ctx.QMaxCfg.CloudURL != "" {
 				fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.QMaxCfg.CloudURL, colorReset)
@@ -241,6 +331,7 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 // StreamText prints text as it arrives from the SSE stream (token-by-token).
 func (t *Terminal) StreamText(text string) {
 	if !t.streaming {
+		t.StopThinking() // erase spinner before first token
 		t.streaming = true
 		t.streamBuf.Reset()
 		// Hide readline prompt during streaming to prevent input overlap
@@ -302,6 +393,7 @@ func (t *Terminal) PrintAssistant(text string) {
 
 // PrintToolIcon shows a tool icon when a tool_use block starts streaming.
 func (t *Terminal) PrintToolIcon(name string) {
+	t.StopThinking() // erase spinner before tool display
 	if t.streaming {
 		t.streaming = false
 		fmt.Println()
@@ -324,7 +416,9 @@ func (t *Terminal) PrintToolStart(name string, input interface{}) {
 }
 
 // PrintToolResult shows tool output with smart formatting for known result types.
+// Restarts the thinking spinner on exit so it runs while the agent processes the result.
 func (t *Terminal) PrintToolResult(name string, output string) {
+	defer t.StartThinking()
 	if strings.HasPrefix(output, "{\"error\"") {
 		fmt.Printf("  %s %s\n", styleError.Render("✗ Error"), styleDim.Render(truncateStr(output, 120)))
 		return
@@ -437,19 +531,19 @@ func (t *Terminal) PrintStatusInfo(ctx *SessionContext, usage TokenUsage, model 
 
 	// Connection status (primary)
 	if ctx.API != nil && ctx.Auth != nil && ctx.Auth.IsAuthenticated() {
-		fmt.Printf("  %-20s %s%s Connected%s\n", "QualityMax:", "\033[32m", "●", "\033[0m")
+		fmt.Printf("  %-20s %s%s Connected%s\n", "QualityMax:", themeStatusColor, "●", colorReset)
 		fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.Auth.Email)
 		fmt.Printf("  %-20s %s\n", "API:", ctx.Auth.GetCloudURL())
 		fmt.Printf("  %-20s standalone (direct API)\n", "Mode:")
 	} else if ctx.QMaxBin != "" {
-		fmt.Printf("  %-20s %s%s Connected (via CLI)%s\n", "QualityMax:", "\033[32m", "●", "\033[0m")
+		fmt.Printf("  %-20s %s%s Connected (via CLI)%s\n", "QualityMax:", themeStatusColor, "●", colorReset)
 		if ctx.QMaxCfg.Email != "" {
 			fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.QMaxCfg.Email)
 		}
 		fmt.Printf("  %-20s %s\n", "CLI:", ctx.QMaxBin)
 	} else {
-		fmt.Printf("  %-20s %s%s Not connected%s\n", "QualityMax:", "\033[33m", "●", "\033[0m")
-		fmt.Printf("  %-20s run %s/connect%s to log in\n", "", "\033[1m", "\033[0m")
+		fmt.Printf("  %-20s %s%s Not connected%s\n", "QualityMax:", colorYellow, "●", colorReset)
+		fmt.Printf("  %-20s run %s/connect%s to log in\n", "", colorBold, colorReset)
 	}
 
 	fmt.Println()

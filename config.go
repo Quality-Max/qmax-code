@@ -54,6 +54,10 @@ type Config struct {
 	// entry into the CLI's global config (~/.claude/settings.json or
 	// ~/.codex/config.json). False = use a per-session temp config only.
 	OrchGlobalInstall bool `json:"orch_global_install,omitempty"`
+
+	// Theme selects the terminal color scheme.
+	// Available: historic, ocean, neon, ember, aurora. Empty defaults to "historic".
+	Theme string `json:"theme,omitempty"`
 }
 
 const qmaxCodeConfigDir = ".qmax-code"

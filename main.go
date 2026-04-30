@@ -14,7 +14,7 @@ import (
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
-var Version = "1.12.0"
+var Version = "1.13.0"
 
 const Name = "qmax-code"
 
@@ -110,6 +110,9 @@ func main() {
 
 	// Load persistent user config
 	appConfig := LoadQMaxCodeConfig()
+
+	// Apply color theme before constructing any UI components.
+	ApplyTheme(ThemeByName(appConfig.Theme))
 
 	// Apply --professional flag (CLI flag overrides saved config)
 	if *professional {
@@ -398,6 +401,9 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		defer cliAgent.Cleanup()
 	}
 
+	// Prompt queue — collects prompts typed while the agent is running.
+	pq := &promptQueue{}
+
 	// Session ID for this conversation
 	sessionID := generateSessionID()
 
@@ -475,25 +481,42 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	var lastCtrlC time.Time
 
 	for {
-		result := ReadInput(term.currentPrompt, inputHistory)
+		var input string
 
-		// Handle Ctrl+C: double-tap within 1s exits
-		if result.CtrlC {
-			now := time.Now()
-			if now.Sub(lastCtrlC) < time.Second {
-				saveAndExit()
-				fmt.Fprintf(os.Stderr, "Goodbye!\n")
-				return
+		// Drain the prompt queue before blocking on interactive input.
+		// This processes prompts the user typed while the agent was running.
+		if queued, ok := pq.pop(); ok {
+			input = queued
+			remaining := pq.len()
+			fmt.Println()
+			if remaining > 0 {
+				term.PrintSystem(fmt.Sprintf("processing queued prompt  (%d more in queue)", remaining))
+			} else {
+				term.PrintSystem("processing queued prompt")
 			}
-			lastCtrlC = now
-			continue
-		}
+			fmt.Println()
+			inputHistory = append(inputHistory, input)
+		} else {
+			result := ReadInput(term.currentPrompt, inputHistory)
 
-		input := strings.TrimSpace(result.Text)
-		if input == "" {
-			continue
+			// Handle Ctrl+C: double-tap within 1s exits
+			if result.CtrlC {
+				now := time.Now()
+				if now.Sub(lastCtrlC) < time.Second {
+					saveAndExit()
+					fmt.Fprintf(os.Stderr, "Goodbye!\n")
+					return
+				}
+				lastCtrlC = now
+				continue
+			}
+
+			input = strings.TrimSpace(result.Text)
+			if input == "" {
+				continue
+			}
+			inputHistory = append(inputHistory, input)
 		}
-		inputHistory = append(inputHistory, input)
 
 		// Built-in commands
 		switch {
@@ -591,7 +614,31 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			continue
 		case input == "/set":
 			term.PrintError("Usage: /set <key> <value>")
-			term.PrintSystem("Keys: model, project, professional, autosave, budget, ollama, backend")
+			term.PrintSystem("Keys: model, project, professional, autosave, budget, ollama, backend, theme")
+			continue
+
+		case input == "/queue":
+			items := pq.peek()
+			if len(items) == 0 {
+				term.PrintSystem("Queue is empty. Type /queue <prompt> to add, or just type while the agent is running.")
+			} else {
+				term.PrintSystem(fmt.Sprintf("%d prompt(s) queued:", len(items)))
+				for i, it := range items {
+					truncated := it
+					if len(truncated) > 80 {
+						truncated = truncated[:77] + "..."
+					}
+					fmt.Printf("  %s[%d]%s %s\n", colorDim, i+1, colorReset, truncated)
+				}
+			}
+			continue
+
+		case strings.HasPrefix(input, "/queue "):
+			queued := strings.TrimSpace(strings.TrimPrefix(input, "/queue "))
+			if queued != "" {
+				pq.push(queued)
+				term.PrintSystem(fmt.Sprintf("queued [%d]: %s", pq.len(), queued))
+			}
 			continue
 		case input == "/orch":
 			// Show the unified model + effort TUI picker and apply the selection instantly.
@@ -663,6 +710,25 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			cfg.Effort = result.Effort
 			agent.config.Context.Backend = result.Backend
 			_ = cfg.Save()
+			continue
+
+		case input == "/theme":
+			cfg := agent.appConfig
+			if cfg == nil {
+				term.PrintError("Config not loaded.")
+				continue
+			}
+			chosen, ok := ShowThemePicker(cfg.Theme)
+			if !ok {
+				continue
+			}
+			cfg.Theme = chosen
+			ApplyTheme(ThemeByName(chosen))
+			if err := cfg.Save(); err != nil {
+				term.PrintError(fmt.Sprintf("Failed to save config: %v", err))
+			} else {
+				term.PrintSystem(fmt.Sprintf("Theme set to: %s", chosen))
+			}
 			continue
 
 		case input == "/cc", input == "/codex", input == "/api":
@@ -826,6 +892,11 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		cleanInput, images := DetectAndLoadImages(input)
 
 		// Run through the LLM agent with streaming.
+		// Start the queue reader so the user can type the next prompt while
+		// the agent is working.  It is stopped (and fully drained) before
+		// the next ReadInput call so stdin is never shared between readers.
+		stopQueueReader := startQueueReader(pq, term)
+
 		// CC mode: delegate entirely to Claude Code subprocess (uses CC subscription).
 		// Normal mode: use direct Anthropic API.
 		var llmResult string
@@ -834,7 +905,9 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if len(images) > 0 {
 				term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
 			}
+			term.StartThinking()
 			llmResult, err = cliAgent.Run(cleanInput, term)
+			term.StopThinking()
 			if err == nil {
 				// Mirror the turn into agent.history so autoSave records it.
 				// CCAgent/CodexAgent manage their own subprocess state; qmax's
@@ -856,6 +929,16 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			llmResult, err = agent.RunStreamingWithImages(cleanInput, images, term)
 		} else {
 			llmResult, err = agent.RunStreaming(input, term)
+		}
+
+		// Stop queue reader and wait for the goroutine to exit before we
+		// touch stdin again (either via the queue loop or ReadInput).
+		stopQueueReader()
+
+		// If prompts were queued during this run, surface them.
+		if n := pq.len(); n > 0 {
+			fmt.Println()
+			term.PrintSystem(fmt.Sprintf("%d prompt(s) queued — processing next automatically", n))
 		}
 		if err != nil {
 			term.PrintError(err.Error())
@@ -1022,6 +1105,7 @@ Commands:
   /context       Show current session context
   /cost          Show session token usage and estimated cost
   /orch          Cycle orchestration backend: off → CC → Codex → off
+  /theme         Live-preview color scheme picker
   /cc            Switch to Claude Code backend (CC subscription, no API tokens)
   /codex         Switch to Codex CLI backend (OpenAI subscription, no API tokens)
   /api           Switch back to direct Anthropic API
@@ -1049,6 +1133,12 @@ Config examples:
   /set backend cc           Use Claude Code subscription (no API key needed)
   /set backend codex        Use OpenAI Codex subscription (no API key needed)
   /set backend api          Use Anthropic API directly (default)
+  /set theme ocean          Switch color theme (historic, ocean, neon, ember, aurora)
+
+Queue:
+  /queue                    Show pending queue
+  /queue <prompt>           Add a prompt to the queue immediately
+  (type while agent runs)   Prompts entered during processing are auto-queued
 
 Shortcuts:
   Ctrl+C         Cancel current operation (double-tap to exit)
@@ -1225,6 +1315,23 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 			return
 		}
 
+	case "theme":
+		valid := ThemeNames()
+		found := false
+		for _, n := range valid {
+			if n == strings.ToLower(value) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			term.PrintError(fmt.Sprintf("Unknown theme %q. Available: %s", value, strings.Join(valid, ", ")))
+			return
+		}
+		cfg.Theme = strings.ToLower(value)
+		ApplyTheme(ThemeByName(cfg.Theme))
+		term.PrintSystem(fmt.Sprintf("Theme set to: %s (takes full effect on restart)", cfg.Theme))
+
 	case "anthropic-key", "anthropic_key":
 		// Save Anthropic API key to OS keychain
 		os.Setenv("ANTHROPIC_API_KEY", value)
@@ -1238,7 +1345,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, professional, autosave, budget, apikey, backend")
+		term.PrintSystem("Keys: model, project, professional, autosave, budget, apikey, backend, theme")
 		return
 	}
 

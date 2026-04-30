@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // handleConfigCommand implements the `qmax-code config ...` subcommand
@@ -96,6 +97,11 @@ func printConfig() {
 	if backend == "" {
 		backend = "api"
 	}
+	theme := cfg.Theme
+	if theme == "" {
+		theme = "historic"
+	}
+	fmt.Printf("    theme             = %q  (available: historic, ocean, neon, ember, aurora)\n", theme)
 	fmt.Printf("    backend           = %q", backend)
 	switch backend {
 	case "cc":
@@ -183,6 +189,22 @@ func setConfigField(key, value string) error {
 		default:
 			return fmt.Errorf("invalid backend %q; allowed: api, cc, codex", value)
 		}
+
+	case "theme":
+		if value != "" {
+			valid := ThemeNames()
+			found := false
+			for _, n := range valid {
+				if n == value {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("invalid theme %q; available: %s", value, strings.Join(valid, ", "))
+			}
+		}
+		cfg.Theme = value
 
 	default:
 		return fmt.Errorf("unknown config key %q", key)
