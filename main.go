@@ -886,7 +886,9 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if len(images) > 0 {
 				term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
 			}
+			term.StartThinking()
 			llmResult, err = cliAgent.Run(cleanInput, term)
+			term.StopThinking()
 			if err == nil {
 				// Mirror the turn into agent.history so autoSave records it.
 				// CCAgent/CodexAgent manage their own subprocess state; qmax's

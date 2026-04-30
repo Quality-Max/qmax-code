@@ -417,7 +417,9 @@ func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 			}
 		}
 
+		term.StartThinking()
 		content, stopReason, err := a.callStreamingAPI(term, model)
+		term.StopThinking() // safety net — already stopped by first token in the happy path
 		if err != nil {
 			a.logger.Error("api", err.Error())
 			return "", fmt.Errorf("API call failed: %w", err)

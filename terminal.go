@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/glamour"
@@ -79,13 +81,84 @@ var toolIcons = map[string]string{
 	"rollback_script":    "⏪",
 }
 
+// spinnerFrames is the braille animation cycle.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// spinnerMessages are shown next to the spinner while Claude is thinking.
+var spinnerMessages = []string{
+	"drinking cat milk",
+	"watching the dog's tail",
+	"scaring the bugs",
+	"feeding the kitten",
+	"knocking tests off the table",
+	"chasing the cursor",
+	"napping on the keyboard",
+	"consulting with senior cat",
+	"pawing at the error logs",
+	"sitting on the warm server",
+	"demanding treats from the API",
+	"judging your code silently",
+	"batting at floating variables",
+	"ignoring the flaky tests",
+	"dreaming about tuna endpoints",
+	"staring at a wall suspiciously",
+	"filing a bug against gravity",
+	"debugging with paws",
+	"sniffing the dependency tree",
+	"meowing at the CI pipeline",
+	"questioning life choices",
+	"blaming the last commit",
+	"checking if tests pass by vibes",
+	"doing absolutely nothing (probably)",
+}
+
+// spinner is a running thinking animation.
+type spinner struct {
+	done sync.Once
+	stop chan struct{}
+	wg   sync.WaitGroup
+}
+
+func newSpinner() *spinner {
+	s := &spinner{stop: make(chan struct{})}
+	msg := spinnerMessages[rand.Intn(len(spinnerMessages))]
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		ticker := time.NewTicker(80 * time.Millisecond)
+		defer ticker.Stop()
+		i := 0
+		for {
+			select {
+			case <-s.stop:
+				fmt.Print("\r\033[K") // erase spinner line
+				return
+			case <-ticker.C:
+				frame := spinnerFrames[i%len(spinnerFrames)]
+				i++
+				fmt.Printf("\r  %s%s %s...%s",
+					colorDim, frame, msg, colorReset)
+			}
+		}
+	}()
+	return s
+}
+
+func (s *spinner) Stop() {
+	s.done.Do(func() {
+		close(s.stop)
+		s.wg.Wait()
+	})
+}
+
 // Terminal handles all user-facing I/O with colors, glamour, and personality.
 type Terminal struct {
 	rl            *readline.Instance
 	renderer      *glamour.TermRenderer
-	streaming     bool           // true when we're in the middle of streaming text
+	streaming     bool            // true when we're in the middle of streaming text
 	streamBuf     strings.Builder // buffers streamed text for post-render
 	currentPrompt string          // track prompt for readline recreation
+	thinking      *spinner        // active thinking spinner, if any
 }
 
 // NewTerminal creates a new interactive terminal with markdown rendering.
@@ -129,8 +202,25 @@ func (t *Terminal) SetSessionPrompt(sessionID string) {
 
 // Close cleans up the terminal.
 func (t *Terminal) Close() {
+	t.StopThinking()
 	if t.rl != nil {
 		t.rl.Close()
+	}
+}
+
+// StartThinking shows an animated spinner with a funny cat-themed message.
+// Safe to call even if a spinner is already running (replaces it).
+func (t *Terminal) StartThinking() {
+	t.StopThinking()
+	t.thinking = newSpinner()
+}
+
+// StopThinking stops the spinner and erases it from the terminal.
+// Idempotent — safe to call when no spinner is active.
+func (t *Terminal) StopThinking() {
+	if t.thinking != nil {
+		t.thinking.Stop()
+		t.thinking = nil
 	}
 }
 
@@ -241,6 +331,7 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 // StreamText prints text as it arrives from the SSE stream (token-by-token).
 func (t *Terminal) StreamText(text string) {
 	if !t.streaming {
+		t.StopThinking() // erase spinner before first token
 		t.streaming = true
 		t.streamBuf.Reset()
 		// Hide readline prompt during streaming to prevent input overlap
@@ -302,6 +393,7 @@ func (t *Terminal) PrintAssistant(text string) {
 
 // PrintToolIcon shows a tool icon when a tool_use block starts streaming.
 func (t *Terminal) PrintToolIcon(name string) {
+	t.StopThinking() // erase spinner before tool display
 	if t.streaming {
 		t.streaming = false
 		fmt.Println()
