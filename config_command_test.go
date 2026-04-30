@@ -133,6 +133,55 @@ func TestSetConfigField_PersistsToDisk(t *testing.T) {
 	}
 }
 
+func TestSetConfigField_ThemeHappyPath(t *testing.T) {
+	withTempHome(t)
+
+	for _, name := range ThemeNames() {
+		if err := setConfigField("theme", name); err != nil {
+			t.Errorf("setConfigField(\"theme\", %q) unexpected error: %v", name, err)
+		}
+		loaded := LoadQMaxCodeConfig()
+		if loaded.Theme != name {
+			t.Errorf("theme %q: loaded.Theme = %q, want %q", name, loaded.Theme, name)
+		}
+	}
+}
+
+func TestSetConfigField_ThemeRejectsBadValue(t *testing.T) {
+	withTempHome(t)
+
+	for _, bad := range []string{"dark", "light", "HISTORIC", "ocean2", "../evil"} {
+		if err := setConfigField("theme", bad); err == nil {
+			t.Errorf("setConfigField(\"theme\", %q): expected error, got nil", bad)
+		}
+	}
+}
+
+func TestSetConfigField_ThemeEmptyUnsets(t *testing.T) {
+	withTempHome(t)
+
+	_ = setConfigField("theme", "neon")
+	if err := setConfigField("theme", ""); err != nil {
+		t.Fatalf("setConfigField(\"theme\", \"\") unexpected error: %v", err)
+	}
+	loaded := LoadQMaxCodeConfig()
+	if loaded.Theme != "" {
+		t.Errorf("expected Theme cleared, got %q", loaded.Theme)
+	}
+}
+
+func TestSetConfigField_ThemePersistsToDisk(t *testing.T) {
+	withTempHome(t)
+
+	if err := setConfigField("theme", "aurora"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	loaded := LoadQMaxCodeConfig()
+	if loaded.Theme != "aurora" {
+		t.Errorf("loaded.Theme = %q, want \"aurora\"", loaded.Theme)
+	}
+}
+
 func TestParseConfigBool_KnownValues(t *testing.T) {
 	trueVals := []string{"true", "yes", "1", "on"}
 	falseVals := []string{"false", "no", "0", "off", ""}
