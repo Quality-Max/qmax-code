@@ -41,6 +41,20 @@ type Config struct {
 	// Effort controls how thorough the CLI agent should be: "low", "medium", "high".
 	// Injected into the system prompt on every turn.
 	Effort string `json:"effort,omitempty"`
+
+	// OrchPermissionMode records the autonomy level the user consented to for
+	// CC/Codex backends:
+	//   ""           = no consent yet; activation will prompt
+	//   "standard"   = curated allowlist auto-approved (reads, test runners,
+	//                  qmax MCP tools); edits and destructive shell still gated
+	//   "unattended" = --dangerously-skip-permissions / --full-auto, full autonomy
+	// Persistence avoids re-prompting once chosen; user can revoke via /orch.
+	OrchPermissionMode string `json:"orch_permission_mode,omitempty"`
+
+	// OrchGlobalInstall records that the user opted into writing the qmax MCP
+	// entry into the CLI's global config (~/.claude/settings.json or
+	// ~/.codex/config.json). False = use a per-session temp config only.
+	OrchGlobalInstall bool `json:"orch_global_install,omitempty"`
 }
 
 const qmaxCodeConfigDir = ".qmax-code"

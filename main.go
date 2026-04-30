@@ -189,7 +189,17 @@ func main() {
 			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
 			os.Exit(1)
 		}
-		anthropicKey = "__cc_mode__" // skip Anthropic key gate below
+		consent := promptOrchConsent(appConfig, "cc")
+		if !consent.Proceed {
+			fmt.Fprintln(os.Stderr, "  CC backend not activated. Falling back to direct API.")
+			cliBackend = ""
+			appConfig.Backend = ""
+		} else {
+			appConfig.OrchPermissionMode = consent.PermissionMode
+			appConfig.OrchGlobalInstall = consent.GlobalInstall
+			_ = appConfig.Save()
+			anthropicKey = "__cc_mode__" // skip Anthropic key gate below
+		}
 	} else if cliBackend == "codex" {
 		codexBin := FindCodex()
 		if codexBin == "" {
@@ -198,7 +208,17 @@ func main() {
 			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
 			os.Exit(1)
 		}
-		anthropicKey = "__codex_mode__" // skip Anthropic key gate below
+		consent := promptOrchConsent(appConfig, "codex")
+		if !consent.Proceed {
+			fmt.Fprintln(os.Stderr, "  Codex backend not activated. Falling back to direct API.")
+			cliBackend = ""
+			appConfig.Backend = ""
+		} else {
+			appConfig.OrchPermissionMode = consent.PermissionMode
+			appConfig.OrchGlobalInstall = consent.GlobalInstall
+			_ = appConfig.Save()
+			anthropicKey = "__codex_mode__" // skip Anthropic key gate below
+		}
 	}
 
 	// If connected but missing Anthropic key, prompt for it (skipped in CLI backend modes).
@@ -275,23 +295,24 @@ func main() {
 		agent.ollamaMode = OllamaModeFull // default to full when configured
 	}
 
-	// Initialize the CLI agent and run one-time global MCP setup if needed.
+	// Build the CLI agent if a CLI backend was selected and consented to above.
+	// Global MCP install (~/.claude/settings.json or ~/.codex/config.json) is
+	// performed only when the user opted into it during the consent prompt.
 	switch cliBackend {
 	case "cc":
-		if !IsOrchSetupDone("cc") {
+		if appConfig.OrchGlobalInstall && !IsOrchSetupDone("cc") {
 			if res, err := SetupCCIntegration(); err == nil && !res.AlreadyHadMCP {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
-				fmt.Println("  Claude Code now has qmax tools in every session.")
 			}
 		}
-		cliAgent = NewCCAgent(FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, ctx)
+		cliAgent = NewCCAgent(FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, ctx)
 	case "codex":
-		if !IsOrchSetupDone("codex") {
+		if appConfig.OrchGlobalInstall && !IsOrchSetupDone("codex") {
 			if res, err := SetupCodexIntegration(); err == nil && !res.AlreadyHadMCP {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
 			}
 		}
-		ca := NewCodexAgent(FindCodex(), appConfig.ModelOverride, appConfig.Effort, ctx)
+		ca := NewCodexAgent(FindCodex(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, ctx)
 		if err := ca.writeMCPConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not write Codex MCP config: %v\n", err)
 		}
@@ -596,24 +617,33 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				}
 			}
 
+			// Consent gate: required before activating CC/Codex (autonomous shell + edits).
+			if result.Backend != "" {
+				consent := promptOrchConsent(cfg, result.Backend)
+				if !consent.Proceed {
+					term.PrintSystem("Backend not changed.")
+					continue
+				}
+				cfg.OrchPermissionMode = consent.PermissionMode
+				cfg.OrchGlobalInstall = consent.GlobalInstall
+				if consent.GlobalInstall && !IsOrchSetupDone(result.Backend) {
+					RunOrchSetup(result.Backend, term)
+				}
+			}
+
 			// Tear down current CLI agent.
 			if cliAgent != nil {
 				cliAgent.Cleanup()
 				cliAgent = nil
 			}
 
-			// One-time autosetup: write qmax into the CLI's global MCP config.
-			if result.Backend != "" && !IsOrchSetupDone(result.Backend) {
-				RunOrchSetup(result.Backend, term)
-			}
-
 			// Spin up the new agent with selected model + effort.
 			switch result.Backend {
 			case "cc":
-				cliAgent = NewCCAgent(FindClaudeCode(), result.ModelID, result.Effort, agent.config.Context)
+				cliAgent = NewCCAgent(FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, agent.config.Context)
 				term.PrintSystem(fmt.Sprintf("Backend: Claude Code  model: %s  effort: %s", result.ModelID, result.Effort))
 			case "codex":
-				ca := NewCodexAgent(FindCodex(), result.ModelID, result.Effort, agent.config.Context)
+				ca := NewCodexAgent(FindCodex(), result.ModelID, result.Effort, cfg.OrchPermissionMode, agent.config.Context)
 				if err := ca.writeMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: Codex MCP config: %v", err))
 				}
@@ -667,13 +697,20 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 					term.PrintSystem("  https://claude.ai/download")
 					continue
 				}
-				if !IsOrchSetupDone("cc") {
+				consent := promptOrchConsent(cfg, "cc")
+				if !consent.Proceed {
+					term.PrintSystem("Backend not changed.")
+					continue
+				}
+				cfg.OrchPermissionMode = consent.PermissionMode
+				cfg.OrchGlobalInstall = consent.GlobalInstall
+				if consent.GlobalInstall && !IsOrchSetupDone("cc") {
 					RunOrchSetup("cc", term)
 				}
-				cliAgent = NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, agent.config.Context)
+				cliAgent = NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, agent.config.Context)
 				cfg.Backend = "cc"
 				_ = cfg.Save()
-				term.PrintSystem(fmt.Sprintf("Backend → Claude Code (%s) — qmax tools globally registered", bin))
+				term.PrintSystem(fmt.Sprintf("Backend → Claude Code (%s) · %s mode", bin, cfg.OrchPermissionMode))
 
 			case "codex":
 				bin := FindCodex()
@@ -682,17 +719,24 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 					term.PrintSystem("  npm install -g @openai/codex")
 					continue
 				}
-				if !IsOrchSetupDone("codex") {
+				consent := promptOrchConsent(cfg, "codex")
+				if !consent.Proceed {
+					term.PrintSystem("Backend not changed.")
+					continue
+				}
+				cfg.OrchPermissionMode = consent.PermissionMode
+				cfg.OrchGlobalInstall = consent.GlobalInstall
+				if consent.GlobalInstall && !IsOrchSetupDone("codex") {
 					RunOrchSetup("codex", term)
 				}
-				ca := NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, agent.config.Context)
+				ca := NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, agent.config.Context)
 				if err := ca.writeMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
 				}
 				cliAgent = ca
 				cfg.Backend = "codex"
 				_ = cfg.Save()
-				term.PrintSystem(fmt.Sprintf("Backend → Codex (%s) — qmax tools globally registered", bin))
+				term.PrintSystem(fmt.Sprintf("Backend → Codex (%s) · %s mode", bin, cfg.OrchPermissionMode))
 
 			default:
 				cfg.Backend = ""

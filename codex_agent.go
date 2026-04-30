@@ -27,12 +27,13 @@ import (
 // is captured as plain text. History is managed by qmax-code itself (passed
 // as context in the system/user turn) since Codex has no --resume equivalent.
 type CodexAgent struct {
-	codexBin string
-	modelID  string // "" = codex default; otherwise passed as --model
-	effort   string // "low" | "medium" | "high"
-	sctx     *SessionContext
-	history  []codexTurn // conversation history managed on our side
-	mu       sync.Mutex
+	codexBin       string
+	modelID        string // "" = codex default; otherwise passed as --model
+	effort         string // "low" | "medium" | "high"
+	permissionMode string // "standard" (Codex prompts per-action) | "unattended" (--full-auto)
+	sctx           *SessionContext
+	history        []codexTurn // conversation history managed on our side
+	mu             sync.Mutex
 }
 
 type codexTurn struct {
@@ -61,11 +62,23 @@ func FindCodex() string {
 // NewCodexAgent creates a Codex subprocess orchestrator.
 // modelID is passed as --model to the codex CLI (empty = codex default).
 // effort is "low" | "medium" | "high" (empty defaults to "high").
-func NewCodexAgent(bin, modelID, effort string, sctx *SessionContext) *CodexAgent {
+// permissionMode is "standard" or "unattended" — Codex has no allowlist primitive,
+// so Standard relies on Codex's own approval flow (works for read-mostly tasks
+// in interactive runs) and Unattended adds --full-auto.
+func NewCodexAgent(bin, modelID, effort, permissionMode string, sctx *SessionContext) *CodexAgent {
 	if effort == "" {
 		effort = "high"
 	}
-	return &CodexAgent{codexBin: bin, modelID: modelID, effort: effort, sctx: sctx}
+	if permissionMode == "" {
+		permissionMode = "standard"
+	}
+	return &CodexAgent{
+		codexBin:       bin,
+		modelID:        modelID,
+		effort:         effort,
+		permissionMode: permissionMode,
+		sctx:           sctx,
+	}
 }
 
 // writeMCPConfig writes the qmax MCP server into ~/.codex/config.json
@@ -142,7 +155,10 @@ func (a *CodexAgent) Run(userMsg string, term *Terminal) (string, error) {
 
 	args := []string{
 		"--quiet",
-		"--full-auto", // no approval prompts for tool calls
+	}
+	if a.permissionMode == "unattended" {
+		// Equivalent to CC's --dangerously-skip-permissions. Only with explicit consent.
+		args = append(args, "--full-auto")
 	}
 	if a.modelID != "" {
 		args = append(args, "--model", a.modelID)

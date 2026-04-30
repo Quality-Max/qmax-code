@@ -34,15 +34,33 @@ type CLIAgent interface {
 //  4. qmax-code parses CC's stream-json and renders in the terminal
 //  5. CC session ID is saved for --resume on the next turn
 type CCAgent struct {
-	claudeBin     string
-	modelID       string // "" = let CC decide; otherwise passed as --model
-	effort        string // "low" | "medium" | "high" — injected into system prompt
-	ccSessionID   string // CC's own session ID, for --resume
-	mcpConfigPath string // temp MCP config written once per qmax session
-	sctx          *SessionContext
-	lastToolName  string // track last tool name for result display
-	mu            sync.Mutex
+	claudeBin      string
+	modelID        string // "" = let CC decide; otherwise passed as --model
+	effort         string // "low" | "medium" | "high" — injected into system prompt
+	permissionMode string // "standard" | "unattended" — see Run() for behavior
+	ccSessionID    string // CC's own session ID, for --resume
+	mcpConfigPath  string // temp MCP config written once per qmax session
+	sctx           *SessionContext
+	lastToolName   string // track last tool name for result display
+	mu             sync.Mutex
 }
+
+// ccStandardAllowlist is the curated list passed to `claude --allowedTools` in
+// "standard" permission mode. Tools on this list are auto-approved without
+// prompting CC's permission UI; tools NOT on this list will refuse silently
+// in --print mode. The list covers everything QMax users routinely need:
+// file inspection, search, git read ops, common test runners, all qmax MCP tools.
+// Mutating filesystem ops (Edit, Write) and destructive shell are deliberately
+// excluded — those require Unattended mode.
+const ccStandardAllowlist = "Read,Glob,Grep,WebFetch," +
+	"Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git branch:*),Bash(git show:*),Bash(git stash:*),Bash(git remote:*)," +
+	"Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(pwd:*),Bash(echo:*),Bash(which:*),Bash(file:*),Bash(wc:*),Bash(find:*),Bash(env:*),Bash(date:*),Bash(uname:*)," +
+	"Bash(npm test:*),Bash(npm run test:*),Bash(npm list:*),Bash(yarn test:*),Bash(pnpm test:*)," +
+	"Bash(go test:*),Bash(go vet:*),Bash(go build:*),Bash(go run:*),Bash(go list:*),Bash(go mod:*)," +
+	"Bash(pytest:*),Bash(python -m pytest:*),Bash(python3 -m pytest:*),Bash(python -m unittest:*),Bash(python3 -m unittest:*)," +
+	"Bash(cargo test:*),Bash(cargo check:*),Bash(cargo build:*),Bash(cargo run:*)," +
+	"Bash(jest:*),Bash(rspec:*),Bash(make test:*),Bash(make check:*),Bash(make build:*)," +
+	"mcp__qmax__*"
 
 // ccQASystemPrompt is injected via --append-system-prompt on every CC turn.
 // Tools are discovered via MCP so we don't list them — instead we focus on
@@ -137,11 +155,22 @@ func FindClaudeCode() string {
 // NewCCAgent creates a CC subprocess orchestrator.
 // modelID is passed as --model to the claude CLI (empty = CC's default).
 // effort is "low" | "medium" | "high" (empty defaults to "high").
-func NewCCAgent(claudeBin, modelID, effort string, sctx *SessionContext) *CCAgent {
+// permissionMode is "standard" (curated allowlist) or "unattended"
+// (--dangerously-skip-permissions). Both require explicit user consent.
+func NewCCAgent(claudeBin, modelID, effort, permissionMode string, sctx *SessionContext) *CCAgent {
 	if effort == "" {
 		effort = "high"
 	}
-	return &CCAgent{claudeBin: claudeBin, modelID: modelID, effort: effort, sctx: sctx}
+	if permissionMode == "" {
+		permissionMode = "standard"
+	}
+	return &CCAgent{
+		claudeBin:      claudeBin,
+		modelID:        modelID,
+		effort:         effort,
+		permissionMode: permissionMode,
+		sctx:           sctx,
+	}
 }
 
 // writeMCPConfig writes a temp JSON file that tells CC where to find our MCP server.
@@ -204,8 +233,20 @@ func (a *CCAgent) Run(userMsg string, term *Terminal) (string, error) {
 	args := []string{
 		"--print", userMsg,
 		"--output-format", "stream-json",
+		"--verbose",
 		"--append-system-prompt", systemPrompt,
 		"--mcp-config", mcpPath,
+	}
+	switch a.permissionMode {
+	case "unattended":
+		// Full autonomy. Only present after explicit user consent.
+		args = append(args, "--dangerously-skip-permissions")
+	default: // "standard"
+		// Curated allowlist: read tools, test runners, qmax MCP tools auto-approve;
+		// Edit/Write/destructive shell silently refuse in --print mode. Less
+		// babysitting than vanilla CC (no per-read prompts) without ceding control
+		// over file mutations.
+		args = append(args, "--allowedTools", ccStandardAllowlist)
 	}
 	if a.modelID != "" {
 		args = append(args, "--model", a.modelID)
