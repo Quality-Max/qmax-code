@@ -40,6 +40,3 @@ func (q *promptQueue) len() int {
 	return len(q.items)
 }
 
-func (q *promptQueue) isEmpty() bool {
-	return q.len() == 0
-}

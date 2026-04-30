@@ -7,9 +7,6 @@ import (
 
 func TestPromptQueue_EmptyByDefault(t *testing.T) {
 	var q promptQueue
-	if !q.isEmpty() {
-		t.Error("new queue should be empty")
-	}
 	if q.len() != 0 {
 		t.Errorf("new queue len: got %d, want 0", q.len())
 	}
@@ -64,7 +61,7 @@ func TestPromptQueue_PopDecrementsLen(t *testing.T) {
 		t.Errorf("len after pop: got %d, want 1", q.len())
 	}
 	q.pop()
-	if !q.isEmpty() {
+	if q.len() != 0 {
 		t.Error("queue should be empty after all items popped")
 	}
 }
@@ -108,20 +105,6 @@ func TestPromptQueue_PeekEmpty(t *testing.T) {
 	}
 }
 
-func TestPromptQueue_IsEmpty(t *testing.T) {
-	var q promptQueue
-	if !q.isEmpty() {
-		t.Error("isEmpty: want true for fresh queue")
-	}
-	q.push("x")
-	if q.isEmpty() {
-		t.Error("isEmpty: want false after push")
-	}
-	q.pop()
-	if !q.isEmpty() {
-		t.Error("isEmpty: want true after pop leaves queue empty")
-	}
-}
 
 func TestPromptQueue_ConcurrentPush(t *testing.T) {
 	var q promptQueue
