@@ -65,8 +65,52 @@ type ToolDef struct {
 	InputSchema map[string]interface{} `json:"input_schema"`
 }
 
-// BuildToolDefs returns all available tool definitions for the Claude API.
+// experimentalToolNames lists tools that are gated behind QMAX_EXPERIMENTAL=1.
+// These surfaces work but lack public docs / support guarantees, per
+// OPEN_SOURCE_SCOPE.md Phase 2. Set QMAX_EXPERIMENTAL=1 to expose them to the
+// agent and the MCP server.
+var experimentalToolNames = map[string]bool{
+	// k6 load testing
+	"k6_list_scripts":  true,
+	"k6_create_script": true,
+	"k6_get_script":    true,
+	"k6_run_test":      true,
+	"k6_check_status":  true,
+	"k6_report":        true,
+	"k6_generate":      true,
+	"k6_convert":       true,
+	// QTML import/export
+	"export_qtml": true,
+	"import_qtml": true,
+	// Framework export / install / trigger
+	"export_framework":      true,
+	"get_install_command":   true,
+	"trigger_framework_run": true,
+	// Operational health (private/remove per scope doc)
+	"check_job_status": true,
+}
+
+// BuildToolDefs returns the public tool definitions exposed to the LLM agent
+// and via the MCP server. Experimental tools are filtered out unless
+// QMAX_EXPERIMENTAL=1 is set.
 func BuildToolDefs() []ToolDef {
+	all := buildAllToolDefs()
+	if envEnabled("QMAX_EXPERIMENTAL") {
+		return all
+	}
+	out := make([]ToolDef, 0, len(all))
+	for _, d := range all {
+		if !experimentalToolNames[d.Name] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// buildAllToolDefs returns every tool definition, including experimental ones.
+// Used internally; public callers go through BuildToolDefs which applies the
+// QMAX_EXPERIMENTAL gate.
+func buildAllToolDefs() []ToolDef {
 	return []ToolDef{
 		// --- Project operations ---
 		{

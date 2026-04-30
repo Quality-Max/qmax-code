@@ -134,4 +134,15 @@ Max is a curious explorer, playful bug hunter, and proud test presenter. The age
 
 ---
 
-**Closed-source companion to [qmax-local-agent](https://github.com/Quality-Max/qmax-local-agent) (open-source CLI).**
+**Open-source CLI for the QualityMax platform. Licensed under [Apache 2.0](LICENSE).**
+
+## Telemetry
+
+`qmax-code` does not send anything off-machine by default. Crash and error reporting is **opt-in only** and requires both:
+
+- `QMAX_CODE_TELEMETRY=1` — explicit opt-in toggle
+- `QMAX_CODE_TELEMETRY_DSN=<sentry-dsn>` — destination DSN you control
+
+When enabled, only structural metadata is sent: backend name, HTTP status codes, model identifiers, input lengths, image counts. Prompt content, file contents, LLM responses, and shell output are **never** transmitted — a `BeforeSend` sanitizer in `error_reporting.go` strips any tag whose name matches a prompt-shaped prefix as defense-in-depth.
+
+To disable, unset either variable. To inspect what would be sent, set `QMAX_CODE_TELEMETRY_DSN` to a Sentry-compatible test endpoint you control.
