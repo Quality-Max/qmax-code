@@ -22,7 +22,7 @@ func main() {
 	// Flags
 	projectID := flag.Int("project-id", 0, "Default project ID for this session")
 	model := flag.String("model", "", "Claude model: auto (haiku+sonnet), sonnet, opus, haiku, or full ID")
-	apiKey := flag.String("api-key", "", "Anthropic API key (or set ANTHROPIC_API_KEY)")
+	anthropicAPIKey := flag.String("anthropic-api-key", "", "Anthropic API key (or set ANTHROPIC_API_KEY)")
 	cloudURL := flag.String("cloud-url", "", "QualityMax cloud URL (or use qmax login)")
 	oneShot := flag.String("p", "", "Run a single prompt and exit (non-interactive)")
 	resumeID := flag.String("resume", "", "Resume a previous session by ID (or 'last')")
@@ -40,7 +40,7 @@ func main() {
 		return
 	}
 
-	// Initialize error reporting (Bugsink)
+	// Initialize error reporting only when explicitly enabled.
 	InitErrorReporting()
 	defer FlushErrorReporting()
 	defer RecoverPanic()
@@ -69,12 +69,17 @@ func main() {
 
 	// Handle "login" subcommand before flag parsing
 	if len(os.Args) > 1 && os.Args[1] == "login" {
+		loginFlags := flag.NewFlagSet("login", flag.ExitOnError)
+		qualityMaxAPIKey := loginFlags.String("api-key", "", "QualityMax API key")
+		_ = loginFlags.Parse(os.Args[2:])
+
 		var cfg *AuthConfig
 		var err error
-		if *apiKey != "" {
-			cfg, err = LoginWithAPIKey(*apiKey)
-		} else if len(os.Args) > 2 && strings.HasPrefix(os.Args[2], "qm-") {
-			cfg, err = LoginWithAPIKey(os.Args[2])
+		args := loginFlags.Args()
+		if *qualityMaxAPIKey != "" {
+			cfg, err = LoginWithAPIKey(*qualityMaxAPIKey)
+		} else if len(args) > 0 && strings.HasPrefix(args[0], "qm-") {
+			cfg, err = LoginWithAPIKey(args[0])
 		} else {
 			// Browser-based login (Railway-style)
 			AnimateMax(MoodWaving, "Let's get you logged in!")
@@ -82,7 +87,7 @@ func main() {
 		}
 		if err != nil {
 			AnimateMax(MoodSad, "Login failed: "+err.Error())
-			fmt.Fprintf(os.Stderr, "\n  Try: qmax-code login qm-YOUR-API-KEY\n")
+			fmt.Fprintf(os.Stderr, "\n  Try: qmax-code login --api-key qm-YOUR-API-KEY\n")
 			os.Exit(1)
 		}
 		AnimateMax(MoodHappy, fmt.Sprintf("Logged in as %s", cfg.Email))
@@ -137,7 +142,7 @@ func main() {
 	effectiveModel = resolveModel(effectiveModel)
 
 	// Resolve Anthropic API key: flag > env > keychain
-	anthropicKey := *apiKey
+	anthropicKey := *anthropicAPIKey
 	if anthropicKey == "" {
 		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
@@ -376,11 +381,11 @@ func main() {
 func resolveModel(m string) string {
 	switch strings.ToLower(m) {
 	case "sonnet":
-		return "claude-sonnet-4-20250514"
+		return ModelSonnet
 	case "opus":
-		return "claude-opus-4-20250514"
+		return ModelOpus
 	case "haiku":
-		return "claude-haiku-4-5-20251001"
+		return ModelHaiku
 	default:
 		return m
 	}
@@ -761,10 +766,10 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			switch agent.ollamaMode {
 			case OllamaModeOff:
 				agent.ollamaMode = OllamaModeChat
-				term.PrintSystem(fmt.Sprintf("Ollama: CHAT mode (%s) — chat via Gemma, tools via Claude", agent.ollama.model))
+				term.PrintSystem(fmt.Sprintf("Ollama: CHAT mode (%s) — chat via local model, tools via Claude", agent.ollama.model))
 			case OllamaModeChat:
 				agent.ollamaMode = OllamaModeFull
-				term.PrintSystem(fmt.Sprintf("Ollama: FULL mode (%s) — everything via Gemma (no Claude)", agent.ollama.agentModel))
+				term.PrintSystem(fmt.Sprintf("Ollama: FULL mode (%s) — everything via local model (no Claude)", agent.ollama.agentModel))
 			case OllamaModeFull:
 				agent.ollamaMode = OllamaModeOff
 				term.PrintSystem("Ollama: OFF — all calls via Claude")

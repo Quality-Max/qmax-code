@@ -136,11 +136,7 @@ func buildMCPToolList() []mcpToolDef {
 	defs := BuildToolDefs()
 	out := make([]mcpToolDef, len(defs))
 	for i, d := range defs {
-		out[i] = mcpToolDef{
-			Name:        d.Name,
-			Description: d.Description,
-			InputSchema: d.InputSchema,
-		}
+		out[i] = mcpToolDef(d)
 	}
 	return out
 }

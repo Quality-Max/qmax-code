@@ -8,22 +8,21 @@ import (
 
 // Config holds persistent user preferences for qmax-code.
 type Config struct {
-	DefaultModel   string `json:"default_model,omitempty"`   // "auto", "sonnet", "opus", "haiku"
+	DefaultModel   string `json:"default_model,omitempty"` // "auto", "sonnet", "opus", "haiku"
 	DefaultProject int    `json:"default_project,omitempty"`
 	// DefaultFramework is set by the first-run wizard based on filesystem
 	// detection (Cargo.toml → rust_cargo, go.mod → go_test, etc.). The agent
 	// reads this to default the `framework` param on generate_test_code so
 	// Rust/Go users don't get Playwright scripts by accident.
 	DefaultFramework string `json:"default_framework,omitempty"` // "", "playwright", "pytest", "rust_cargo", "go_test"
-	Professional   bool   `json:"professional,omitempty"` // disable cat personality
-	AutoSave       bool   `json:"auto_save"`              // auto-save session on exit (default true)
-	MaxTokenBudget int    `json:"max_token_budget,omitempty"`
-	AnthropicKey string `json:"-"` // NOT stored in JSON — use keychain instead
+	Professional     bool   `json:"professional,omitempty"`      // disable cat personality
+	AutoSave         bool   `json:"auto_save"`                   // auto-save session on exit (default true)
+	MaxTokenBudget   int    `json:"max_token_budget,omitempty"`
+	AnthropicKey     string `json:"-"` // NOT stored in JSON — use keychain instead
 
-	// Ollama integration — use a self-hosted LLM for the cheap chat tier.
-	// When configured, iteration-0 (conversational) calls go to Ollama instead
-	// of Haiku, saving API costs. Tool orchestration stays on Claude.
-	OllamaURL        string `json:"ollama_url,omitempty"`         // e.g. "https://user:pass@llm.qualitymax.io"
+	// Ollama integration — use a self-hosted local model for chat and,
+	// optionally, tool dispatch.
+	OllamaURL        string `json:"ollama_url,omitempty"`         // e.g. "https://user:pass@llm.example.com"
 	OllamaModel      string `json:"ollama_model,omitempty"`       // e.g. "gemma3:4b-it-q4_K_M" (chat)
 	OllamaAgentModel string `json:"ollama_agent_model,omitempty"` // e.g. "gemma3:12b-it-q4_K_M" (tools, heavier tasks)
 

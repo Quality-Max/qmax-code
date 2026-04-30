@@ -14,14 +14,13 @@ import (
 	"time"
 )
 
-// Ollama integration — use a self-hosted LLM for the cheap chat tier.
+// Ollama integration — use a self-hosted local model for chat and,
+// optionally, tool dispatch.
 // Ollama exposes an OpenAI-compatible /v1/chat/completions endpoint.
-// We use it for simple conversational responses (iteration 0) while
-// keeping Claude for tool orchestration.
 
 // OllamaClient wraps HTTP calls to an Ollama instance with a circuit breaker.
 type OllamaClient struct {
-	baseURL    string // e.g. "https://user:pass@llm.qualitymax.io"
+	baseURL    string // e.g. "https://user:pass@llm.example.com"
 	model      string // e.g. "gemma3:4b-it-q4_K_M" (fast, for chat)
 	agentModel string // e.g. "gemma3:12b-it-q4_K_M" (smarter, for tool dispatch)
 	http       *http.Client

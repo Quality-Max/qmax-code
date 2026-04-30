@@ -30,7 +30,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
           check-latest: true
 
       - name: Cache Go modules
@@ -87,19 +87,35 @@ jobs:
         env:
           QAMAX_API_KEY: ${{ secrets.QAMAX_API_KEY }}
           QAMAX_PROJECT_ID: ${{ vars.QAMAX_PROJECT_ID || '164' }}
+          # Bind all GitHub-context values to env vars so they cannot be
+          # interpolated into the bash script body (defense against
+          # ${{ }} expression injection — CodeQL js/actions-script-injection).
+          GOTEST_RESULT: ${{ steps.gotest.outputs.result || 'failed' }}
+          GOTEST_PASSED: ${{ steps.gotest.outputs.passed || 0 }}
+          GOTEST_FAILED: ${{ steps.gotest.outputs.failed || 0 }}
+          GOTEST_TOTAL: ${{ steps.gotest.outputs.total || 0 }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref }}
+          GH_SHA: ${{ github.sha }}
+          GH_RUN_ID: ${{ github.run_id }}
         run: |
+          if [ -z "$QAMAX_API_KEY" ]; then
+            echo "QAMAX_API_KEY not set — skipping QualityMax report"
+            exit 0
+          fi
+
           # Build JSON payload safely using jq to avoid shell injection
           PAYLOAD=$(jq -n \
             --arg project_id "$QAMAX_PROJECT_ID" \
             --arg framework "go_test" \
-            --arg result "${{ steps.gotest.outputs.result || 'failed' }}" \
-            --argjson passed "${{ steps.gotest.outputs.passed || 0 }}" \
-            --argjson failed "${{ steps.gotest.outputs.failed || 0 }}" \
-            --argjson total "${{ steps.gotest.outputs.total || 0 }}" \
-            --arg repo "${{ github.repository }}" \
-            --arg ref "${{ github.ref }}" \
-            --arg sha "${{ github.sha }}" \
-            --arg run_id "${{ github.run_id }}" \
+            --arg result "$GOTEST_RESULT" \
+            --argjson passed "$GOTEST_PASSED" \
+            --argjson failed "$GOTEST_FAILED" \
+            --argjson total "$GOTEST_TOTAL" \
+            --arg repo "$GH_REPO" \
+            --arg ref "$GH_REF" \
+            --arg sha "$GH_SHA" \
+            --arg run_id "$GH_RUN_ID" \
             '{
               project_id: $project_id,
               framework: $framework,

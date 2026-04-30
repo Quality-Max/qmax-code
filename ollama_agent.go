@@ -8,16 +8,16 @@ import (
 )
 
 // OllamaAgentMode provides a full Ollama-powered agent that handles both
-// chat AND tool-needing requests. Since Gemma doesn't support native
-// function calling, we use prompt-based tool dispatch:
+// chat AND tool-needing requests. Since many local models don't support native
+// function calling, qmax-code uses prompt-based tool dispatch:
 //
-// 1. Gemma classifies user intent into an action + params
+// 1. The local model classifies user intent into an action + params
 // 2. Go code maps the action to an actual QualityMax API call
-// 3. Results are fed back to Gemma for formatting
+// 3. Results are fed back to the local model for formatting
 //
 // This allows qmax-code to run entirely on the self-hosted GPU.
 
-// ollamaToolActions is the compact action set Gemma can choose from.
+// ollamaToolActions is the compact action set the local model can choose from.
 // Each maps to one or more real QualityMax API calls.
 const ollamaToolPrompt = `
 
@@ -56,7 +56,7 @@ func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	a.cancel = cancel1
 
-	// Phase 1: Get Gemma's response (may contain <action> block)
+	// Phase 1: Get the local model response (may contain <action> block)
 	// Use the agent model (12B) for better tool dispatch accuracy
 	ollamaText, err := a.ollama.ChatStreamingWithModel(ctx1, a.ollama.agentModel, system, a.history, term)
 	a.cancel = nil
@@ -90,8 +90,7 @@ func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
 	toolResult := a.executeOllamaAction(action, params, apiCtx)
 	term.PrintToolResult(action, truncateStr(toolResult, 200))
 
-	// Phase 3: Feed results back to Gemma for formatting
-	// Build a follow-up asking Gemma to present the results
+	// Phase 3: Feed results back to the local model for formatting.
 	a.history = append(a.history, Message{
 		Role:    "assistant",
 		Content: []ContentBlock{{Type: "text", Text: remaining}},
@@ -120,7 +119,7 @@ func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
 	return summary, true
 }
 
-// parseActionBlock extracts an action from Gemma's response.
+// parseActionBlock extracts an action from the local model response.
 // Supports both <action>{...}</action> tags and bare JSON with "name" field.
 // Returns the action name, params map, and any text outside the action block.
 func parseActionBlock(text string) (string, map[string]interface{}, string) {
@@ -141,7 +140,7 @@ func parseActionBlock(text string) (string, map[string]interface{}, string) {
 	}
 
 	// Fallback: look for bare JSON with "name" field anywhere in the text.
-	// Gemma sometimes outputs {"name": "list_projects", "params": {}} without tags.
+	// Local models sometimes output {"name": "list_projects", "params": {}} without tags.
 	jsonStart := strings.Index(text, `{"name"`)
 	if jsonStart == -1 {
 		jsonStart = strings.Index(text, `{ "name"`)
@@ -238,7 +237,7 @@ func (a *Agent) executeOllamaAction(action string, params map[string]interface{}
 	}
 }
 
-// truncateToolResult keeps tool output to a reasonable size for Gemma's context.
+// truncateToolResult keeps tool output to a reasonable size for local model context.
 func truncateToolResult(result string) string {
 	const maxLen = 4000
 	if len(result) <= maxLen {

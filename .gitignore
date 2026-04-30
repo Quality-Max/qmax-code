@@ -6,3 +6,4 @@ build/
 *.dylib
 .DS_Store
 dist/
+security-roast-report.md
