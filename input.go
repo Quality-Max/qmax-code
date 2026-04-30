@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/term"
 )
 
 // SlashMenuItem represents a selectable command.
@@ -46,33 +48,42 @@ const (
 	modeMenu
 )
 
-// inputModel is a bubbletea model that handles text input + slash menu
+// inputModel is a bubbletea model that handles text input + slash menu.
 type inputModel struct {
-	mode     inputMode
-	text     string
-	menu     int // selected menu index
-	filter   string
-	result   string // final submitted text
-	done     bool
-	ctrlC    bool   // true if exited via Ctrl+C
-	prompt   string
-	history  []string
-	histIdx  int
+	mode    inputMode
+	text    string
+	cursor  int // cursor position in runes
+	width   int // terminal width; 0 = not yet known
+	menu    int // selected menu index
+	filter  string
+	result  string // final submitted text
+	done    bool
+	ctrlC   bool // true if exited via Ctrl+C
+	prompt  string
+	history []string
+	histIdx int
 }
 
 func newInputModel(prompt string, history []string) inputModel {
+	w := 80 // sensible fallback
+	if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && width > 0 {
+		w = width
+	}
 	return inputModel{
 		prompt:  prompt,
 		history: history,
 		histIdx: -1,
+		width:   w,
 	}
 }
-
 
 func (m inputModel) Init() tea.Cmd { return nil }
 
 func (m inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		return m, nil
 	case tea.KeyMsg:
 		if m.mode == modeMenu {
 			return m.updateMenu(msg)
@@ -83,50 +94,122 @@ func (m inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	runes := []rune(m.text)
+
 	switch msg.Type {
 	case tea.KeyEnter:
 		m.result = m.text
 		m.done = true
 		return m, tea.Quit
+
 	case tea.KeyCtrlC:
 		m.result = ""
 		m.done = true
 		m.ctrlC = true
 		return m, tea.Quit
+
 	case tea.KeyBackspace:
-		if len(m.text) > 0 {
-			m.text = m.text[:len(m.text)-1]
+		if m.cursor > 0 {
+			runes = append(runes[:m.cursor-1], runes[m.cursor:]...)
+			m.text = string(runes)
+			m.cursor--
 		}
+
+	case tea.KeyDelete:
+		if m.cursor < len(runes) {
+			runes = append(runes[:m.cursor], runes[m.cursor+1:]...)
+			m.text = string(runes)
+		}
+
+	case tea.KeyLeft:
+		if m.cursor > 0 {
+			m.cursor--
+		}
+
+	case tea.KeyRight:
+		if m.cursor < len(runes) {
+			m.cursor++
+		}
+
+	case tea.KeyCtrlA:
+		m.cursor = 0
+
+	case tea.KeyCtrlE:
+		m.cursor = len(runes)
+
+	case tea.KeyCtrlW:
+		// Delete word backwards (skip trailing spaces, then delete word chars).
+		end := m.cursor
+		for m.cursor > 0 && runes[m.cursor-1] == ' ' {
+			m.cursor--
+		}
+		for m.cursor > 0 && runes[m.cursor-1] != ' ' {
+			m.cursor--
+		}
+		runes = append(runes[:m.cursor], runes[end:]...)
+		m.text = string(runes)
+
+	case tea.KeyCtrlU:
+		m.text = ""
+		m.cursor = 0
+
+	case tea.KeyCtrlK:
+		m.text = string(runes[:m.cursor])
+
 	case tea.KeyUp:
 		if len(m.history) > 0 {
 			if m.histIdx < len(m.history)-1 {
 				m.histIdx++
 			}
 			m.text = m.history[len(m.history)-1-m.histIdx]
+			m.cursor = len([]rune(m.text))
 		}
+
 	case tea.KeyDown:
 		if m.histIdx > 0 {
 			m.histIdx--
 			m.text = m.history[len(m.history)-1-m.histIdx]
+			m.cursor = len([]rune(m.text))
 		} else {
 			m.histIdx = -1
 			m.text = ""
+			m.cursor = 0
 		}
+
 	case tea.KeyRunes:
 		ch := string(msg.Runes)
-		// If typing / on empty line, switch to menu mode
+		// Typing "/" on an empty line opens the slash menu.
 		if ch == "/" && m.text == "" {
 			m.mode = modeMenu
 			m.menu = 0
 			m.filter = ""
 			return m, nil
 		}
-		m.text += ch
+		// Insert runes at cursor.
+		newRunes := make([]rune, 0, len(runes)+len(msg.Runes))
+		newRunes = append(newRunes, runes[:m.cursor]...)
+		newRunes = append(newRunes, msg.Runes...)
+		newRunes = append(newRunes, runes[m.cursor:]...)
+		m.text = string(newRunes)
+		m.cursor += len(msg.Runes)
+
 	case tea.KeySpace:
-		m.text += " "
+		newRunes := make([]rune, 0, len(runes)+1)
+		newRunes = append(newRunes, runes[:m.cursor]...)
+		newRunes = append(newRunes, ' ')
+		newRunes = append(newRunes, runes[m.cursor:]...)
+		m.text = string(newRunes)
+		m.cursor++
+
 	case tea.KeyTab:
-		// ignore
+		// ignored
 	}
+
+	// Any keystroke while navigating history snaps back to "live" index.
+	if msg.Type != tea.KeyUp && msg.Type != tea.KeyDown {
+		m.histIdx = -1
+	}
+
 	return m, nil
 }
 
@@ -143,6 +226,7 @@ func (m inputModel) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEscape, tea.KeyCtrlC:
 		m.mode = modeTyping
 		m.text = ""
+		m.cursor = 0
 		return m, nil
 	case tea.KeyUp:
 		if m.menu > 0 {
@@ -158,12 +242,12 @@ func (m inputModel) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyBackspace:
 		if len(m.filter) > 0 {
-			m.filter = m.filter[:len(m.filter)-1]
+			m.filter = string([]rune(m.filter)[:len([]rune(m.filter))-1])
 			m.menu = 0
 		} else {
-			// Back to typing mode
 			m.mode = modeTyping
 			m.text = ""
+			m.cursor = 0
 		}
 	case tea.KeyRunes:
 		m.filter += string(msg.Runes)
@@ -197,7 +281,7 @@ var (
 )
 
 func (m inputModel) View() string {
-	// When done, show only the final input — no menu residue
+	// When done, show only the final input — no menu residue.
 	if m.done {
 		if m.result == "" {
 			return ""
@@ -208,9 +292,42 @@ func (m inputModel) View() string {
 	var b strings.Builder
 
 	if m.mode == modeTyping {
+		runes := []rune(m.text)
+
+		// Build the text with a block cursor inserted at the cursor position.
+		var display []rune
+		display = append(display, runes[:m.cursor]...)
+		display = append(display, '█')
+		display = append(display, runes[m.cursor:]...)
+
 		b.WriteString(m.prompt)
-		b.WriteString(m.text)
-		b.WriteString("█")
+
+		w := m.width
+		if w <= 0 {
+			w = 80
+		}
+		promptW := lipgloss.Width(m.prompt)
+		availW := w - promptW
+		if availW < 10 {
+			availW = 10
+		}
+
+		if len(display) <= availW {
+			b.WriteString(string(display))
+		} else {
+			// Wrap at availW; indent continuation lines to align with text start.
+			indent := strings.Repeat(" ", promptW)
+			col := 0
+			for _, r := range display {
+				if col >= availW {
+					b.WriteString("\n")
+					b.WriteString(indent)
+					col = 0
+				}
+				b.WriteRune(r)
+				col++
+			}
+		}
 	} else {
 		// Menu mode
 		b.WriteString(m.prompt)
