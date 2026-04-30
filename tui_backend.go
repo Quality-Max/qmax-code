@@ -441,6 +441,135 @@ func (m modelPickerModel) renderStatusBar() string {
 	return label
 }
 
+// ─── Theme Picker ─────────────────────────────────────────────────────────────
+
+type themePickerModel struct {
+	themes        []string
+	cursor        int
+	originalTheme string
+	confirmed     bool
+	cancelled     bool
+}
+
+func newThemePickerModel(currentTheme string) themePickerModel {
+	names := ThemeNames()
+	cursor := 0
+	for i, n := range names {
+		if n == currentTheme {
+			cursor = i
+			break
+		}
+	}
+	return themePickerModel{
+		themes:        names,
+		cursor:        cursor,
+		originalTheme: currentTheme,
+	}
+}
+
+func (m themePickerModel) Init() tea.Cmd { return nil }
+
+func (m themePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc", "q":
+			m.cancelled = true
+			ApplyTheme(ThemeByName(m.originalTheme))
+			return m, tea.Quit
+
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+				ApplyTheme(ThemeByName(m.themes[m.cursor]))
+			}
+
+		case "down", "j":
+			if m.cursor < len(m.themes)-1 {
+				m.cursor++
+				ApplyTheme(ThemeByName(m.themes[m.cursor]))
+			}
+
+		case "enter", " ":
+			m.confirmed = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m themePickerModel) View() string {
+	var b strings.Builder
+
+	b.WriteString(pickerSectionHeader.Render("Color Themes"))
+	b.WriteByte('\n')
+
+	for i, name := range m.themes {
+		t := allThemes[name]
+		isCursor := i == m.cursor
+		isOriginal := name == m.originalTheme
+
+		arrow := "  "
+		if isCursor {
+			arrow = pickerBadgeStar.Render("▶ ")
+		}
+
+		var label string
+		if isCursor {
+			label = pickerLabelSel.Render(fmt.Sprintf("%-10s", name))
+		} else {
+			label = pickerLabel.Render(fmt.Sprintf("%-10s", name))
+		}
+
+		swatches := fmt.Sprintf("%s %s %s %s",
+			lipgloss.NewStyle().Background(lipgloss.Color(t.Accent)).Render("  "),
+			lipgloss.NewStyle().Background(lipgloss.Color(t.Brand)).Render("  "),
+			lipgloss.NewStyle().Background(lipgloss.Color(t.Success)).Render("  "),
+			lipgloss.NewStyle().Background(lipgloss.Color(t.Error)).Render("  "),
+		)
+
+		check := ""
+		if isOriginal {
+			check = "  " + pickerBadgeCurrent.Render("✓")
+		}
+
+		row := fmt.Sprintf("%s%s  %s%s", arrow, label, swatches, check)
+		if isCursor {
+			b.WriteString(pickerRowSelected.Render(row))
+		} else {
+			b.WriteString(pickerRowNormal.Render(row))
+		}
+		b.WriteByte('\n')
+	}
+
+	b.WriteString(pickerDivider.Render(strings.Repeat("─", 38)))
+	b.WriteByte('\n')
+	b.WriteString(pickerFooter.Render("↑↓ preview  ·  Enter confirm  ·  Esc cancel"))
+	b.WriteByte('\n')
+
+	return pickerBox.Render(b.String())
+}
+
+// ShowThemePicker opens the live-preview theme picker TUI.
+// Returns the chosen theme name and whether it was confirmed.
+// On cancel the original theme is automatically restored by the picker.
+func ShowThemePicker(currentTheme string) (string, bool) {
+	if currentTheme == "" {
+		currentTheme = "historic"
+	}
+	m := newThemePickerModel(currentTheme)
+	p := tea.NewProgram(m)
+	result, err := p.Run()
+	if err != nil {
+		return currentTheme, false
+	}
+	final := result.(themePickerModel)
+	if final.cancelled || !final.confirmed {
+		return currentTheme, false
+	}
+	return final.themes[final.cursor], true
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 // ShowModelPicker opens the unified model + effort TUI.

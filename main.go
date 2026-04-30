@@ -712,6 +712,25 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			_ = cfg.Save()
 			continue
 
+		case input == "/theme":
+			cfg := agent.appConfig
+			if cfg == nil {
+				term.PrintError("Config not loaded.")
+				continue
+			}
+			chosen, ok := ShowThemePicker(cfg.Theme)
+			if !ok {
+				continue
+			}
+			cfg.Theme = chosen
+			ApplyTheme(ThemeByName(chosen))
+			if err := cfg.Save(); err != nil {
+				term.PrintError(fmt.Sprintf("Failed to save config: %v", err))
+			} else {
+				term.PrintSystem(fmt.Sprintf("Theme set to: %s", chosen))
+			}
+			continue
+
 		case input == "/cc", input == "/codex", input == "/api":
 			// Instant backend switching — no restart needed.
 			cfg := agent.appConfig
@@ -1086,6 +1105,7 @@ Commands:
   /context       Show current session context
   /cost          Show session token usage and estimated cost
   /orch          Cycle orchestration backend: off → CC → Codex → off
+  /theme         Live-preview color scheme picker
   /cc            Switch to Claude Code backend (CC subscription, no API tokens)
   /codex         Switch to Codex CLI backend (OpenAI subscription, no API tokens)
   /api           Switch back to direct Anthropic API

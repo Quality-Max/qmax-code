@@ -416,7 +416,9 @@ func (t *Terminal) PrintToolStart(name string, input interface{}) {
 }
 
 // PrintToolResult shows tool output with smart formatting for known result types.
+// Restarts the thinking spinner on exit so it runs while the agent processes the result.
 func (t *Terminal) PrintToolResult(name string, output string) {
+	defer t.StartThinking()
 	if strings.HasPrefix(output, "{\"error\"") {
 		fmt.Printf("  %s %s\n", styleError.Render("✗ Error"), styleDim.Render(truncateStr(output, 120)))
 		return
