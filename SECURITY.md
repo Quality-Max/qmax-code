@@ -50,6 +50,9 @@ Review and remove old backups if they contain sensitive test code.
 
 ## Reporting Vulnerabilities
 
-Before the public release process is finalized, report vulnerabilities directly
-to the repository maintainers. Do not file public issues for active credential
-leaks or exploitable vulnerabilities.
+Please **do not** file public GitHub issues for security vulnerabilities.
+
+Report vulnerabilities by emailing **strazhnyk@gmail.com**. Include a description
+of the issue, steps to reproduce, and any relevant environment details. You will
+receive a response within 48 hours. We ask that you give us reasonable time to
+address the issue before any public disclosure.

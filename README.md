@@ -39,7 +39,14 @@ qmax-code is the LLM brain that orchestrates the open-source [`qmax`](https://gi
        start      generate     run
 ```
 
-qmax-code wraps 20 tool definitions that map 1:1 to `qmax` CLI subcommands. Claude picks the right tools, chains them together, and reports back — all in a colorful terminal with cat personality.
+Claude picks the right tools, chains them together, and reports back — all in a colorful terminal with cat personality.
+
+## What's new in v1.13
+
+- **Themes** — live-preview color scheme picker: Historic, Ocean, Neon, Ember, Aurora (`/theme`)
+- **Thinking spinner** — animated indicator with cat-themed messages while the agent reasons
+- **Prompt queue** — type your next prompt while the agent is still running; it processes automatically
+- **Input fixes** — long lines wrap correctly, cursor tracking fixed, rune editing fixed
 
 ## Install
 
@@ -73,13 +80,18 @@ Get your QualityMax API key at: https://app.qualitymax.io/settings
 
 | File | Purpose |
 |------|---------|
-| `agent.go` | Claude API agentic loop — tool-use, streaming, conversation history |
-| `api_client.go` | Direct HTTP client for QualityMax REST API (standalone mode) |
-| `auth.go` | Authentication — API key login, token storage |
-| `tools.go` | 20 tool definitions mapping to `qmax` CLI subcommands |
-| `terminal.go` | Terminal UI — ASCII banner, colors, tool icons, readline |
-| `context.go` | Session context loaded from `~/.qmax/config.json` |
-| `main.go` | REPL with slash commands and one-shot mode |
+| `agent.go` | Claude API agentic loop — streaming, tool-use, history compression |
+| `api_client.go` | REST client for the QualityMax cloud API |
+| `auth.go` | Authentication — browser login, API key, OS keychain |
+| `tools.go` | Tool definitions and ExecuteTool dispatcher |
+| `terminal.go` | Output rendering, progress display, theme application |
+| `theme.go` | Named color schemes and live-preview theme picker |
+| `input.go` | Bubbletea TUI input model and slash-command menu |
+| `queue.go` | Prompt queue — accepts input while the agent is running |
+| `mcp_server.go` | MCP server mode (native tool-use, no Anthropic tokens consumed) |
+| `ollama.go` / `ollama_agent.go` | Ollama local model provider and full-agent mode |
+| `context.go` | SessionContext threaded through the agent |
+| `main.go` | REPL, flag parsing, slash command handlers |
 
 ## Available tools
 
@@ -93,22 +105,21 @@ Get your QualityMax API key at: https://app.qualitymax.io/settings
 
 **PR:** create_pr
 
-**Local:** read_file, run_command
+**Local:** read_file, write_file, run_command, run_local_test
 
 ## Requirements
 
-- Go 1.21+ (for building from source)
+- Go 1.24+ (for building from source)
 - Anthropic API key (`ANTHROPIC_API_KEY`)
 - QualityMax account (free at [qualitymax.io](https://qualitymax.io))
 - qmax CLI is **optional** — qmax-code works standalone via REST API
 
-## Auth and telemetry
+## Auth
 
 - Anthropic: set `ANTHROPIC_API_KEY`, pass `--anthropic-api-key`, or save it through the interactive key prompt.
 - QualityMax: run `qmax-code login` for browser login, or `qmax-code login --api-key qm-YOUR-API-KEY`.
 - QualityMax credentials are stored in `~/.qmax-code/auth.json` with `0600` permissions. Run `/disconnect` in the REPL to remove saved QualityMax auth.
 - Anthropic keys saved by the prompt are stored in the OS keychain under the `qmax-code` service; remove them with your platform keychain tool, or use `ANTHROPIC_API_KEY` for session-only auth.
-- Telemetry/error reporting is off by default. To opt in, set `QMAX_CODE_TELEMETRY=1` and `QMAX_CODE_TELEMETRY_DSN`.
 - Known credential patterns are redacted from API errors, command output, local test output, and optional telemetry before display or reporting.
 
 ## Local safety
