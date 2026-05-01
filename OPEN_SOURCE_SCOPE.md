@@ -38,8 +38,7 @@ Before public release, every cloud route/tool should be classified as:
 - Replace "closed-source companion" language in `README.md` when the license
   decision is made.
 - Add public-facing `SECURITY.md`, `CONTRIBUTING.md`, and release policy.
-  `SECURITY.md` and `CONTRIBUTING.md` now exist; license and release policy
-  still need maintainer decisions.
+  `SECURITY.md` and `CONTRIBUTING.md` now exist. License resolved: FSL-1.1-ALv2 (2026-05-01).
 - Review asset rights for `assets/max-the-cat.mp4` and any referenced README
   images before publishing.
 - Keep generated/customer-specific reports out of source. The local
@@ -106,7 +105,7 @@ Proposed launch classification:
 | QTML | experimental-gated | Public only if QTML is meant as a stable format. |
 | Framework export/install/run | experimental-gated | Useful, but exposes packaging assumptions. |
 | Screenshot/page analysis | product-review | Clarify whether this is local model, Anthropic, or cloud-backed. |
-| Background job health | private/remove | More operational than user-facing unless documented. |
+| Background job health | product-review | Required for async repo review and gap analysis flows; reclassified from private/remove. |
 | Local file/shell tools | public-core with warning | Must be documented as trusted local agent powers. |
 
 Recommended default launch posture:
