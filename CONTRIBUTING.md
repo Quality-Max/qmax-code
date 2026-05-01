@@ -47,5 +47,8 @@ checklist and API/tool surface classification.
 
 ## License
 
-The public release license still needs to be selected by the maintainers before
-the repository is opened.
+`qmax-code` is released under the [Functional Source License, Version 1.1,
+ALv2 Future License (FSL-1.1-ALv2)](LICENSE). By contributing, you agree that
+your contributions will be licensed under the same terms. The license permits
+all non-competing use and automatically converts to Apache 2.0 two years after
+each release.

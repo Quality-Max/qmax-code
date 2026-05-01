@@ -201,7 +201,7 @@ Phase 5 cleanup completed:
 
 Still needs maintainer/legal decision:
 
-- Public license choice.
+- ~~Public license choice.~~ Resolved: FSL-1.1-ALv2 (2026-05-01).
 - Final release policy and whether to keep publishing to the separate releases
   repository.
 - Dependency/license review. Local attempt was blocked by sandboxed network DNS
