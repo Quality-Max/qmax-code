@@ -28,12 +28,14 @@ jobs:
       - name: Build all platforms
         run: |
           mkdir -p build
-          GOOS=darwin  GOARCH=amd64 go build -ldflags="-s -w" -o build/qmax-code-darwin-amd64 .
-          GOOS=darwin  GOARCH=arm64 go build -ldflags="-s -w" -o build/qmax-code-darwin-arm64 .
-          GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w" -o build/qmax-code-linux-amd64 .
-          GOOS=linux   GOARCH=arm64 go build -ldflags="-s -w" -o build/qmax-code-linux-arm64 .
-          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o build/qmax-code-windows-amd64.exe .
-          GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o build/qmax-code-windows-arm64.exe .
+          VERSION="${GITHUB_REF_NAME#v}"
+          LDFLAGS="-s -w -X main.Version=${VERSION}"
+          GOOS=darwin  GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o build/qmax-code-darwin-amd64 .
+          GOOS=darwin  GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o build/qmax-code-darwin-arm64 .
+          GOOS=linux   GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o build/qmax-code-linux-amd64 .
+          GOOS=linux   GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o build/qmax-code-linux-arm64 .
+          GOOS=windows GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o build/qmax-code-windows-amd64.exe .
+          GOOS=windows GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o build/qmax-code-windows-arm64.exe .
 
       - name: Create archives
         run: |
