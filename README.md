@@ -15,9 +15,16 @@
 
 # qmax-code
 
+[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-2ea44f.svg)](LICENSE)
+[![Future License: Apache 2.0](https://img.shields.io/badge/future%20license-Apache%202.0-blue.svg)](LICENSE)
+[![Made with Go](https://img.shields.io/badge/made%20with-Go-00ADD8.svg)](https://go.dev/)
+[![Announcement](https://img.shields.io/badge/announcement-2026--05--01-7c6cf0.svg)](https://qualitymax.io/blog/qmax-code-open-source)
+
 **AI-powered terminal agent for QualityMax.** Named after Max, the real cat who inspired it all.
 
 qmax-code is the LLM brain that orchestrates the open-source [`qmax`](https://github.com/Quality-Max/qmax-local-agent) CLI. It connects to the Claude API, understands your testing intent in natural language, and translates it into structured CLI operations — crawling sites, generating tests, running scripts, reviewing repos.
+
+> **License:** Source-available under the [Functional Source License (FSL-1.1-ALv2)](LICENSE) — created by [Sentry](https://fsl.software). Free for any non-competing use (internal use, modifications, contributions, education, research, professional services). Two years after each release, the code automatically converts to plain Apache 2.0. The "Other" tag GitHub shows in the sidebar is a quirk of its licensee detector — FSL isn't on the SPDX list.
 
 ## How it works
 
