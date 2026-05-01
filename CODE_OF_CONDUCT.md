@@ -1,31 +1,51 @@
-# Contributor Covenant Code of Conduct
+# Code of Conduct
 
-## Our Pledge
+## Who this applies to
 
-We as contributors and maintainers pledge to make participation in our project a harassment-free experience for everyone, regardless of age, body size, disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, religion, or sexual identity and orientation.
+Everyone who participates in the `qmax-code` project — contributors, maintainers, and anyone interacting in issues, pull requests, discussions, or any other project space.
 
-## Our Standards
+## What we expect
 
-Examples of behavior that contributes to a positive environment:
+We want this to be a project where people feel comfortable contributing, asking questions, and disagreeing. That means:
 
-- Using welcoming and inclusive language
-- Being respectful of differing viewpoints and experiences
-- Gracefully accepting constructive criticism
-- Focusing on what is best for the community
-- Showing empathy towards other community members
+**Be direct, not unkind.** Disagreeing with a technical decision is fine. Criticizing the person making it is not. "This approach has a problem because..." is always welcome. Personal attacks, insults, or dismissive language are not.
 
-Examples of unacceptable behavior:
+**Assume good faith.** Most questions that seem obvious to you were once hard for you too. Most mistakes are mistakes, not malice. Start from that assumption.
 
-- The use of sexualized language or imagery and unwelcome sexual attention or advances
-- Trolling, insulting/derogatory comments, and personal or political attacks
-- Public or private harassment
-- Publishing others' private information without explicit permission
-- Other conduct which could reasonably be considered inappropriate in a professional setting
+**Keep feedback constructive.** If you review a PR or respond to an issue, focus on what can be improved and why — not on cataloguing everything wrong. Leave the person better equipped to contribute again.
 
-## Enforcement
+**Respect people's time.** Maintainers and contributors are doing this alongside other work. Don't demand immediate responses. Do provide enough context that people can help you without playing twenty questions.
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the maintainers at **strazhnyk@gmail.com**. All complaints will be reviewed and investigated promptly and fairly. Maintainers are obligated to maintain confidentiality with regard to the reporter.
+**Stay on topic.** Keep discussions relevant to the project. The issue tracker is for bugs and features, not general debate.
+
+## What we won't tolerate
+
+- Harassment of any kind — in public or private project spaces
+- Discriminatory jokes, language, or imagery
+- Publishing someone's personal information without permission
+- Sustained disruption of discussions or reviews
+- Any other behavior that a reasonable person would consider inappropriate in a professional setting
+
+## If something goes wrong
+
+If you experience or witness behavior that violates this code of conduct, report it to the maintainers at **strazhnyk@gmail.com**. Reports are handled confidentially. We'll review, investigate, and respond as the situation warrants — up to and including permanent removal from the project.
+
+If you're unsure whether something rises to the level of a violation, err on the side of reporting it. We'd rather hear about a concern that turns out to be minor than miss one that matters.
+
+## For maintainers
+
+Maintainers are responsible for clarifying and enforcing these standards. That means:
+
+- Responding to reports promptly and confidentially
+- Editing or removing content that violates this code of conduct, with explanation
+- Taking proportionate action — from a warning up to a ban — depending on severity and pattern
+
+Maintainers who do not follow or enforce this code of conduct in good faith may face consequences as determined by other project leadership.
+
+## Scope
+
+This code of conduct applies within all project spaces and also when someone is representing the project publicly — for example, using an official project email address, posting via an official social media account, or acting as a representative at an event.
 
 ## Attribution
 
-This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1.
+Adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1, with modifications to reflect the tone and specifics of this project.
