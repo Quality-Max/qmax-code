@@ -128,7 +128,7 @@ Max is a curious explorer, playful bug hunter, and proud test presenter. The age
 
 ---
 
-**Open-source CLI for the QualityMax platform. Licensed under [Apache 2.0](LICENSE).**
+**Open-source CLI for the QualityMax platform. Licensed under [FSL-1.1-ALv2](LICENSE) — free for non-competing use, converts to Apache 2.0 after 2 years.**
 
 ## Telemetry
 
