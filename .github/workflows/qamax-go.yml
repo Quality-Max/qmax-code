@@ -86,7 +86,7 @@ jobs:
         if: always()
         env:
           QAMAX_API_KEY: ${{ secrets.QAMAX_API_KEY }}
-          QAMAX_PROJECT_ID: ${{ vars.QAMAX_PROJECT_ID || '164' }}
+          QAMAX_PROJECT_ID: ${{ vars.QAMAX_PROJECT_ID }}
           # Bind all GitHub-context values to env vars so they cannot be
           # interpolated into the bash script body (defense against
           # ${{ }} expression injection — CodeQL js/actions-script-injection).

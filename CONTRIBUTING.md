@@ -2,6 +2,12 @@
 
 Thanks for helping improve `qmax-code`.
 
+## Prerequisites
+
+- **Go 1.24+** — see `go.mod` for the exact version
+- **Anthropic API key** — set via `qmax-code config set anthropic_key <key>` or the `ANTHROPIC_API_KEY` env var; required for agent mode
+- **QualityMax account** — needed for cloud tools (test generation, crawl, repo review); run `qmax-code login` after [signing up](https://app.qualitymax.io). Most unit tests run without an account.
+
 ## Development
 
 Run the test suite before opening a PR:
