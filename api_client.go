@@ -335,13 +335,13 @@ func (c *APIClient) ImportRepo(ctx context.Context, url string, projectID int, c
 
 func (c *APIClient) ImportDocument(ctx context.Context, projectID int, text, sourceName string) string {
 	body := map[string]interface{}{
-		"project_id": projectID,
-		"content":    text,
+		"project_id":   projectID,
+		"text_content": text,
 	}
 	if sourceName != "" {
 		body["source_name"] = sourceName
 	}
-	return c.post(ctx, "/api/test-cases/import-from-document", body)
+	return c.post(ctx, "/api/import/document/text", body)
 }
 
 // --- PR operations ---
