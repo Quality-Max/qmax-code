@@ -175,6 +175,96 @@ func TestCompleteAgentSession_SilentOnServerError(t *testing.T) {
 
 // ---- patch() HTTP helper ----
 
+// ---- UploadSessionMessages ----
+
+func TestUploadSessionMessages_PostsToCorrectEndpoint(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]interface{}
+
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	msgs := []Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "world"},
+	}
+	client.UploadSessionMessages(context.Background(), "sess-123", msgs)
+
+	if gotMethod != "POST" {
+		t.Errorf("method: got %q, want POST", gotMethod)
+	}
+	if gotPath != "/api/agent-sessions/sess-123/messages" {
+		t.Errorf("path: got %q", gotPath)
+	}
+	if gotBody["messages"] == nil {
+		t.Error("body missing 'messages' key")
+	}
+}
+
+func TestUploadSessionMessages_SkipsWhenEmpty(t *testing.T) {
+	calls := 0
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	client.UploadSessionMessages(context.Background(), "sess-123", nil)
+	client.UploadSessionMessages(context.Background(), "sess-123", []Message{})
+
+	if calls != 0 {
+		t.Errorf("expected 0 HTTP calls for empty messages, got %d", calls)
+	}
+}
+
+// ---- trimMessagesToFit ----
+
+func TestTrimMessagesToFit_NoTrimWhenUnderLimit(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "hello"},
+	}
+	result := trimMessagesToFit(msgs, 1024*1024)
+	if len(result) != 2 {
+		t.Errorf("expected 2 messages, got %d", len(result))
+	}
+}
+
+func TestTrimMessagesToFit_TrimsOldestMessages(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: strings.Repeat("A", 500)},
+		{Role: "assistant", Content: strings.Repeat("B", 500)},
+		{Role: "user", Content: strings.Repeat("C", 500)},
+		{Role: "assistant", Content: "short"},
+	}
+	// Set a tight limit that can only fit the last 2 messages
+	result := trimMessagesToFit(msgs, 600)
+	if len(result) >= len(msgs) {
+		t.Errorf("expected trimming, got %d messages (same as input)", len(result))
+	}
+	// Last message should always be preserved
+	last := result[len(result)-1]
+	if last.Content != "short" {
+		t.Errorf("last message should be preserved, got content %q", last.Content)
+	}
+}
+
+func TestTrimMessagesToFit_ReturnsAtLeastLastMessage(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: strings.Repeat("X", 10000)},
+		{Role: "assistant", Content: strings.Repeat("Y", 10000)},
+	}
+	// Impossibly small limit
+	result := trimMessagesToFit(msgs, 10)
+	if len(result) < 1 {
+		t.Error("should return at least 1 message")
+	}
+}
+
 func TestPatch_SendsPatchMethodWithAuthAndContentType(t *testing.T) {
 	var gotMethod, gotAuth, gotCT string
 	var gotBody map[string]interface{}

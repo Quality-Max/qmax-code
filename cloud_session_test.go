@@ -221,12 +221,15 @@ func TestCloudTracker_Complete_SilentOnServerError(t *testing.T) {
 // ---- full Start → Complete lifecycle ----
 
 func TestCloudTracker_StartThenComplete_UsesCorrectCloudID(t *testing.T) {
-	var patchedID string
+	var patchedPath string
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "POST" {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/api/agent-sessions":
 			_, _ = w.Write([]byte(`{"session_id":"lifecycle-id"}`))
-		} else {
-			patchedID = r.URL.Path
+		case r.Method == "PATCH":
+			patchedPath = r.URL.Path
+			_, _ = w.Write([]byte(`{}`))
+		default:
 			_, _ = w.Write([]byte(`{}`))
 		}
 	})
@@ -235,8 +238,8 @@ func TestCloudTracker_StartThenComplete_UsesCorrectCloudID(t *testing.T) {
 	tracker.Start(client, 184, "claude-sonnet-4-6")
 	tracker.Complete(client, 750, "lifecycle test  [5 turns]", nil)
 
-	if patchedID != "/api/agent-sessions/lifecycle-id" {
-		t.Errorf("Complete used wrong id: path %q", patchedID)
+	if patchedPath != "/api/agent-sessions/lifecycle-id" {
+		t.Errorf("Complete used wrong id: path %q", patchedPath)
 	}
 }
 

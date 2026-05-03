@@ -72,8 +72,12 @@ func (t *cloudSessionTracker) Complete(api *APIClient, totalTokens int, summary 
 	if api == nil || t.cloudID == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	api.CompleteAgentSession(ctx, t.cloudID, totalTokens, summary)
-	api.UploadSessionMessages(ctx, t.cloudID, messages)
+	cancel()
+
+	// Separate timeout for message upload — payload can be large.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel2()
+	api.UploadSessionMessages(ctx2, t.cloudID, messages)
 }
