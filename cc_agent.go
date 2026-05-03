@@ -296,6 +296,30 @@ func (a *CCAgent) Cleanup() {
 	}
 }
 
+// cleanupStaleMCPConfigs removes qmax-mcp-<pid>.json files left in the OS
+// temp dir by previous qmax-code instances that crashed before their Cleanup()
+// could run. Safe to call on every startup — skips files whose PID is alive.
+func cleanupStaleMCPConfigs() {
+	pattern := filepath.Join(os.TempDir(), "qmax-mcp-*.json")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return
+	}
+	for _, path := range matches {
+		base := filepath.Base(path) // "qmax-mcp-12345.json"
+		// Extract PID: strip "qmax-mcp-" prefix and ".json" suffix.
+		inner := strings.TrimPrefix(base, "qmax-mcp-")
+		inner = strings.TrimSuffix(inner, ".json")
+		pid, err := strconv.Atoi(inner)
+		if err != nil {
+			continue
+		}
+		if !pidAlive(pid) {
+			_ = os.Remove(path)
+		}
+	}
+}
+
 // --- stream-json parsing ---
 
 // ccEvent is a single line from CC's --output-format stream-json output.
