@@ -56,7 +56,7 @@ type Config struct {
 	OrchGlobalInstall bool `json:"orch_global_install,omitempty"`
 
 	// Theme selects the terminal color scheme.
-	// Available: historic, ocean, neon, ember, aurora. Empty defaults to "historic".
+	// Available: historic, ocean, neon, ember, aurora (dark) or paper, sky, sparkling, radiance, goldenhour (light). Empty defaults to "historic".
 	Theme string `json:"theme,omitempty"`
 }
 

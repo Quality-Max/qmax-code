@@ -101,7 +101,7 @@ func printConfig() {
 	if theme == "" {
 		theme = "historic"
 	}
-	fmt.Printf("    theme             = %q  (available: historic, ocean, neon, ember, aurora)\n", theme)
+	fmt.Printf("    theme             = %q  (available: historic, ocean, neon, ember, aurora, paper, sky, sparkling, radiance, goldenhour)\n", theme)
 	fmt.Printf("    backend           = %q", backend)
 	switch backend {
 	case "cc":

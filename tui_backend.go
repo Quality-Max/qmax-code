@@ -529,12 +529,17 @@ func (m themePickerModel) View() string {
 			lipgloss.NewStyle().Background(lipgloss.Color(t.Error)).Render("  "),
 		)
 
+		modeGlyph := pickerBadgeStar.Render("●")
+		if !t.Dark {
+			modeGlyph = pickerShortcut.Render("○")
+		}
+
 		check := ""
 		if isOriginal {
 			check = "  " + pickerBadgeCurrent.Render("✓")
 		}
 
-		row := fmt.Sprintf("%s%s  %s%s", arrow, label, swatches, check)
+		row := fmt.Sprintf("%s%s %s  %s%s", arrow, label, modeGlyph, swatches, check)
 		if isCursor {
 			b.WriteString(pickerRowSelected.Render(row))
 		} else {
@@ -543,7 +548,7 @@ func (m themePickerModel) View() string {
 		b.WriteByte('\n')
 	}
 
-	b.WriteString(pickerDivider.Render(strings.Repeat("─", 38)))
+	b.WriteString(pickerDivider.Render(strings.Repeat("─", 42)))
 	b.WriteByte('\n')
 	b.WriteString(pickerFooter.Render("↑↓ preview  ·  Enter confirm  ·  Esc cancel"))
 	b.WriteByte('\n')
