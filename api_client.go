@@ -401,6 +401,19 @@ func (c *APIClient) CompleteAgentSession(ctx context.Context, cloudID string, to
 	c.patch(ctx, "/api/agent-sessions/"+cloudID, body)
 }
 
+// UploadSessionMessages uploads the full conversation history to a cloud session.
+// Called alongside CompleteAgentSession so the cloud has complete context for
+// cross-session recall. Errors are silently dropped.
+func (c *APIClient) UploadSessionMessages(ctx context.Context, cloudID string, messages []Message) {
+	if len(messages) == 0 {
+		return
+	}
+	body := map[string]interface{}{
+		"messages": messages,
+	}
+	c.post(ctx, "/api/agent-sessions/"+cloudID+"/messages", body)
+}
+
 // --- Script operations ---
 
 func (c *APIClient) GetScript(ctx context.Context, scriptID int) string {

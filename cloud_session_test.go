@@ -174,7 +174,7 @@ func TestCloudTracker_Complete_SkipsWhenCloudIDEmpty(t *testing.T) {
 	})
 
 	var tracker cloudSessionTracker // cloudID == ""
-	tracker.Complete(client, 500, "some summary")
+	tracker.Complete(client, 500, "some summary", nil)
 
 	if calls != 0 {
 		t.Errorf("expected no HTTP call when cloudID is empty, got %d", calls)
@@ -185,7 +185,7 @@ func TestCloudTracker_Complete_SkipsWhenAPIIsNil(t *testing.T) {
 	// Manually set cloudID to simulate a started session, then pass nil api.
 	tracker := cloudSessionTracker{cloudID: "cloud-abc"}
 	// Should not panic.
-	tracker.Complete(nil, 100, "summary")
+	tracker.Complete(nil, 100, "summary", nil)
 }
 
 func TestCloudTracker_Complete_PatchesWithCloudID(t *testing.T) {
@@ -197,7 +197,7 @@ func TestCloudTracker_Complete_PatchesWithCloudID(t *testing.T) {
 	})
 
 	tracker := cloudSessionTracker{cloudID: "cloud-abc"}
-	tracker.Complete(client, 200, "did stuff  [2 turns]")
+	tracker.Complete(client, 200, "did stuff  [2 turns]", nil)
 
 	if gotMethod != "PATCH" {
 		t.Errorf("method: got %q, want PATCH", gotMethod)
@@ -215,7 +215,7 @@ func TestCloudTracker_Complete_SilentOnServerError(t *testing.T) {
 
 	tracker := cloudSessionTracker{cloudID: "cloud-abc"}
 	// Must not panic or block.
-	tracker.Complete(client, 100, "summary")
+	tracker.Complete(client, 100, "summary", nil)
 }
 
 // ---- full Start → Complete lifecycle ----
@@ -233,9 +233,56 @@ func TestCloudTracker_StartThenComplete_UsesCorrectCloudID(t *testing.T) {
 
 	var tracker cloudSessionTracker
 	tracker.Start(client, 184, "claude-sonnet-4-6")
-	tracker.Complete(client, 750, "lifecycle test  [5 turns]")
+	tracker.Complete(client, 750, "lifecycle test  [5 turns]", nil)
 
 	if patchedID != "/api/agent-sessions/lifecycle-id" {
 		t.Errorf("Complete used wrong id: path %q", patchedID)
+	}
+}
+
+func TestCloudTracker_Complete_UploadsMessages(t *testing.T) {
+	var paths []string
+	var methods []string
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		methods = append(methods, r.Method)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	msgs := []Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi there"},
+	}
+
+	tracker := cloudSessionTracker{cloudID: "cloud-xyz"}
+	tracker.Complete(client, 300, "test upload", msgs)
+
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 HTTP calls (PATCH + POST), got %d", len(paths))
+	}
+	if methods[0] != "PATCH" {
+		t.Errorf("first call: got %s, want PATCH", methods[0])
+	}
+	if methods[1] != "POST" {
+		t.Errorf("second call: got %s, want POST", methods[1])
+	}
+	if paths[1] != "/api/agent-sessions/cloud-xyz/messages" {
+		t.Errorf("messages path: got %q, want /api/agent-sessions/cloud-xyz/messages", paths[1])
+	}
+}
+
+func TestCloudTracker_Complete_SkipsUploadWhenNoMessages(t *testing.T) {
+	calls := 0
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	tracker := cloudSessionTracker{cloudID: "cloud-xyz"}
+	tracker.Complete(client, 100, "empty session", nil)
+
+	// Only the PATCH to complete, no POST for messages
+	if calls != 1 {
+		t.Errorf("expected 1 HTTP call (PATCH only), got %d", calls)
 	}
 }

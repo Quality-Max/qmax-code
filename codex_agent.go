@@ -20,7 +20,7 @@ import (
 //
 // Per-message flow:
 //  1. qmax-code writes ~/.codex/config.json with the qmax MCP server entry
-//  2. qmax-code spawns: codex --quiet --full-auto "msg"
+//  2. qmax-code spawns: codex exec --json [--dangerously-bypass-approvals-and-sandbox] "msg"
 //  3. Codex picks up the MCP config and spawns qmax-code serve --mcp
 //  4. Codex uses qmax tools natively, runs on OpenAI subscription
 //  5. qmax-code streams Codex's stdout to the terminal
@@ -30,9 +30,9 @@ import (
 // as context in the system/user turn) since Codex has no --resume equivalent.
 type CodexAgent struct {
 	codexBin       string
-	modelID        string // "" = codex default; otherwise passed as --model
+	modelID        string // "" = codex default; otherwise passed as -m
 	effort         string // "low" | "medium" | "high"
-	permissionMode string // "standard" (Codex prompts per-action) | "unattended" (--full-auto)
+	permissionMode string // "standard" (Codex prompts per-action) | "unattended" (--dangerously-bypass-approvals-and-sandbox)
 	sctx           *SessionContext
 	history        []codexTurn // conversation history managed on our side
 	mu             sync.Mutex
@@ -62,11 +62,11 @@ func FindCodex() string {
 }
 
 // NewCodexAgent creates a Codex subprocess orchestrator.
-// modelID is passed as --model to the codex CLI (empty = codex default).
+// modelID is passed as -m to the codex CLI (empty = codex default).
 // effort is "low" | "medium" | "high" (empty defaults to "high").
 // permissionMode is "standard" or "unattended" — Codex has no allowlist primitive,
-// so Standard relies on Codex's own approval flow (works for read-mostly tasks
-// in interactive runs) and Unattended adds --full-auto.
+// so Standard relies on Codex's own sandbox policy and Unattended adds
+// --dangerously-bypass-approvals-and-sandbox.
 func NewCodexAgent(bin, modelID, effort, permissionMode string, sctx *SessionContext) *CodexAgent {
 	if effort == "" {
 		effort = "high"
@@ -155,15 +155,12 @@ func (a *CodexAgent) Run(userMsg string, term *Terminal) (string, error) {
 	// Build the full prompt: QA system prompt + conversation history + current message.
 	prompt := a.buildPrompt(userMsg)
 
-	args := []string{
-		"--quiet",
-	}
+	args := []string{"exec", "--json"}
 	if a.permissionMode == "unattended" {
-		// Equivalent to CC's --dangerously-skip-permissions. Only with explicit consent.
-		args = append(args, "--full-auto")
+		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 	}
 	if a.modelID != "" {
-		args = append(args, "--model", a.modelID)
+		args = append(args, "-m", a.modelID)
 	}
 	args = append(args, prompt)
 
@@ -181,17 +178,17 @@ func (a *CodexAgent) Run(userMsg string, term *Terminal) (string, error) {
 		return "", fmt.Errorf("start codex: %w", err)
 	}
 
-	// Stream stdout lines to terminal.
+	// Stream JSONL events from codex exec --json.
 	var sb strings.Builder
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Skip Codex's internal status lines (they usually start with special chars).
-		if !isCodexStatusLine(line) {
-			term.StreamText(line + "\n")
-			sb.WriteString(line)
+		text := extractCodexMessage(line)
+		if text != "" {
+			term.StreamText(text + "\n")
+			sb.WriteString(text)
 			sb.WriteByte('\n')
 		}
 	}
@@ -261,15 +258,22 @@ func (a *CodexAgent) ClearHistory() {
 // Cleanup is a no-op for CodexAgent (no temp files to remove).
 func (a *CodexAgent) Cleanup() {}
 
-// isCodexStatusLine returns true for Codex CLI status/spinner output lines
-// that should not be passed to the terminal renderer.
-func isCodexStatusLine(line string) bool {
-	if line == "" {
-		return false
+// extractCodexMessage parses a JSONL line from `codex exec --json` and returns
+// the assistant text if the event is an item.completed with type "agent_message".
+// Returns "" for all other event types (turn lifecycle, tool calls, etc.).
+func extractCodexMessage(line string) string {
+	var event struct {
+		Type string `json:"type"`
+		Item struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"item"`
 	}
-	// Codex may emit ANSI-cleared lines or control sequences.
-	if strings.HasPrefix(line, "\r") || strings.HasPrefix(line, "\033") {
-		return true
+	if json.Unmarshal([]byte(line), &event) != nil {
+		return ""
 	}
-	return false
+	if event.Type == "item.completed" && event.Item.Type == "agent_message" {
+		return event.Item.Text
+	}
+	return ""
 }

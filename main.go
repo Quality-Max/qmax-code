@@ -437,7 +437,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
 			return
 		}
-		tracker.Complete(agent.config.Context.API, agent.usage.TotalTokens(), sessionSummary(agent.history))
+		tracker.Complete(agent.config.Context.API, agent.usage.TotalTokens(), sessionSummary(agent.history), agent.history)
 	}
 
 	// Graceful interrupt handling
