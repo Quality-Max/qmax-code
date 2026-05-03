@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestThemeNames_Order(t *testing.T) {
-	want := []string{"historic", "ocean", "neon", "ember", "aurora"}
+	want := []string{"historic", "ocean", "neon", "ember", "aurora", "paper", "sky", "sparkling", "radiance", "goldenhour"}
 	got := ThemeNames()
 	if len(got) != len(want) {
 		t.Fatalf("ThemeNames() length: got %d, want %d", len(got), len(want))
