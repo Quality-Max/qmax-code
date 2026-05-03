@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // CLIAgent is the interface implemented by both CCAgent (claude CLI) and
@@ -255,7 +257,13 @@ func (a *CCAgent) Run(userMsg string, term *Terminal) (string, error) {
 		args = append(args, "--resume", ccSessionID)
 	}
 
-	cmd := exec.Command(a.claudeBin, args...)
+	// 30-minute per-turn timeout prevents runaway CC processes from eating RAM
+	// indefinitely when working on large repos. CC exits non-zero on cancel;
+	// parseStream returns whatever it collected before the kill.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, a.claudeBin, args...)
 	cmd.Stderr = os.Stderr // CC's own errors and status messages
 
 	stdout, err := cmd.StdoutPipe()

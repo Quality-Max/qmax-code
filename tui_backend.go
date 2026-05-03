@@ -657,7 +657,7 @@ func (m sessionPickerModel) View() string {
 		}
 
 		ago := formatAgo(now.Sub(s.UpdatedAt))
-		meta := fmt.Sprintf("%s  %2d turns  %s", ago, s.Turns, formatTokens(s.Tokens))
+		meta := fmt.Sprintf("%s  %2d turns  %s  %s", ago, s.Turns, formatTokens(s.Tokens), formatModelShort(s.Model))
 		if s.ProjectID > 0 {
 			meta += fmt.Sprintf("  #%d", s.ProjectID)
 		}
@@ -704,6 +704,37 @@ func formatAgo(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%2dd ago    ", int(d.Hours()/24))
 	}
+}
+
+// formatModelShort condenses a model ID like "claude-sonnet-4-6" → "sonnet-4.6".
+// Returns "cc" when empty (CC chose the model automatically).
+func formatModelShort(model string) string {
+	if model == "" {
+		return "cc"
+	}
+	s := strings.TrimPrefix(model, "claude-")
+	// Strip trailing 8-digit date suffix (e.g. "-20251022")
+	if idx := strings.LastIndex(s, "-"); idx > 0 {
+		if suffix := s[idx+1:]; len(suffix) == 8 {
+			allDigits := true
+			for _, c := range suffix {
+				if c < '0' || c > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits {
+				s = s[:idx]
+			}
+		}
+	}
+	// Replace remaining dashes in version segment with dots: sonnet-4-6 → sonnet-4.6
+	// Only the last two segments (major.minor) get dotted.
+	parts := strings.Split(s, "-")
+	if len(parts) >= 3 {
+		s = strings.Join(parts[:len(parts)-2], "-") + "-" + parts[len(parts)-2] + "." + parts[len(parts)-1]
+	}
+	return s
 }
 
 func formatTokens(n int) string {
