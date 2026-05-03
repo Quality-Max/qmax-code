@@ -425,7 +425,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		cfg := agent.appConfig
 		// First eligible session: ask the user once and persist their choice.
 		if cfg != nil && cfg.CloudSync == nil {
-			promptCloudSyncConsent(cfg)
+			promptCloudSyncConsent(cfg, term.ReadConsent)
 		}
 		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
 			return
