@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // CodexAgent orchestrates an OpenAI Codex CLI subprocess for LLM inference.
@@ -165,7 +167,10 @@ func (a *CodexAgent) Run(userMsg string, term *Terminal) (string, error) {
 	}
 	args = append(args, prompt)
 
-	cmd := exec.Command(a.codexBin, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, a.codexBin, args...)
 	cmd.Stderr = os.Stderr
 
 	stdout, err := cmd.StdoutPipe()
