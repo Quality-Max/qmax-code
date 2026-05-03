@@ -5,6 +5,7 @@ import "github.com/charmbracelet/lipgloss"
 // Theme defines the full color palette for the terminal UI.
 type Theme struct {
 	Name string
+	Dark bool // true = optimized for dark terminal background
 
 	// Semantic color roles — 256-color ANSI palette strings for lipgloss.
 	Accent     string // tools, badges, star, filter — primary accent
@@ -40,6 +41,7 @@ type Theme struct {
 var allThemes = map[string]Theme{
 	"historic": {
 		Name:          "historic",
+		Dark:          true,
 		Accent:        "214",
 		Brand:         "69",
 		Success:       "82",
@@ -63,6 +65,7 @@ var allThemes = map[string]Theme{
 	},
 	"ocean": {
 		Name:          "ocean",
+		Dark:          true,
 		Accent:        "51",
 		Brand:         "33",
 		Success:       "49",
@@ -86,6 +89,7 @@ var allThemes = map[string]Theme{
 	},
 	"neon": {
 		Name:          "neon",
+		Dark:          true,
 		Accent:        "201",
 		Brand:         "51",
 		Success:       "46",
@@ -109,6 +113,7 @@ var allThemes = map[string]Theme{
 	},
 	"ember": {
 		Name:          "ember",
+		Dark:          true,
 		Accent:        "208",
 		Brand:         "202",
 		Success:       "220",
@@ -132,6 +137,7 @@ var allThemes = map[string]Theme{
 	},
 	"aurora": {
 		Name:          "aurora",
+		Dark:          true,
 		Accent:        "49",
 		Brand:         "141",
 		Success:       "120",
@@ -153,11 +159,132 @@ var allThemes = map[string]Theme{
 		ANSICatArt:      colorMagenta,
 		ANSIStatus:      colorGreen,
 	},
+	// Light-terminal themes — dark text on light surfaces.
+	"paper": {
+		Name:          "paper",
+		Dark:          false,
+		Accent:        "26",   // medium blue — badges, stars
+		Brand:         "27",   // royal blue — icons, selection bg
+		Success:       "28",   // forest green
+		Error:         "160",  // red
+		TextBright:    "232",  // near-black — selected label
+		TextNormal:    "236",  // dark gray — normal label
+		TextDim:       "243",  // medium gray — section headers
+		TextSubtle:    "247",  // lighter gray — hints/footer
+		SurfaceDark:   "250",  // light gray — status bar bg
+		SurfaceSelect: "229",  // pale yellow — selected row bg
+		SurfaceBorder: "248",  // medium-light border
+		SurfaceSep:    "252",  // light gray divider
+		IconCodex:     "22",   // dark green
+		IconAPI:       "244",  // gray
+		MenuItem:      "26",   // blue
+		ANSIPromptName:  colorBlue,
+		ANSIPromptArrow: colorRed,
+		ANSIBanner:      colorBlue,
+		ANSICatArt:      colorRed,
+		ANSIStatus:      colorGreen,
+	},
+	"sky": {
+		Name:          "sky",
+		Dark:          false,
+		Accent:        "33",   // sky blue — badges, stars
+		Brand:         "25",   // medium blue — icons, selection bg
+		Success:       "34",   // green
+		Error:         "160",  // red
+		TextBright:    "232",  // near-black — selected label
+		TextNormal:    "236",  // dark gray — normal label
+		TextDim:       "243",  // medium gray — section headers
+		TextSubtle:    "247",  // lighter gray — hints/footer
+		SurfaceDark:   "153",  // light blue — status bar bg
+		SurfaceSelect: "195",  // pale cyan — selected row bg
+		SurfaceBorder: "153",  // light blue border
+		SurfaceSep:    "254",  // near-white divider
+		IconCodex:     "30",   // teal
+		IconAPI:       "244",  // gray
+		MenuItem:      "27",   // blue
+		ANSIPromptName:  colorBlue,
+		ANSIPromptArrow: colorCyan,
+		ANSIBanner:      colorCyan,
+		ANSICatArt:      colorBlue,
+		ANSIStatus:      colorGreen,
+	},
+	"sparkling": {
+		Name:          "sparkling",
+		Dark:          false,
+		Accent:        "57",   // vivid purple — amethyst sparkle
+		Brand:         "93",   // medium purple — icons, selection bg
+		Success:       "34",   // green
+		Error:         "197",  // hot pink-red
+		TextBright:    "232",  // near-black — selected label
+		TextNormal:    "236",  // dark gray — normal label
+		TextDim:       "243",  // medium gray — section headers
+		TextSubtle:    "247",  // lighter gray — hints/footer
+		SurfaceDark:   "253",  // near-white — status bar bg
+		SurfaceSelect: "189",  // pale lavender — selected row bg
+		SurfaceBorder: "189",  // soft lavender border
+		SurfaceSep:    "254",  // near-white divider
+		IconCodex:     "99",   // medium purple
+		IconAPI:       "244",  // gray
+		MenuItem:      "57",   // vivid purple
+		ANSIPromptName:  colorMagenta,
+		ANSIPromptArrow: colorBlue,
+		ANSIBanner:      colorMagenta,
+		ANSICatArt:      colorBlue,
+		ANSIStatus:      colorGreen,
+	},
+	"radiance": {
+		Name:          "radiance",
+		Dark:          false,
+		Accent:        "167",  // salmon-rose — warm glow
+		Brand:         "161",  // deep rose — icons, selection bg
+		Success:       "34",   // green
+		Error:         "160",  // red
+		TextBright:    "232",  // near-black — selected label
+		TextNormal:    "236",  // dark gray — normal label
+		TextDim:       "243",  // medium gray — section headers
+		TextSubtle:    "247",  // lighter gray — hints/footer
+		SurfaceDark:   "224",  // blush pink — status bar bg
+		SurfaceSelect: "225",  // pale rose — selected row bg
+		SurfaceBorder: "218",  // soft pink border
+		SurfaceSep:    "254",  // near-white divider
+		IconCodex:     "125",  // deep magenta
+		IconAPI:       "244",  // gray
+		MenuItem:      "167",  // salmon
+		ANSIPromptName:  colorMagenta,
+		ANSIPromptArrow: colorRed,
+		ANSIBanner:      colorRed,
+		ANSICatArt:      colorMagenta,
+		ANSIStatus:      colorGreen,
+	},
+	"goldenhour": {
+		Name:          "goldenhour",
+		Dark:          false,
+		Accent:        "214",  // amber-orange — golden light
+		Brand:         "130",  // warm amber — icons, selection bg
+		Success:       "22",   // forest green
+		Error:         "160",  // red
+		TextBright:    "232",  // near-black — selected label
+		TextNormal:    "236",  // dark gray — normal label
+		TextDim:       "243",  // medium gray — section headers
+		TextSubtle:    "247",  // lighter gray — hints/footer
+		SurfaceDark:   "229",  // pale gold — status bar bg
+		SurfaceSelect: "223",  // honey-gold — selected row bg
+		SurfaceBorder: "222",  // warm gold border
+		SurfaceSep:    "230",  // very pale yellow divider
+		IconCodex:     "136",  // warm gold
+		IconAPI:       "244",  // gray
+		MenuItem:      "130",  // amber
+		ANSIPromptName:  colorYellow,
+		ANSIPromptArrow: colorRed,
+		ANSIBanner:      colorYellow,
+		ANSICatArt:      colorRed,
+		ANSIStatus:      colorGreen,
+	},
 }
 
 // ThemeNames returns available theme names in display order.
 func ThemeNames() []string {
-	return []string{"historic", "ocean", "neon", "ember", "aurora"}
+	return []string{"historic", "ocean", "neon", "ember", "aurora", "paper", "sky", "sparkling", "radiance", "goldenhour"}
 }
 
 // ThemeByName returns the named theme, defaulting to "historic".

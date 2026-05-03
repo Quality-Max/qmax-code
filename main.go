@@ -1142,7 +1142,7 @@ Config examples:
   /set backend cc           Use Claude Code subscription (no API key needed)
   /set backend codex        Use OpenAI Codex subscription (no API key needed)
   /set backend api          Use Anthropic API directly (default)
-  /set theme ocean          Switch color theme (historic, ocean, neon, ember, aurora)
+  /set theme ocean          Switch color theme (historic, ocean, neon, ember, aurora · paper, sky, sparkling, radiance, goldenhour)
 
 Queue:
   /queue                    Show pending queue
