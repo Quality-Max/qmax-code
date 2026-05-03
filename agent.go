@@ -54,16 +54,18 @@ func (m OllamaMode) String() string {
 
 // Agent is the LLM-powered QA orchestration engine.
 type Agent struct {
-	config     AgentConfig
-	appConfig  *Config // persistent user preferences
-	history    []Message
-	tools      []ToolDef
-	client     *http.Client
-	usage      TokenUsage
-	cancel     context.CancelFunc // cancel the current streaming request
-	logger     *Logger
-	ollama     *OllamaClient // optional self-hosted LLM
-	ollamaMode OllamaMode    // off, chat, or full
+	config          AgentConfig
+	appConfig       *Config // persistent user preferences
+	history         []Message
+	tools           []ToolDef
+	client          *http.Client
+	usage           TokenUsage
+	cancel          context.CancelFunc // cancel the current streaming request
+	logger          *Logger
+	ollama          *OllamaClient // optional self-hosted LLM
+	ollamaMode      OllamaMode    // off, chat, or full
+	priorSessions   string        // cached prior-session summaries from backend
+	sessionsFetched bool          // true once loadPriorSessions has run
 }
 
 // Message represents a conversation message.
@@ -894,6 +896,50 @@ func (a *Agent) extractText(content interface{}) string {
 	return strings.Join(parts, "\n")
 }
 
+// loadPriorSessions fetches recent AI-summarized session history from the backend
+// for the active project and caches it. Called once per agent lifetime.
+func (a *Agent) loadPriorSessions() {
+	if a.sessionsFetched {
+		return
+	}
+	a.sessionsFetched = true
+
+	api := a.config.Context.API
+	projectID := a.config.Context.ProjectID
+	if api == nil || projectID <= 0 {
+		return
+	}
+
+	resp := api.ListAgentSessions(context.Background(), projectID, 3)
+
+	var data struct {
+		Sessions []struct {
+			AgentType string `json:"agent_type"`
+			Status    string `json:"status"`
+			CreatedAt string `json:"created_at"`
+			Summary   string `json:"summary"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(resp), &data); err != nil || len(data.Sessions) == 0 {
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n## Prior Sessions (this project)\n")
+	for _, s := range data.Sessions {
+		ts := s.CreatedAt
+		if len(ts) >= 10 {
+			ts = ts[:10]
+		}
+		summary := s.Summary
+		if summary == "" {
+			summary = "(no summary)"
+		}
+		sb.WriteString(fmt.Sprintf("- [%s] %s (%s): %s\n", ts, s.AgentType, s.Status, summary))
+	}
+	a.priorSessions = sb.String()
+}
+
 // buildSystemPrompt creates the system prompt with session context.
 func (a *Agent) buildSystemPrompt() string {
 	var prompt string
@@ -1054,6 +1100,12 @@ You MUST call list_projects first to get the slug. Never guess it.
 	}
 	if cloudURL != "" {
 		prompt += fmt.Sprintf("- QualityMax API: %s\n", cloudURL)
+	}
+
+	// Prior session history — lazy-loaded once from backend on first prompt.
+	a.loadPriorSessions()
+	if a.priorSessions != "" {
+		prompt += a.priorSessions
 	}
 
 	// Token budget warning

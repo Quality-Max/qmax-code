@@ -364,6 +364,12 @@ func (c *APIClient) SecurityAuditPRCheck(ctx context.Context, repoSlug string, p
 	return c.post(ctx, "/api/security-audit/pr-check", body)
 }
 
+// --- Agent session history ---
+
+func (c *APIClient) ListAgentSessions(ctx context.Context, projectID, limit int) string {
+	return c.get(ctx, fmt.Sprintf("/api/agent-sessions?project_id=%d&limit=%d", projectID, limit))
+}
+
 // --- Script operations ---
 
 func (c *APIClient) GetScript(ctx context.Context, scriptID int) string {
