@@ -34,7 +34,8 @@ case "$OS" in
         ;;
 esac
 
-ASSET_NAME="${BINARY}-${OS}-${ARCH}"
+BINARY_NAME="${BINARY}-${OS}-${ARCH}"
+ARCHIVE_NAME="${BINARY_NAME}.tar.gz"
 echo "Detected: ${OS}/${ARCH}"
 
 # Install directory
@@ -44,26 +45,27 @@ mkdir -p "$INSTALL_DIR"
 # Determine version
 if [ -n "$QMAX_CODE_VERSION" ]; then
     VERSION="$QMAX_CODE_VERSION"
-    DOWNLOAD_URL="https://github.com/$REPO/releases/download/${VERSION}/${ASSET_NAME}"
+    DOWNLOAD_URL="https://github.com/$REPO/releases/download/${VERSION}/${ARCHIVE_NAME}"
     echo "Installing version: $VERSION"
 else
-    DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/${ASSET_NAME}"
+    DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/${ARCHIVE_NAME}"
     echo "Installing latest version..."
 fi
 
 # Download
-echo "Downloading ${ASSET_NAME}..."
+TMPFILE="$(mktemp /tmp/qmax-code-XXXXXX.tar.gz)"
+trap 'rm -f "$TMPFILE"' EXIT
+
+echo "Downloading ${ARCHIVE_NAME}..."
 if command -v curl &> /dev/null; then
-    HTTP_CODE=$(curl -sL -w "%{http_code}" -o "$INSTALL_DIR/$BINARY" "$DOWNLOAD_URL")
+    HTTP_CODE=$(curl -sL -w "%{http_code}" -o "$TMPFILE" "$DOWNLOAD_URL")
     if [ "$HTTP_CODE" -ne 200 ]; then
-        rm -f "$INSTALL_DIR/$BINARY"
         echo "Error: Download failed (HTTP $HTTP_CODE)"
         echo "Check releases: https://github.com/$REPO/releases"
         exit 1
     fi
 elif command -v wget &> /dev/null; then
-    if ! wget -q -O "$INSTALL_DIR/$BINARY" "$DOWNLOAD_URL"; then
-        rm -f "$INSTALL_DIR/$BINARY"
+    if ! wget -q -O "$TMPFILE" "$DOWNLOAD_URL"; then
         echo "Error: Download failed"
         exit 1
     fi
@@ -71,6 +73,10 @@ else
     echo "Error: curl or wget required"
     exit 1
 fi
+
+echo "Extracting..."
+tar -xzf "$TMPFILE" -C "$INSTALL_DIR" "$BINARY_NAME"
+mv "$INSTALL_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY"
 
 chmod +x "$INSTALL_DIR/$BINARY"
 echo "Installed to: $INSTALL_DIR/$BINARY"
