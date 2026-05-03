@@ -65,13 +65,19 @@ func (t *cloudSessionTracker) Start(api *APIClient, projectID int, model string)
 	t.cloudID = api.CreateAgentSession(ctx, projectID, model)
 }
 
-// Complete patches the cloud session as finished. No-op if Start was never
-// called successfully (cloudID is empty) or api is nil.
-func (t *cloudSessionTracker) Complete(api *APIClient, totalTokens int, summary string) {
+// Complete patches the cloud session as finished and uploads the full message
+// history. No-op if Start was never called successfully (cloudID is empty) or
+// api is nil.
+func (t *cloudSessionTracker) Complete(api *APIClient, totalTokens int, summary string, messages []Message) {
 	if api == nil || t.cloudID == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	api.CompleteAgentSession(ctx, t.cloudID, totalTokens, summary)
+	cancel()
+
+	// Separate timeout for message upload — payload can be large.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel2()
+	api.UploadSessionMessages(ctx2, t.cloudID, messages)
 }

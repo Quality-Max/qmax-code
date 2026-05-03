@@ -401,6 +401,49 @@ func (c *APIClient) CompleteAgentSession(ctx context.Context, cloudID string, to
 	c.patch(ctx, "/api/agent-sessions/"+cloudID, body)
 }
 
+// maxSessionUploadBytes caps the serialized message payload to avoid server
+// rejection or excessive upload times on very long sessions.
+const maxSessionUploadBytes = 4 * 1024 * 1024 // 4 MiB
+
+// UploadSessionMessages uploads the full conversation history to a cloud session.
+// Called alongside CompleteAgentSession so the cloud has complete context for
+// cross-session recall. If the payload exceeds maxSessionUploadBytes, older
+// messages are trimmed. Errors are silently dropped.
+func (c *APIClient) UploadSessionMessages(ctx context.Context, cloudID string, messages []Message) {
+	if len(messages) == 0 {
+		return
+	}
+	msgs := trimMessagesToFit(messages, maxSessionUploadBytes)
+	body := map[string]interface{}{
+		"messages": msgs,
+	}
+	c.post(ctx, "/api/agent-sessions/"+cloudID+"/messages", body)
+}
+
+// trimMessagesToFit drops oldest messages until the JSON-encoded payload fits
+// within maxBytes. Returns the original slice if it already fits.
+func trimMessagesToFit(messages []Message, maxBytes int) []Message {
+	data, err := json.Marshal(messages)
+	if err != nil || len(data) <= maxBytes {
+		return messages
+	}
+	// Binary search for the largest suffix that fits.
+	lo, hi := 0, len(messages)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		d, _ := json.Marshal(messages[mid:])
+		if len(d) <= maxBytes {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	if lo >= len(messages) {
+		return messages[len(messages)-1:] // at minimum send the last message
+	}
+	return messages[lo:]
+}
+
 // --- Script operations ---
 
 func (c *APIClient) GetScript(ctx context.Context, scriptID int) string {
