@@ -241,6 +241,44 @@ func ListSessions(limit int) ([]SessionSummary, error) {
 	return summaries, nil
 }
 
+// sessionSummary builds a short human-readable summary from the conversation
+// history to upload with cloud sessions. It takes the first user message as the
+// topic and appends the turn count.
+func sessionSummary(history []Message) string {
+	if len(history) == 0 {
+		return ""
+	}
+	var firstUser string
+	turns := 0
+	for _, m := range history {
+		if m.Role == "user" {
+			turns++
+			if firstUser == "" {
+				switch v := m.Content.(type) {
+				case string:
+					firstUser = v
+				case []interface{}:
+					for _, block := range v {
+						if b, ok := block.(map[string]interface{}); ok && b["type"] == "text" {
+							if t, ok := b["text"].(string); ok {
+								firstUser = t
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if len(firstUser) > 200 {
+		firstUser = firstUser[:200] + "…"
+	}
+	if firstUser == "" {
+		return fmt.Sprintf("%d turns", turns)
+	}
+	return fmt.Sprintf("%s  [%d turns]", firstUser, turns)
+}
+
 // CleanupOldSessions removes sessions older than sessionTTL.
 // Called on startup to prevent unbounded disk growth.
 func CleanupOldSessions() int {
