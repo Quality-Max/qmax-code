@@ -186,7 +186,7 @@ func (a *Agent) Run(prompt string) (string, error) {
 		Content: prompt,
 	})
 
-	for iterations := 0; iterations < 20; iterations++ {
+	for iterations := 0; iterations < maxIterations; iterations++ {
 		resp, err := a.callAPI()
 		if err != nil {
 			return "", fmt.Errorf("API call failed: %w", err)
@@ -213,8 +213,11 @@ func (a *Agent) Run(prompt string) (string, error) {
 }
 
 // compressHistory summarizes old messages when history gets too large.
-const maxHistoryTokens = 40000 // compress at 90% of ~45K practical limit
-const maxSessionMessages = 40  // hard limit — force compression after 40 messages (~20 turns)
+const (
+	maxHistoryTokens   = 40000 // compress at 90% of ~45K practical limit
+	maxSessionMessages = 40    // hard limit — force compression after 40 messages (~20 turns)
+	maxIterations      = 50
+)
 
 func (a *Agent) compressHistory() {
 	// Rough token estimate: 4 chars ≈ 1 token
@@ -371,7 +374,7 @@ func (a *Agent) RunStreaming(prompt string, term *Terminal) (string, error) {
 }
 
 func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
-	for iterations := 0; iterations < 20; iterations++ {
+	for iterations := 0; iterations < maxIterations; iterations++ {
 		// Sanitize + compress history before each API call
 		sanitizeSessionMessages(a.history)
 		a.compressHistory()
