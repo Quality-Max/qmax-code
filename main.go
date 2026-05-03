@@ -417,9 +417,26 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	// Cloud session tracking — created once when projectID is known.
 	var tracker cloudSessionTracker
 	startCloudSession := func() {
-		tracker.Start(agent.config.Context.API, agent.config.Context.ProjectID, agent.config.Model)
+		api := agent.config.Context.API
+		projectID := agent.config.Context.ProjectID
+		if api == nil || projectID == 0 {
+			return
+		}
+		cfg := agent.appConfig
+		// First eligible session: ask the user once and persist their choice.
+		if cfg != nil && cfg.CloudSync == nil {
+			promptCloudSyncConsent(cfg)
+		}
+		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
+			return
+		}
+		tracker.Start(api, projectID, agent.config.Model)
 	}
 	completeCloudSession := func() {
+		cfg := agent.appConfig
+		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
+			return
+		}
 		tracker.Complete(agent.config.Context.API, agent.usage.TotalTokens(), sessionSummary(agent.history))
 	}
 
@@ -1223,6 +1240,15 @@ func printConfigInfo(cfg *Config, term *Terminal) {
 	fmt.Printf("  %-20s %d\n", "Default project:", cfg.DefaultProject)
 	fmt.Printf("  %-20s %v\n", "Professional:", cfg.Professional)
 	fmt.Printf("  %-20s %v\n", "Auto-save:", cfg.AutoSave)
+	cloudSyncVal := "not set (will prompt)"
+	if cfg.CloudSync != nil {
+		if *cfg.CloudSync {
+			cloudSyncVal = "enabled"
+		} else {
+			cloudSyncVal = "disabled"
+		}
+	}
+	fmt.Printf("  %-20s %s\n", "Cloud sync:", cloudSyncVal)
 	fmt.Printf("  %-20s %d\n", "Token budget:", cfg.MaxTokenBudget)
 	if cfg.OllamaURL != "" {
 		fmt.Printf("  %-20s %s\n", "Ollama URL:", maskURL(cfg.OllamaURL))
@@ -1237,7 +1263,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 	parts := strings.Fields(input)
 	if len(parts) < 3 {
 		term.PrintError("Usage: /set <key> <value>")
-		term.PrintSystem("Keys: model, project, professional, autosave, budget")
+		term.PrintSystem("Keys: model, project, professional, autosave, cloudsync, budget")
 		return
 	}
 	key := strings.ToLower(parts[1])
@@ -1291,6 +1317,21 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		case "false", "0", "no", "off":
 			cfg.AutoSave = false
 			term.PrintSystem("Auto-save disabled.")
+		default:
+			term.PrintError("Value must be true or false.")
+			return
+		}
+
+	case "cloudsync":
+		switch strings.ToLower(value) {
+		case "true", "1", "yes", "on":
+			v := true
+			cfg.CloudSync = &v
+			term.PrintSystem("Cloud session sync enabled.")
+		case "false", "0", "no", "off":
+			v := false
+			cfg.CloudSync = &v
+			term.PrintSystem("Cloud session sync disabled.")
 		default:
 			term.PrintError("Value must be true or false.")
 			return

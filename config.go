@@ -58,6 +58,11 @@ type Config struct {
 	// Theme selects the terminal color scheme.
 	// Available: historic, ocean, neon, ember, aurora (dark) or paper, sky, sparkling, radiance, goldenhour (light). Empty defaults to "historic".
 	Theme string `json:"theme,omitempty"`
+
+	// CloudSync controls whether sessions are synced to the QualityMax cloud.
+	// nil = not asked yet (prompt fires on the next eligible session).
+	// true = opted in, false = opted out.
+	CloudSync *bool `json:"cloud_sync,omitempty"`
 }
 
 const qmaxCodeConfigDir = ".qmax-code"
