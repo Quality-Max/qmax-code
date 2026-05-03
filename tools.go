@@ -15,6 +15,42 @@ import (
 	"time"
 )
 
+// limitWriter is an io.Writer that silently discards bytes once the cap is hit.
+// Use it as cmd.Stdout/Stderr to prevent unbounded memory growth from large
+// subprocess outputs. The cap is enforced at write time so the underlying
+// buffer never exceeds maxBytes.
+type limitWriter struct {
+	b      strings.Builder
+	n      int
+	maxN   int
+	capped bool
+}
+
+func newLimitWriter(maxBytes int) *limitWriter { return &limitWriter{maxN: maxBytes} }
+
+func (lw *limitWriter) Write(p []byte) (int, error) {
+	remaining := lw.maxN - lw.n
+	if remaining <= 0 {
+		lw.capped = true
+		return len(p), nil // discard; tell caller we consumed it
+	}
+	if len(p) > remaining {
+		p = p[:remaining]
+		lw.capped = true
+	}
+	n, err := lw.b.Write(p)
+	lw.n += n
+	return n, err
+}
+
+func (lw *limitWriter) String() string {
+	s := lw.b.String()
+	if lw.capped {
+		s += "\n... (output capped)"
+	}
+	return s
+}
+
 // --- input parsing helpers ---
 
 func parseInput(rawInput interface{}) map[string]interface{} {
@@ -990,9 +1026,12 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 	}
 
 	// 3. Run with timeout
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// Cap buffers at the pipe level so a verbose test suite on a large repo
+	// cannot inflate our process memory before we get to truncate.
+	stdout := newLimitWriter(3 * 1024 * 1024) // 3 MB hard cap
+	stderr := newLimitWriter(512 * 1024)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	cmd.Dir = tmpDir
 
 	if baseURL != "" {
@@ -1006,11 +1045,11 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 	// 4. Build result
 	passed := runErr == nil
 	output := redactSensitive(stdout.String())
-	if stderr.Len() > 0 {
+	if stderr.n > 0 {
 		output += "\n--- stderr ---\n" + redactSensitive(stderr.String())
 	}
 
-	// Trim output if too long
+	// Trim output if too long (display budget)
 	if len(output) > 5000 {
 		output = output[:2000] + "\n...\n" + output[len(output)-2000:]
 	}
@@ -1254,15 +1293,16 @@ func runQMax(sctx *SessionContext, ctx context.Context, args ...string) string {
 		return fmt.Sprintf(`{"error": "qmax CLI not found. %s"}`, formatQMaxInstallHint())
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newLimitWriter(512 * 1024) // 512 KB — qmax JSON responses are small
+	stderr := newLimitWriter(64 * 1024)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return `{"error": "cancelled"}`
 		}
-		if stderr.Len() > 0 {
+		if stderr.n > 0 {
 			return fmt.Sprintf(`{"error": %q}`, redactSensitive(stderr.String()))
 		}
 		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
@@ -1278,9 +1318,10 @@ func runQMax(sctx *SessionContext, ctx context.Context, args ...string) string {
 // runShell executes a shell command with output limits.
 func runShell(ctx context.Context, name string, args ...string) string {
 	cmd := exec.CommandContext(ctx, name, args...)
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newLimitWriter(8000) // match the display budget
+	stderr := newLimitWriter(4000)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
@@ -1288,20 +1329,12 @@ func runShell(ctx context.Context, name string, args ...string) string {
 		}
 		combined := stdout.String() + stderr.String()
 		if combined != "" {
-			return truncateOutput(redactSensitive(combined), 8000)
+			return redactSensitive(combined)
 		}
 		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
 	}
 
-	return truncateOutput(redactSensitive(stdout.String()), 8000)
-}
-
-// truncateOutput limits output to maxLen characters.
-func truncateOutput(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "\n... (truncated)"
+	return redactSensitive(stdout.String())
 }
 
 // extractPlaywrightError parses Playwright test output and extracts the actual error

@@ -186,6 +186,7 @@ type SessionSummary struct {
 	Turns     int
 	Tokens    int
 	ProjectID int
+	Model     string
 }
 
 // ListSessions returns recent sessions sorted by update time (newest first).
@@ -224,6 +225,7 @@ func ListSessions(limit int) ([]SessionSummary, error) {
 			Turns:     s.Turns,
 			Tokens:    s.Usage.TotalTokens(),
 			ProjectID: s.ProjectID,
+			Model:     s.Model,
 		})
 	}
 
