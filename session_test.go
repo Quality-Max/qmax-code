@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -150,6 +151,90 @@ func TestLoadLastSession(t *testing.T) {
 	}
 	if session.ID != "second" {
 		t.Errorf("Should load most recent session, got %s", session.ID)
+	}
+}
+
+// ---- sessionSummary ----
+
+func TestSessionSummary_EmptyHistory(t *testing.T) {
+	if got := sessionSummary(nil); got != "" {
+		t.Errorf("expected empty string for nil history, got %q", got)
+	}
+	if got := sessionSummary([]Message{}); got != "" {
+		t.Errorf("expected empty string for empty history, got %q", got)
+	}
+}
+
+func TestSessionSummary_StringContent(t *testing.T) {
+	history := []Message{
+		{Role: "user", Content: "hello world"},
+	}
+	got := sessionSummary(history)
+	if got != "hello world  [1 turns]" {
+		t.Errorf("got %q, want %q", got, "hello world  [1 turns]")
+	}
+}
+
+func TestSessionSummary_BlockContent(t *testing.T) {
+	history := []Message{
+		{Role: "user", Content: []interface{}{
+			map[string]interface{}{"type": "text", "text": "fix the bug"},
+		}},
+	}
+	got := sessionSummary(history)
+	if got != "fix the bug  [1 turns]" {
+		t.Errorf("got %q, want %q", got, "fix the bug  [1 turns]")
+	}
+}
+
+func TestSessionSummary_MultiTurn(t *testing.T) {
+	history := []Message{
+		{Role: "user", Content: "first"},
+		{Role: "assistant", Content: "reply1"},
+		{Role: "user", Content: "second"},
+		{Role: "assistant", Content: "reply2"},
+		{Role: "user", Content: "third"},
+	}
+	got := sessionSummary(history)
+	if got != "first  [3 turns]" {
+		t.Errorf("got %q, want %q", got, "first  [3 turns]")
+	}
+}
+
+func TestSessionSummary_TruncatesLongMessage(t *testing.T) {
+	long := strings.Repeat("a", 250)
+	history := []Message{{Role: "user", Content: long}}
+	got := sessionSummary(history)
+	// Should be 200 bytes of 'a' + "…" + "  [1 turns]"
+	if !strings.HasPrefix(got, strings.Repeat("a", 200)+"…") {
+		t.Errorf("expected truncation at 200 chars + ellipsis, got %q", got[:min(len(got), 30)])
+	}
+	if strings.Contains(got, strings.Repeat("a", 201)) {
+		t.Errorf("content exceeds 200 chars: %q", got[:min(len(got), 30)])
+	}
+}
+
+func TestSessionSummary_NoUserMessages(t *testing.T) {
+	history := []Message{
+		{Role: "assistant", Content: "hi"},
+		{Role: "assistant", Content: "bye"},
+	}
+	got := sessionSummary(history)
+	if got != "0 turns" {
+		t.Errorf("got %q, want %q", got, "0 turns")
+	}
+}
+
+func TestSessionSummary_BlockContent_SkipsNonTextBlocks(t *testing.T) {
+	history := []Message{
+		{Role: "user", Content: []interface{}{
+			map[string]interface{}{"type": "image", "source": "..."},
+			map[string]interface{}{"type": "text", "text": "look at this"},
+		}},
+	}
+	got := sessionSummary(history)
+	if got != "look at this  [1 turns]" {
+		t.Errorf("got %q, want %q", got, "look at this  [1 turns]")
 	}
 }
 
