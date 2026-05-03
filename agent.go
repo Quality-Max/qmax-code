@@ -910,7 +910,9 @@ func (a *Agent) loadPriorSessions() {
 		return
 	}
 
-	resp := api.ListAgentSessions(context.Background(), projectID, 3)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp := api.ListAgentSessions(ctx, projectID, 3)
 
 	var data struct {
 		Sessions []struct {

@@ -2427,6 +2427,9 @@ func chainSecurityAuditOnPR(ctx context.Context, api *APIClient, sctx *SessionCo
 	if baseSHA == "" {
 		baseSHA = gitSHA("origin/master")
 	}
+	if baseSHA == "" {
+		return prResp // cannot determine base commit — skip security check
+	}
 
 	auditResp := api.SecurityAuditPRCheck(ctx, repoSlug, prNumber, baseSHA, headSHA)
 

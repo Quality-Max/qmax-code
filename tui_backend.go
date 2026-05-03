@@ -228,23 +228,34 @@ func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, olla
 		effort = "high"
 	}
 
-	reachable := probeOllamaReachable(ollamaURL)
-
 	return modelPickerModel{
-		allEntries:      entries,
-		cursor:          cursor,
-		effort:          effort,
-		currentBackend:  currentBackend,
-		currentModelID:  currentModelID,
-		ollamaURL:       ollamaURL,
-		ollamaReachable: reachable,
+		allEntries:     entries,
+		cursor:         cursor,
+		effort:         effort,
+		currentBackend: currentBackend,
+		currentModelID: currentModelID,
+		ollamaURL:      ollamaURL,
 	}
 }
 
-func (m modelPickerModel) Init() tea.Cmd { return nil }
+type ollamaProbeMsg struct{ reachable bool }
+
+func (m modelPickerModel) Init() tea.Cmd {
+	if m.ollamaURL == "" {
+		return nil
+	}
+	rawURL := m.ollamaURL
+	return func() tea.Msg {
+		return ollamaProbeMsg{reachable: probeOllamaReachable(rawURL)}
+	}
+}
 
 func (m modelPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case ollamaProbeMsg:
+		m.ollamaReachable = msg.reachable
+		return m, nil
+
 	case tea.KeyMsg:
 		switch {
 		case msg.String() == "ctrl+c", msg.String() == "esc", msg.String() == "q":
