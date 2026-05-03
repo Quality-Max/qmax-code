@@ -586,20 +586,26 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			sessions, err := ListSessions(10)
 			if err != nil || len(sessions) == 0 {
 				term.PrintSystem("No saved sessions.")
+				continue
+			}
+			chosenID, ok := ShowSessionPicker(sessions, sessionID)
+			if !ok {
+				continue
+			}
+			session, loadErr := LoadSession(chosenID)
+			if loadErr != nil {
+				term.PrintError(fmt.Sprintf("Cannot resume: %v", loadErr))
 			} else {
-				fmt.Println()
-				fmt.Printf("  %-10s  %-18s  %-6s  %-8s  %s\n", "ID", "Updated", "Turns", "Tokens", "Project")
-				fmt.Printf("  %-10s  %-18s  %-6s  %-8s  %s\n", "----------", "------------------", "------", "--------", "-------")
-				for _, s := range sessions {
-					marker := " "
-					if s.ID == sessionID {
-						marker = "*"
-					}
-					fmt.Printf(" %s%-10s  %-18s  %-6d  %-8d  #%d\n",
-						marker, s.ID, s.UpdatedAt.Format("2006-01-02 15:04"), s.Turns, s.Tokens, s.ProjectID)
+				sanitizeSessionMessages(session.Messages)
+				agent.history = session.Messages
+				agent.usage = session.Usage
+				sessionID = session.ID
+				if session.ProjectID > 0 {
+					agent.config.Context.ProjectID = session.ProjectID
 				}
-				fmt.Println()
-				term.PrintSystem("Resume with: /resume <id>")
+				term.SetSessionPrompt(sessionID)
+				term.PrintSystem(fmt.Sprintf("Resumed session %s (%d turns, project #%d)",
+					session.ID, session.Turns, session.ProjectID))
 			}
 			continue
 		case input == "/save":
