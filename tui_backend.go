@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -591,4 +592,146 @@ func ShowModelPicker(currentBackend, currentModelID, effort string) ModelPickerR
 		Effort:    final.effort,
 		Confirmed: true,
 	}
+}
+
+// ─── Session picker ───────────────────────────────────────────────────────────
+
+type sessionPickerModel struct {
+	sessions    []SessionSummary
+	cursor      int
+	activeID    string
+	confirmed   bool
+	cancelled   bool
+}
+
+func newSessionPickerModel(sessions []SessionSummary, activeID string) sessionPickerModel {
+	cursor := 0
+	for i, s := range sessions {
+		if s.ID == activeID {
+			cursor = i
+			break
+		}
+	}
+	return sessionPickerModel{sessions: sessions, cursor: cursor, activeID: activeID}
+}
+
+func (m sessionPickerModel) Init() tea.Cmd { return nil }
+
+func (m sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc", "q":
+			m.cancelled = true
+			return m, tea.Quit
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.sessions)-1 {
+				m.cursor++
+			}
+		case "enter", " ":
+			m.confirmed = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m sessionPickerModel) View() string {
+	var b strings.Builder
+
+	b.WriteString(pickerSectionHeader.Render("Saved Sessions"))
+	b.WriteByte('\n')
+
+	now := time.Now()
+	for i, s := range m.sessions {
+		isCursor := i == m.cursor
+		isActive := s.ID == m.activeID
+
+		arrow := "  "
+		if isCursor {
+			arrow = pickerBadgeStar.Render("▶ ")
+		}
+
+		ago := formatAgo(now.Sub(s.UpdatedAt))
+		meta := fmt.Sprintf("%s  %2d turns  %s", ago, s.Turns, formatTokens(s.Tokens))
+		if s.ProjectID > 0 {
+			meta += fmt.Sprintf("  #%d", s.ProjectID)
+		}
+
+		var idLabel, metaLabel string
+		if isCursor {
+			idLabel = pickerLabelSel.Render(fmt.Sprintf("%-10s", s.ID))
+			metaLabel = menuDescSelSty.Render(meta)
+		} else {
+			idLabel = pickerLabel.Render(fmt.Sprintf("%-10s", s.ID))
+			metaLabel = pickerFooter.Render(meta)
+		}
+
+		badge := ""
+		if isActive {
+			badge = "  " + pickerBadgeCurrent.Render("active")
+		}
+
+		row := fmt.Sprintf("%s%s  %s%s", arrow, idLabel, metaLabel, badge)
+		if isCursor {
+			b.WriteString(pickerRowSelected.Render(row))
+		} else {
+			b.WriteString(pickerRowNormal.Render(row))
+		}
+		b.WriteByte('\n')
+	}
+
+	b.WriteString(pickerDivider.Render(strings.Repeat("─", 52)))
+	b.WriteByte('\n')
+	b.WriteString(pickerFooter.Render("↑↓ navigate  ·  Enter resume  ·  Esc cancel"))
+	b.WriteByte('\n')
+
+	return pickerBox.Render(b.String())
+}
+
+func formatAgo(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now   "
+	case d < time.Hour:
+		return fmt.Sprintf("%2dm ago    ", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%2dh ago    ", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%2dd ago    ", int(d.Hours()/24))
+	}
+}
+
+func formatTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM tok", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk tok", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d tok", n)
+	}
+}
+
+// ShowSessionPicker opens the interactive session picker TUI.
+// Returns the selected session ID and whether the user confirmed.
+func ShowSessionPicker(sessions []SessionSummary, activeID string) (string, bool) {
+	if len(sessions) == 0 {
+		return "", false
+	}
+	m := newSessionPickerModel(sessions, activeID)
+	p := tea.NewProgram(m)
+	result, err := p.Run()
+	if err != nil {
+		return "", false
+	}
+	final := result.(sessionPickerModel)
+	if final.cancelled || !final.confirmed {
+		return "", false
+	}
+	return final.sessions[final.cursor].ID, true
 }
