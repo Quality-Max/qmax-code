@@ -11,7 +11,7 @@ import (
 type orchConsentResult struct {
 	Proceed        bool   // user said yes; false means cancel activation
 	PermissionMode string // "standard" | "unattended"
-	GlobalInstall  bool   // ok to write into ~/.claude/settings.json or ~/.codex/config.json
+	GlobalInstall  bool   // ok to write into ~/.claude/settings.json or ~/.codex/config.toml
 }
 
 // promptOrchConsent shows the autonomy + global-install dialog the first time
@@ -25,7 +25,7 @@ func promptOrchConsent(cfg *Config, backend string) orchConsentResult {
 	globalConfigPath := "~/.claude/settings.json"
 	if backend == "codex" {
 		cliName = "Codex"
-		globalConfigPath = "~/.codex/config.json"
+		globalConfigPath = "~/.codex/config.toml"
 	}
 
 	res := orchConsentResult{
