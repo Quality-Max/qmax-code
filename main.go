@@ -376,6 +376,9 @@ func main() {
 		fmt.Printf("[cleanup] Removed %d old sessions\n", removed)
 	}
 
+	// Sweep orphaned MCP config files left by crashed previous instances.
+	cleanupStaleMCPConfigs()
+
 	// Interactive REPL
 	runREPL(agent, cliAgent, *quiet)
 }
