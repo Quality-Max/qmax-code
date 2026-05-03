@@ -370,6 +370,37 @@ func (c *APIClient) ListAgentSessions(ctx context.Context, projectID, limit int)
 	return c.get(ctx, fmt.Sprintf("/api/agent-sessions?project_id=%d&limit=%d", projectID, limit))
 }
 
+// CreateAgentSession opens a new cloud-tracked session and returns its UUID.
+// Returns "" on failure or when the project ID is unknown.
+func (c *APIClient) CreateAgentSession(ctx context.Context, projectID int, model string) string {
+	body := map[string]interface{}{
+		"project_id": projectID,
+		"model":      model,
+	}
+	resp := c.post(ctx, "/api/agent-sessions", body)
+	var r struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(resp), &r); err != nil {
+		return ""
+	}
+	return r.SessionID
+}
+
+// CompleteAgentSession finalises a cloud session with status, token count, and summary.
+// Errors are silently dropped — cloud sync failure must not block local operation.
+func (c *APIClient) CompleteAgentSession(ctx context.Context, cloudID string, totalTokens int, summary string) {
+	body := map[string]interface{}{
+		"status":       "complete",
+		"total_tokens": totalTokens,
+		"ended_at":     time.Now().UTC().Format(time.RFC3339),
+	}
+	if summary != "" {
+		body["summary"] = summary
+	}
+	c.patch(ctx, "/api/agent-sessions/"+cloudID, body)
+}
+
 // --- Script operations ---
 
 func (c *APIClient) GetScript(ctx context.Context, scriptID int) string {
@@ -664,6 +695,22 @@ func (c *APIClient) put(ctx context.Context, path string, body interface{}) stri
 		reqBody = bytes.NewReader(data)
 	}
 	req, err := http.NewRequestWithContext(ctx, "PUT", c.BaseURL+path, reqBody)
+	if err != nil {
+		return jsonError(err.Error())
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return c.doRequest(req)
+}
+
+func (c *APIClient) patch(ctx context.Context, path string, body interface{}) string {
+	var reqBody io.Reader
+	if body != nil {
+		data, _ := json.Marshal(body)
+		reqBody = bytes.NewReader(data)
+	}
+	req, err := http.NewRequestWithContext(ctx, "PATCH", c.BaseURL+path, reqBody)
 	if err != nil {
 		return jsonError(err.Error())
 	}

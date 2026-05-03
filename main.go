@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -414,6 +415,30 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	agent.logger = NewLogger(sessionID)
 	defer agent.logger.Close()
 
+	// Cloud session tracking — created once when projectID is known.
+	var cloudSessionID string
+	startCloudSession := func() {
+		api := agent.config.Context.API
+		projectID := agent.config.Context.ProjectID
+		if api == nil || projectID == 0 || cloudSessionID != "" {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cloudSessionID = api.CreateAgentSession(ctx, projectID, agent.config.Model)
+	}
+
+	completeCloudSession := func() {
+		api := agent.config.Context.API
+		if api == nil || cloudSessionID == "" {
+			return
+		}
+		summary := sessionSummary(agent.history)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		api.CompleteAgentSession(ctx, cloudSessionID, agent.usage.TotalTokens(), summary)
+	}
+
 	// Graceful interrupt handling
 	var (
 		sigMu       sync.Mutex
@@ -428,6 +453,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 	saveAndExit := func() {
 		_ = SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
+		completeCloudSession()
 		fmt.Fprintf(os.Stderr, "Session %s saved.\n", sessionID)
 	}
 
@@ -928,6 +954,9 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 		// Detect image file paths dragged/pasted into input
 		cleanInput, images := DetectAndLoadImages(input)
+
+		// Ensure a cloud session exists for this conversation (no-op after first call).
+		startCloudSession()
 
 		// Run through the LLM agent with streaming.
 		// Start the queue reader so the user can type the next prompt while
