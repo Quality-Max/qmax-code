@@ -229,6 +229,18 @@ func (t *Terminal) ReadLine() (string, error) {
 	return t.rl.Readline()
 }
 
+// ReadConsent temporarily clears the readline prompt and reads one line.
+// Used for consent questions that print their own prompt text via fmt, avoiding
+// the raw-mode conflict that arises when using bufio.NewReader(os.Stdin) while
+// readline already owns the terminal.
+func (t *Terminal) ReadConsent() (string, error) {
+	saved := t.currentPrompt
+	t.rl.SetPrompt("")
+	line, err := t.rl.Readline()
+	t.rl.SetPrompt(saved)
+	return line, err
+}
+
 // PrintBanner shows the startup banner — fun, geeky, and cat-themed.
 func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 	// Pick Max's mood based on context

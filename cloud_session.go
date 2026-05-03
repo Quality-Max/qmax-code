@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 )
@@ -12,7 +10,10 @@ import (
 // promptCloudSyncConsent asks the user once whether they want sessions synced
 // to the QualityMax cloud. The answer is persisted in cfg so the prompt never
 // appears again. Returns true if the user opted in.
-func promptCloudSyncConsent(cfg *Config) bool {
+//
+// readLine must use the active readline instance (e.g. term.ReadConsent) so
+// that it works correctly when readline already owns the terminal in raw mode.
+func promptCloudSyncConsent(cfg *Config, readLine func() (string, error)) bool {
 	fmt.Println()
 	fmt.Println("  ┌─ Cloud session sync ──────────────────────────────────────────┐")
 	fmt.Println("  │  qmax-code can sync your sessions to the QualityMax cloud so  │")
@@ -23,8 +24,7 @@ func promptCloudSyncConsent(cfg *Config) bool {
 	fmt.Println()
 	fmt.Print("  Enable cloud session sync? [Y/n]: ")
 
-	reader := bufio.NewReader(os.Stdin)
-	line, _ := reader.ReadString('\n')
+	line, _ := readLine()
 
 	enabled := applyCloudSyncChoice(cfg, line)
 	if enabled {
