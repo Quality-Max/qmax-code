@@ -102,6 +102,15 @@ func printConfig() {
 		theme = "historic"
 	}
 	fmt.Printf("    theme             = %q  (available: historic, ocean, neon, ember, aurora, paper, sky, sparkling, radiance, goldenhour)\n", theme)
+	cloudSync := "not set (will prompt on next eligible session)"
+	if cfg.CloudSync != nil {
+		if *cfg.CloudSync {
+			cloudSync = "enabled"
+		} else {
+			cloudSync = "disabled"
+		}
+	}
+	fmt.Printf("    cloud_sync        = %s\n", cloudSync)
 	fmt.Printf("    backend           = %q", backend)
 	switch backend {
 	case "cc":
@@ -205,6 +214,17 @@ func setConfigField(key, value string) error {
 			}
 		}
 		cfg.Theme = value
+
+	case "cloud_sync":
+		if value == "" {
+			cfg.CloudSync = nil
+		} else {
+			b, err := parseConfigBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.CloudSync = &b
+		}
 
 	default:
 		return fmt.Errorf("unknown config key %q", key)

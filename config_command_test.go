@@ -182,6 +182,70 @@ func TestSetConfigField_ThemePersistsToDisk(t *testing.T) {
 	}
 }
 
+func TestSetConfigField_CloudSyncHappyPath(t *testing.T) {
+	withTempHome(t)
+
+	if err := setConfigField("cloud_sync", "true"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	loaded := LoadQMaxCodeConfig()
+	if loaded.CloudSync == nil || !*loaded.CloudSync {
+		t.Error("expected CloudSync=true after setConfigField(cloud_sync, true)")
+	}
+
+	if err := setConfigField("cloud_sync", "false"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	loaded = LoadQMaxCodeConfig()
+	if loaded.CloudSync == nil || *loaded.CloudSync {
+		t.Error("expected CloudSync=false after setConfigField(cloud_sync, false)")
+	}
+}
+
+func TestSetConfigField_CloudSyncBoolForms(t *testing.T) {
+	withTempHome(t)
+
+	for _, v := range []string{"true", "yes", "1", "on"} {
+		if err := setConfigField("cloud_sync", v); err != nil {
+			t.Errorf("setConfigField(cloud_sync, %q) unexpected error: %v", v, err)
+		}
+		loaded := LoadQMaxCodeConfig()
+		if loaded.CloudSync == nil || !*loaded.CloudSync {
+			t.Errorf("expected CloudSync=true for value %q", v)
+		}
+	}
+	for _, v := range []string{"false", "no", "0", "off"} {
+		if err := setConfigField("cloud_sync", v); err != nil {
+			t.Errorf("setConfigField(cloud_sync, %q) unexpected error: %v", v, err)
+		}
+		loaded := LoadQMaxCodeConfig()
+		if loaded.CloudSync == nil || *loaded.CloudSync {
+			t.Errorf("expected CloudSync=false for value %q", v)
+		}
+	}
+}
+
+func TestSetConfigField_CloudSyncUnsetClearsToNil(t *testing.T) {
+	withTempHome(t)
+
+	_ = setConfigField("cloud_sync", "true")
+	if err := setConfigField("cloud_sync", ""); err != nil {
+		t.Fatalf("unset should not error: %v", err)
+	}
+	loaded := LoadQMaxCodeConfig()
+	if loaded.CloudSync != nil {
+		t.Errorf("expected CloudSync=nil after unset, got %v", *loaded.CloudSync)
+	}
+}
+
+func TestSetConfigField_CloudSyncRejectsInvalidValue(t *testing.T) {
+	withTempHome(t)
+
+	if err := setConfigField("cloud_sync", "maybe"); err == nil {
+		t.Error("expected error for invalid cloud_sync value")
+	}
+}
+
 func TestParseConfigBool_KnownValues(t *testing.T) {
 	trueVals := []string{"true", "yes", "1", "on"}
 	falseVals := []string{"false", "no", "0", "off", ""}

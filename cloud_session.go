@@ -25,20 +25,26 @@ func promptCloudSyncConsent(cfg *Config) bool {
 
 	reader := bufio.NewReader(os.Stdin)
 	line, _ := reader.ReadString('\n')
-	ans := strings.ToLower(strings.TrimSpace(line))
 
-	enabled := ans == "" || ans == "y" || ans == "yes"
-
-	v := enabled
-	cfg.CloudSync = &v
-	_ = cfg.Save()
-
+	enabled := applyCloudSyncChoice(cfg, line)
 	if enabled {
 		fmt.Println("  Cloud session sync enabled.")
 	} else {
 		fmt.Println("  Cloud session sync disabled.")
 	}
 	fmt.Println()
+	return enabled
+}
+
+// applyCloudSyncChoice parses a raw answer line, updates cfg.CloudSync, and
+// persists it. Extracted from promptCloudSyncConsent so it can be unit-tested
+// without touching stdin/stdout.
+func applyCloudSyncChoice(cfg *Config, line string) bool {
+	ans := strings.ToLower(strings.TrimSpace(line))
+	enabled := ans == "" || ans == "y" || ans == "yes"
+	v := enabled
+	cfg.CloudSync = &v
+	_ = cfg.Save()
 	return enabled
 }
 
