@@ -1,9 +1,46 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"os"
+	"strings"
 	"time"
 )
+
+// promptCloudSyncConsent asks the user once whether they want sessions synced
+// to the QualityMax cloud. The answer is persisted in cfg so the prompt never
+// appears again. Returns true if the user opted in.
+func promptCloudSyncConsent(cfg *Config) bool {
+	fmt.Println()
+	fmt.Println("  ┌─ Cloud session sync ──────────────────────────────────────────┐")
+	fmt.Println("  │  qmax-code can sync your sessions to the QualityMax cloud so  │")
+	fmt.Println("  │  the agent remembers past conversations across restarts.       │")
+	fmt.Println("  │                                                                │")
+	fmt.Println("  │  You can change this any time with:  /set cloudsync true|false │")
+	fmt.Println("  └────────────────────────────────────────────────────────────────┘")
+	fmt.Println()
+	fmt.Print("  Enable cloud session sync? [Y/n]: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	ans := strings.ToLower(strings.TrimSpace(line))
+
+	enabled := ans == "" || ans == "y" || ans == "yes"
+
+	v := enabled
+	cfg.CloudSync = &v
+	_ = cfg.Save()
+
+	if enabled {
+		fmt.Println("  Cloud session sync enabled.")
+	} else {
+		fmt.Println("  Cloud session sync disabled.")
+	}
+	fmt.Println()
+	return enabled
+}
 
 // cloudSessionTracker manages the lifecycle of a cloud-tracked agent session.
 // Zero value is ready to use — no initialisation needed.
