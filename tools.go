@@ -1337,14 +1337,6 @@ func runShell(ctx context.Context, name string, args ...string) string {
 	return redactSensitive(stdout.String())
 }
 
-// truncateOutput limits output to maxLen characters.
-func truncateOutput(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "\n... (truncated)"
-}
-
 // extractPlaywrightError parses Playwright test output and extracts the actual error
 // with line numbers, locator info, and expected/received values.
 func extractPlaywrightError(output string) string {
