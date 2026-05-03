@@ -1186,7 +1186,7 @@ Commands:
   /keys          Set API keys (interactive menu)
   /screenshot    Capture a screenshot and analyze it
   /paste         Paste from clipboard (image or text)
-  /set <k> <v>   Update config (model, project, professional, autosave, cloudsync, budget, ollama)
+  /set <k> <v>   Update config (model, project, professional, autosave, cloud_sync, budget, ollama)
   /save          Save current session
   /sessions      List recent sessions
   /resume [id]   Resume a session (default: last)
@@ -1200,8 +1200,8 @@ Config examples:
   /set professional true    Disable cat personality
   /set autosave false       Disable auto-save on exit
   /set budget 100000        Set max token budget warning
-  /set cloudsync true       Enable cloud session sync
-  /set cloudsync false      Disable cloud session sync
+  /set cloud_sync true       Enable cloud session sync
+  /set cloud_sync false      Disable cloud session sync
   /set ollama on            Enable self-hosted LLM for chat (saves API costs)
   /set ollama off           Disable Ollama, use Claude for all calls
   /set backend cc           Use Claude Code subscription (no API key needed)
@@ -1269,7 +1269,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 	parts := strings.Fields(input)
 	if len(parts) < 3 {
 		term.PrintError("Usage: /set <key> <value>")
-		term.PrintSystem("Keys: model, project, professional, autosave, cloudsync, budget, apikey, ollama, backend, theme")
+		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, budget, apikey, ollama, backend, theme")
 		return
 	}
 	key := strings.ToLower(parts[1])
@@ -1443,7 +1443,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, professional, autosave, cloudsync, budget, apikey, ollama, backend, theme")
+		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, budget, apikey, ollama, backend, theme")
 		return
 	}
 
