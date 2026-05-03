@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -748,7 +749,8 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		return api.ImportDocument(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "text"), strVal(input, "source_name"))
 
 	case "create_pr":
-		return api.CreatePR(ctx, intVal(input, "repo_id", 0), intVal(input, "project_id", sctx.ProjectID))
+		prResp := api.CreatePR(ctx, intVal(input, "repo_id", 0), intVal(input, "project_id", sctx.ProjectID))
+		return chainSecurityAuditOnPR(ctx, api, sctx, prResp)
 
 	case "get_script":
 		return api.GetScript(ctx, intVal(input, "script_id", 0))
@@ -2379,4 +2381,83 @@ func callBackendVisionAnalysis(sctx *SessionContext, imageURL, prompt string) st
 		"[Vision analysis requires ANTHROPIC_API_KEY env var. "+
 		"Set it with: export ANTHROPIC_API_KEY=sk-ant-...]\n\n"+
 		"You can view the screenshot at the URL above to manually inspect the page.", imageURL)
+}
+
+// chainSecurityAuditOnPR fires a security audit PR check after create_pr succeeds
+// and appends the findings to the PR creation result so the agent can self-correct.
+func chainSecurityAuditOnPR(ctx context.Context, api *APIClient, sctx *SessionContext, prResp string) string {
+	// Parse pr_number from the create_pr response.
+	var prData map[string]interface{}
+	prNumber := 0
+	if err := json.Unmarshal([]byte(prResp), &prData); err == nil {
+		switch v := prData["pr_number"].(type) {
+		case float64:
+			prNumber = int(v)
+		case int:
+			prNumber = v
+		}
+		// Fall back to extracting from pr_url if pr_number is absent.
+		if prNumber == 0 {
+			if u, ok := prData["pr_url"].(string); ok {
+				parts := strings.Split(strings.TrimRight(u, "/"), "/")
+				if len(parts) > 0 {
+					if n, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+						prNumber = n
+					}
+				}
+			}
+		}
+	}
+	if prNumber == 0 {
+		return prResp // PR creation failed or response unparseable — return as-is
+	}
+
+	// Derive GitHub repo slug from the git remote URL.
+	repoSlug := ""
+	if sctx.GitInfo != nil {
+		repoSlug = repoSlugFromRemote(sctx.GitInfo.RemoteURL)
+	}
+	if repoSlug == "" {
+		return prResp // no remote URL — skip security check
+	}
+
+	// Collect git SHAs.
+	headSHA := gitSHA("HEAD")
+	baseSHA := gitSHA("origin/main")
+	if baseSHA == "" {
+		baseSHA = gitSHA("origin/master")
+	}
+
+	auditResp := api.SecurityAuditPRCheck(ctx, repoSlug, prNumber, baseSHA, headSHA)
+
+	// Combine both results for the agent.
+	return fmt.Sprintf("%s\n\n--- Security Audit PR Check ---\n%s", prResp, auditResp)
+}
+
+// repoSlugFromRemote extracts "owner/repo" from a git remote URL.
+// Handles https://github.com/owner/repo[.git] and git@github.com:owner/repo[.git].
+func repoSlugFromRemote(remoteURL string) string {
+	remoteURL = strings.TrimSuffix(remoteURL, ".git")
+	if strings.HasPrefix(remoteURL, "git@") {
+		// git@github.com:owner/repo
+		idx := strings.LastIndex(remoteURL, ":")
+		if idx >= 0 {
+			return remoteURL[idx+1:]
+		}
+	}
+	// https://github.com/owner/repo
+	parts := strings.SplitN(remoteURL, "github.com/", 2)
+	if len(parts) == 2 {
+		return parts[1]
+	}
+	return ""
+}
+
+// gitSHA returns the resolved commit SHA for the given ref, or "" on error.
+func gitSHA(ref string) string {
+	out, err := exec.Command("git", "rev-parse", ref).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
