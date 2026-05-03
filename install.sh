@@ -96,13 +96,6 @@ fi
 
 echo ""
 
-# Check for qmax CLI dependency
-if ! command -v qmax &> /dev/null; then
-    echo "Note: qmax CLI not found. Install it too:"
-    echo "  curl -sL https://raw.githubusercontent.com/Quality-Max/qmax-local-agent/main/install.sh | bash"
-    echo ""
-fi
-
 # Check for API key
 if [ -z "$ANTHROPIC_API_KEY" ]; then
     echo "Setup:"
