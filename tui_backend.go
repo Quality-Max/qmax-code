@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -35,6 +37,12 @@ var (
 
 	pickerIconAPI = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("242"))  // grey — Direct ○
+
+	pickerIconOllama = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("71")) // green — Ollama ⬡
+
+	pickerDotGreen = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	pickerDotRed   = lipgloss.NewStyle().Foreground(lipgloss.Color("160"))
 
 	pickerLabel = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
@@ -138,6 +146,27 @@ var apiModels = []pickerEntry{
 
 var effortLevels = []string{"low", "medium", "high"}
 
+// probeOllamaReachable returns true if the Ollama base URL responds within 2s.
+func probeOllamaReachable(rawURL string) bool {
+	if rawURL == "" {
+		return false
+	}
+	u, err := url.Parse(strings.TrimRight(rawURL, "/"))
+	if err != nil {
+		return false
+	}
+	// Strip credentials before logging; keep them for the actual request.
+	probe := *u
+	probe.Path = "/api/tags"
+	c := &http.Client{Timeout: 2 * time.Second}
+	resp, err := c.Get(probe.String())
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 500
+}
+
 // ─── Bubbletea model ──────────────────────────────────────────────────────────
 
 // ModelPickerResult is returned after the TUI closes.
@@ -149,25 +178,40 @@ type ModelPickerResult struct {
 }
 
 type modelPickerModel struct {
-	// All rows in order: cc entries, codex entries, api entries.
+	// All rows in order: cc entries, codex entries, api entries, ollama entries.
 	allEntries []pickerEntry
-	cursor     int    // index into allEntries
+	cursor     int  // index into allEntries
 	effort     string // "low" | "medium" | "high"
-	effortFocus bool  // Tab switches focus between list and effort bar
+	effortFocus bool   // Tab switches focus between list and effort bar
 
 	// Current selection (what was active when the picker opened)
 	currentBackend string
 	currentModelID string
 
+	// Ollama metadata
+	ollamaURL       string
+	ollamaReachable bool
+
 	cancelled bool
 	chosen    *pickerEntry
 }
 
-func newModelPickerModel(currentBackend, currentModelID, effort string) modelPickerModel {
-	entries := make([]pickerEntry, 0, len(ccModels)+len(codexModels)+len(apiModels))
+func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string) modelPickerModel {
+	entries := make([]pickerEntry, 0, len(ccModels)+len(codexModels)+len(apiModels)+1)
 	entries = append(entries, ccModels...)
 	entries = append(entries, codexModels...)
 	entries = append(entries, apiModels...)
+
+	// Append Ollama entry if configured.
+	if ollamaURL != "" && ollamaModel != "" {
+		entries = append(entries, pickerEntry{
+			backend:  "ollama",
+			modelID:  ollamaModel,
+			label:    ollamaModel,
+			subLabel: maskURL(ollamaURL),
+			isFav:    true,
+		})
+	}
 
 	// Start cursor on the active entry.
 	cursor := 0
@@ -190,13 +234,28 @@ func newModelPickerModel(currentBackend, currentModelID, effort string) modelPic
 		effort:         effort,
 		currentBackend: currentBackend,
 		currentModelID: currentModelID,
+		ollamaURL:      ollamaURL,
 	}
 }
 
-func (m modelPickerModel) Init() tea.Cmd { return nil }
+type ollamaProbeMsg struct{ reachable bool }
+
+func (m modelPickerModel) Init() tea.Cmd {
+	if m.ollamaURL == "" {
+		return nil
+	}
+	rawURL := m.ollamaURL
+	return func() tea.Msg {
+		return ollamaProbeMsg{reachable: probeOllamaReachable(rawURL)}
+	}
+}
 
 func (m modelPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case ollamaProbeMsg:
+		m.ollamaReachable = msg.reachable
+		return m, nil
+
 	case tea.KeyMsg:
 		switch {
 		case msg.String() == "ctrl+c", msg.String() == "esc", msg.String() == "q":
@@ -319,6 +378,36 @@ func (m modelPickerModel) View() string {
 		b.WriteByte('\n')
 	}
 
+	// ── Ollama section ───────────────────────────────────────────────
+	hasOllama := false
+	for _, e := range m.allEntries {
+		if e.backend == "ollama" {
+			hasOllama = true
+			break
+		}
+	}
+	if hasOllama {
+		b.WriteString(pickerDivider.Render(strings.Repeat("─", 52)))
+		b.WriteByte('\n')
+		dot := pickerDotRed.Render("●")
+		reach := "unreachable"
+		if m.ollamaReachable {
+			dot = pickerDotGreen.Render("●")
+			reach = "reachable"
+		}
+		sectionLabelOllama := fmt.Sprintf("%s  Ollama  %s %s",
+			pickerIconOllama.Render("⬡"), dot, pickerBadgeExt.Render(reach))
+		b.WriteString(pickerSectionHeader.Render(sectionLabelOllama))
+		b.WriteByte('\n')
+		for i, e := range m.allEntries {
+			if e.backend != "ollama" {
+				continue
+			}
+			b.WriteString(m.renderRow(i, e, "ollama"))
+			b.WriteByte('\n')
+		}
+	}
+
 	// ── Effort bar ───────────────────────────────────────────────────
 	b.WriteString(pickerDivider.Render(strings.Repeat("─", 52)))
 	b.WriteByte('\n')
@@ -353,6 +442,8 @@ func (m modelPickerModel) renderRow(idx int, e pickerEntry, backend string) stri
 		icon = pickerIcon.Render("✦")
 	case "codex":
 		icon = pickerIconCodex.Render("⊗")
+	case "ollama":
+		icon = pickerIconOllama.Render("⬡")
 	default:
 		icon = pickerIconAPI.Render("○")
 	}
@@ -434,6 +525,8 @@ func (m modelPickerModel) renderStatusBar() string {
 		icon = pickerStatusIcon.Render("✦")
 	case "codex":
 		icon = pickerStatusIconCodex.Render("⊗")
+	case "ollama":
+		icon = pickerStatusBar.Render("⬡")
 	default:
 		icon = pickerStatusIcon.Render("○")
 	}
@@ -579,9 +672,11 @@ func ShowThemePicker(currentTheme string) (string, bool) {
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 // ShowModelPicker opens the unified model + effort TUI.
+// ollamaURL and ollamaModel are the currently configured Ollama endpoint/model;
+// pass empty strings to hide the Ollama section.
 // Returns the result; Confirmed=false means the user cancelled.
-func ShowModelPicker(currentBackend, currentModelID, effort string) ModelPickerResult {
-	m := newModelPickerModel(currentBackend, currentModelID, effort)
+func ShowModelPicker(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string) ModelPickerResult {
+	m := newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel)
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {

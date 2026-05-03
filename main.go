@@ -657,12 +657,40 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				continue
 			}
 
-			result := ShowModelPicker(cfg.Backend, cfg.ModelOverride, cfg.Effort)
+			// Determine the picker's "currentBackend" — include ollama as a backend value.
+			currentBackend := cfg.Backend
+			if agent.ollamaMode == OllamaModeFull {
+				currentBackend = "ollama"
+			}
+			result := ShowModelPicker(currentBackend, cfg.ModelOverride, cfg.Effort, cfg.OllamaURL, cfg.OllamaModel)
 			if !result.Confirmed {
 				continue
 			}
 
-			// Validate the chosen CLI is actually installed.
+			// ── Ollama selected ───────────────────────────────────────────────
+			if result.Backend == "ollama" {
+				if cfg.OllamaURL == "" || cfg.OllamaModel == "" {
+					term.PrintError("Ollama not configured. Set ollama_url and ollama_model first.")
+					term.PrintSystem("  qmax-code config set ollama_url https://llm2.qualitymax.io")
+					term.PrintSystem("  qmax-code config set ollama_model llama3.2:3b")
+					continue
+				}
+				if agent.ollama == nil {
+					agent.ollama = NewOllamaClient(cfg)
+				}
+				if cliAgent != nil {
+					cliAgent.Cleanup()
+					cliAgent = nil
+				}
+				agent.ollamaMode = OllamaModeFull
+				cfg.Backend = ""
+				agent.config.Context.Backend = ""
+				_ = cfg.Save()
+				term.PrintSystem(fmt.Sprintf("Backend: Ollama  model: %s  endpoint: %s", cfg.OllamaModel, maskURL(cfg.OllamaURL)))
+				continue
+			}
+
+			// ── Validate the chosen CLI is actually installed ─────────────────
 			switch result.Backend {
 			case "cc":
 				if FindClaudeCode() == "" {
@@ -692,11 +720,12 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				}
 			}
 
-			// Tear down current CLI agent.
+			// Tear down current CLI agent and disable Ollama if switching away from it.
 			if cliAgent != nil {
 				cliAgent.Cleanup()
 				cliAgent = nil
 			}
+			agent.ollamaMode = OllamaModeOff
 
 			// Spin up the new agent with selected model + effort.
 			switch result.Backend {
@@ -711,7 +740,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				cliAgent = ca
 				term.PrintSystem(fmt.Sprintf("Backend: Codex  model: %s  effort: %s", result.ModelID, result.Effort))
 			default:
-				term.PrintSystem("Backend: Anthropic API (direct)")
+				term.PrintSystem(fmt.Sprintf("Backend: Anthropic API  model: %s", result.ModelID))
 			}
 
 			cfg.Backend = result.Backend

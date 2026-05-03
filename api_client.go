@@ -354,6 +354,22 @@ func (c *APIClient) CreatePR(ctx context.Context, repoID, projectID int) string 
 	return c.post(ctx, "/api/repositories/create-pr", body)
 }
 
+func (c *APIClient) SecurityAuditPRCheck(ctx context.Context, repoSlug string, prNumber int, baseSHA, headSHA string) string {
+	body := map[string]interface{}{
+		"repo_slug": repoSlug,
+		"pr_number": prNumber,
+		"base_sha":  baseSHA,
+		"head_sha":  headSHA,
+	}
+	return c.post(ctx, "/api/security-audit/pr-check", body)
+}
+
+// --- Agent session history ---
+
+func (c *APIClient) ListAgentSessions(ctx context.Context, projectID, limit int) string {
+	return c.get(ctx, fmt.Sprintf("/api/agent-sessions?project_id=%d&limit=%d", projectID, limit))
+}
+
 // --- Script operations ---
 
 func (c *APIClient) GetScript(ctx context.Context, scriptID int) string {
