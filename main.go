@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -416,27 +415,12 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	defer agent.logger.Close()
 
 	// Cloud session tracking — created once when projectID is known.
-	var cloudSessionID string
+	var tracker cloudSessionTracker
 	startCloudSession := func() {
-		api := agent.config.Context.API
-		projectID := agent.config.Context.ProjectID
-		if api == nil || projectID == 0 || cloudSessionID != "" {
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		cloudSessionID = api.CreateAgentSession(ctx, projectID, agent.config.Model)
+		tracker.Start(agent.config.Context.API, agent.config.Context.ProjectID, agent.config.Model)
 	}
-
 	completeCloudSession := func() {
-		api := agent.config.Context.API
-		if api == nil || cloudSessionID == "" {
-			return
-		}
-		summary := sessionSummary(agent.history)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		api.CompleteAgentSession(ctx, cloudSessionID, agent.usage.TotalTokens(), summary)
+		tracker.Complete(agent.config.Context.API, agent.usage.TotalTokens(), sessionSummary(agent.history))
 	}
 
 	// Graceful interrupt handling
