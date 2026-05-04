@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -162,14 +163,8 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = len(runes)
 
 	case tea.KeyCtrlW:
-		// Delete word backwards (skip trailing spaces, then delete word chars).
 		end := m.cursor
-		for m.cursor > 0 && runes[m.cursor-1] == ' ' {
-			m.cursor--
-		}
-		for m.cursor > 0 && runes[m.cursor-1] != ' ' {
-			m.cursor--
-		}
+		m.cursor = previousWordBoundary(runes, m.cursor)
 		runes = append(runes[:m.cursor], runes[end:]...)
 		m.text = string(runes)
 
@@ -254,14 +249,21 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// isWordChar matches readline's word definition: letters, digits, underscore.
+// Punctuation, slashes, dots, etc. are treated as separators so word motion
+// stops at each path segment / identifier boundary, matching bash/zsh muscle memory.
+func isWordChar(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
 func previousWordBoundary(runes []rune, cursor int) int {
 	if cursor > len(runes) {
 		cursor = len(runes)
 	}
-	for cursor > 0 && runes[cursor-1] == ' ' {
+	for cursor > 0 && !isWordChar(runes[cursor-1]) {
 		cursor--
 	}
-	for cursor > 0 && runes[cursor-1] != ' ' {
+	for cursor > 0 && isWordChar(runes[cursor-1]) {
 		cursor--
 	}
 	return cursor
@@ -271,10 +273,10 @@ func nextWordBoundary(runes []rune, cursor int) int {
 	if cursor < 0 {
 		cursor = 0
 	}
-	for cursor < len(runes) && runes[cursor] != ' ' {
+	for cursor < len(runes) && isWordChar(runes[cursor]) {
 		cursor++
 	}
-	for cursor < len(runes) && runes[cursor] == ' ' {
+	for cursor < len(runes) && !isWordChar(runes[cursor]) {
 		cursor++
 	}
 	return cursor

@@ -101,7 +101,7 @@ func PasteTextFromClipboard() (string, error) {
 }
 
 func isLargePastedText(text string, pasted bool) bool {
-	return pasted && len([]byte(text)) >= largePastedTextThreshold
+	return pasted && len(text) >= largePastedTextThreshold
 }
 
 func savePastedTextFile(text string) (string, error) {

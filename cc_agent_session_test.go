@@ -179,3 +179,27 @@ func TestOutputStyleDirectiveModes(t *testing.T) {
 		t.Fatalf("verbose directive does not describe previous style: %q", verbose)
 	}
 }
+
+func TestCodexBuildPromptReflectsOutputVerbose(t *testing.T) {
+	a := &CodexAgent{effort: "high", outputVerbose: false, sctx: &SessionContext{}}
+	if !strings.Contains(a.buildPrompt("hi"), "OUTPUT MODE: COMPACT") {
+		t.Fatal("compact directive not in built prompt")
+	}
+
+	a.SetOutputVerbose(true)
+	if !strings.Contains(a.buildPrompt("hi"), "OUTPUT MODE: VERBOSE") {
+		t.Fatal("SetOutputVerbose(true) did not propagate into the built prompt")
+	}
+}
+
+func TestCCAgentSetOutputVerboseTogglesField(t *testing.T) {
+	a := &CCAgent{effort: "high", outputVerbose: false}
+	a.SetOutputVerbose(true)
+	if !a.outputVerbose {
+		t.Fatal("SetOutputVerbose(true) did not toggle CC agent field")
+	}
+	a.SetOutputVerbose(false)
+	if a.outputVerbose {
+		t.Fatal("SetOutputVerbose(false) did not toggle CC agent field")
+	}
+}

@@ -38,6 +38,36 @@ func TestInputCtrlArrowsMoveByWord(t *testing.T) {
 	}
 }
 
+func TestInputCtrlArrowsStopOnPunctuation(t *testing.T) {
+	m := newInputModel("qmax > ", nil)
+	m.text = "src/foo/bar.go"
+	m.cursor = len([]rune(m.text))
+
+	want := []int{
+		len([]rune("src/foo/bar.")),
+		len([]rune("src/foo/")),
+		len([]rune("src/")),
+		0,
+	}
+	for i, w := range want {
+		m = applyInputKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlLeft})
+		if m.cursor != w {
+			t.Fatalf("ctrl+left step %d: cursor = %d, want %d", i+1, m.cursor, w)
+		}
+	}
+}
+
+func TestInputCtrlWDeletesPathSegment(t *testing.T) {
+	m := newInputModel("qmax > ", nil)
+	m.text = "src/foo/bar.go"
+	m.cursor = len([]rune(m.text))
+
+	m = applyInputKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlW})
+	if m.text != "src/foo/bar." {
+		t.Fatalf("ctrl+w on path: text = %q, want %q", m.text, "src/foo/bar.")
+	}
+}
+
 func TestInputCtrlXTripleClearsLine(t *testing.T) {
 	m := newInputModel("qmax > ", nil)
 	m.text = "clear this input"

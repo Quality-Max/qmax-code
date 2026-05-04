@@ -971,8 +971,8 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				term.PrintError(fmt.Sprintf("Could not save pasted_file: %v", err))
 				continue
 			}
-			term.PrintSystem(fmt.Sprintf("Large paste saved as pasted_file: %s (%d bytes)", path, len([]byte(input))))
-			input = pastedFilePrompt(path, len([]byte(input)))
+			term.PrintSystem(fmt.Sprintf("Large paste saved as pasted_file: %s (%d bytes)", path, len(input)))
+			input = pastedFilePrompt(path, len(input))
 			if len(inputHistory) > 0 {
 				inputHistory[len(inputHistory)-1] = input
 			}
