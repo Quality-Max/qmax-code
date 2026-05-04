@@ -304,7 +304,7 @@ func main() {
 	}
 
 	// Build the CLI agent if a CLI backend was selected and consented to above.
-	// Global MCP install (~/.claude/settings.json or ~/.codex/config.json) is
+	// Global MCP install (~/.claude/settings.json or ~/.codex/config.toml) is
 	// performed only when the user opted into it during the consent prompt.
 	switch cliBackend {
 	case "cc":
@@ -1022,9 +1022,9 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				backendTag = agent.config.Context.Backend
 			}
 			CaptureError(err, map[string]interface{}{
-				"backend":      backendTag,
-				"input_len":    fmt.Sprintf("%d", len(input)),
-				"image_count":  fmt.Sprintf("%d", len(images)),
+				"backend":     backendTag,
+				"input_len":   fmt.Sprintf("%d", len(input)),
+				"image_count": fmt.Sprintf("%d", len(images)),
 			})
 			autoSave() // save even on error — preserves context
 			continue

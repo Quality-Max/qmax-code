@@ -52,7 +52,7 @@ type Config struct {
 
 	// OrchGlobalInstall records that the user opted into writing the qmax MCP
 	// entry into the CLI's global config (~/.claude/settings.json or
-	// ~/.codex/config.json). False = use a per-session temp config only.
+	// ~/.codex/config.toml). False = use a per-session temp config only.
 	OrchGlobalInstall bool `json:"orch_global_install,omitempty"`
 
 	// Theme selects the terminal color scheme.

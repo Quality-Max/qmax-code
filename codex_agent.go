@@ -19,7 +19,7 @@ import (
 // server used for CC mode.
 //
 // Per-message flow:
-//  1. qmax-code writes ~/.codex/config.json with the qmax MCP server entry
+//  1. qmax-code writes ~/.codex/config.toml with the qmax MCP server entry
 //  2. qmax-code spawns: codex exec --json [--dangerously-bypass-approvals-and-sandbox] "msg"
 //  3. Codex picks up the MCP config and spawns qmax-code serve --mcp
 //  4. Codex uses qmax tools natively, runs on OpenAI subscription
@@ -83,14 +83,9 @@ func NewCodexAgent(bin, modelID, effort, permissionMode string, sctx *SessionCon
 	}
 }
 
-// writeMCPConfig writes the qmax MCP server into ~/.codex/config.json
+// writeMCPConfig writes the qmax MCP server into ~/.codex/config.toml
 // so Codex picks it up for every invocation.
 func (a *CodexAgent) writeMCPConfig() error {
-	self, err := os.Executable()
-	if err != nil {
-		self = "qmax-code"
-	}
-
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -100,36 +95,14 @@ func (a *CodexAgent) writeMCPConfig() error {
 		return err
 	}
 
-	cfgPath := filepath.Join(codexDir, "config.json")
-
-	// Merge with existing config rather than overwriting it.
-	existing := map[string]interface{}{}
-	if data, err := os.ReadFile(cfgPath); err == nil {
-		_ = json.Unmarshal(data, &existing)
-	}
-
-	mcpServers, _ := existing["mcpServers"].(map[string]interface{})
-	if mcpServers == nil {
-		mcpServers = map[string]interface{}{}
-	}
-
 	env := map[string]string{}
 	if a.sctx.ProjectID > 0 {
 		env["QMAX_PROJECT_ID"] = fmt.Sprintf("%d", a.sctx.ProjectID)
 	}
 
-	mcpServers["qmax"] = map[string]interface{}{
-		"command": self,
-		"args":    []string{"serve", "--mcp"},
-		"env":     env,
-	}
-	existing["mcpServers"] = mcpServers
-
-	data, err := json.MarshalIndent(existing, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(cfgPath, data, 0600)
+	cfgPath := filepath.Join(codexDir, "config.toml")
+	_, err = writeCodexMCPEntry(cfgPath, env)
+	return err
 }
 
 // codexQASystemPrompt is embedded in the initial prompt to Codex, since
