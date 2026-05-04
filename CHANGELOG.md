@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.15.6] - 2026-05-04
+
+### Fixed
+- Write Codex MCP configuration as TOML so Codex CLI/cloud session uploads can read the generated MCP server setup correctly.
+
 ## [1.11.0] — 2026-04-16
 
 ### Added
