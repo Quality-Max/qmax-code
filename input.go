@@ -126,12 +126,6 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ctrlC = true
 		return m, tea.Quit
 
-	case tea.KeyCtrlO:
-		m.result = ""
-		m.done = true
-		m.outputToggle = true
-		return m, tea.Quit
-
 	case tea.KeyBackspace:
 		if m.cursor > 0 {
 			runes = append(runes[:m.cursor-1], runes[m.cursor:]...)

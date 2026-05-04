@@ -60,10 +60,10 @@ func TestInputCtrlOTogglesOutputMode(t *testing.T) {
 	m.text = "keep this draft"
 	m.cursor = len([]rune(m.text))
 
-	updated, cmd := m.updateTyping(tea.KeyMsg{Type: tea.KeyCtrlO})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	next, ok := updated.(inputModel)
 	if !ok {
-		t.Fatalf("updateTyping returned %T, want inputModel", updated)
+		t.Fatalf("Update returned %T, want inputModel", updated)
 	}
 	if cmd == nil {
 		t.Fatal("ctrl+o should quit input so the REPL can toggle output mode")
@@ -73,6 +73,23 @@ func TestInputCtrlOTogglesOutputMode(t *testing.T) {
 	}
 	if next.result != "" || next.ctrlC {
 		t.Fatalf("ctrl+o should not submit text or mark ctrl-c, result=%q ctrlC=%v", next.result, next.ctrlC)
+	}
+}
+
+func TestInputCtrlOTogglesFromMenuMode(t *testing.T) {
+	m := newInputModel("qmax > ", nil)
+	m.mode = modeMenu
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	next, ok := updated.(inputModel)
+	if !ok {
+		t.Fatalf("Update returned %T, want inputModel", updated)
+	}
+	if cmd == nil {
+		t.Fatal("ctrl+o from menu mode should quit input")
+	}
+	if !next.done || !next.outputToggle {
+		t.Fatalf("ctrl+o from menu mode done=%v outputToggle=%v, want both true", next.done, next.outputToggle)
 	}
 }
 
