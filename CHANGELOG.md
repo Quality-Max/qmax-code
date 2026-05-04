@@ -2,6 +2,14 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.15.7] - 2026-05-04
+
+### Fixed
+- **Cloud session sync was silently dropping all conversation content.** `UploadSessionMessages` posted to `POST /api/agent-sessions/{id}/messages`, which the server doesn't expose (405). Every completed cloud session since 1.15.0 ended with `event_count: 0` and the auto-summary "No agent session events to summarize." Now posts to `/events` with the correct discriminated-union shape `{"events":[{"type":"message","payload":<msg>}, ...]}`. Verified live; server-generated summaries now reflect the actual conversation.
+
+### Added
+- `/cloudsync` slash command — native TUI toggle for cloud session sync (Enabled / Disabled), as an alternative to `/set cloudsync ...`. Persists to config and starts the cloud session immediately when enabled.
+
 ## [1.15.6] - 2026-05-04
 
 ### Fixed
