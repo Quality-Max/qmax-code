@@ -409,15 +409,29 @@ const maxSessionUploadBytes = 4 * 1024 * 1024 // 4 MiB
 // Called alongside CompleteAgentSession so the cloud has complete context for
 // cross-session recall. If the payload exceeds maxSessionUploadBytes, older
 // messages are trimmed. Errors are silently dropped.
+//
+// The server exposes a generic /events endpoint with a discriminated-union body:
+//
+//	{"events": [{"type": "message", "payload": <Message>}, ...]}
+//
+// Valid event types per the server enum: file_edit, message, shell_cmd,
+// test_result, tool_call — we only emit "message" here. The body must use the
+// key "payload" (not "data"); other keys are silently dropped server-side and
+// the event lands with payload={}.
 func (c *APIClient) UploadSessionMessages(ctx context.Context, cloudID string, messages []Message) {
 	if len(messages) == 0 {
 		return
 	}
 	msgs := trimMessagesToFit(messages, maxSessionUploadBytes)
-	body := map[string]interface{}{
-		"messages": msgs,
+	events := make([]map[string]interface{}, 0, len(msgs))
+	for _, m := range msgs {
+		events = append(events, map[string]interface{}{
+			"type":    "message",
+			"payload": m,
+		})
 	}
-	c.post(ctx, "/api/agent-sessions/"+cloudID+"/messages", body)
+	body := map[string]interface{}{"events": events}
+	c.post(ctx, "/api/agent-sessions/"+cloudID+"/events", body)
 }
 
 // trimMessagesToFit drops oldest messages until the JSON-encoded payload fits

@@ -806,6 +806,31 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			}
 			continue
 
+		case input == "/cloudsync":
+			cfg := agent.appConfig
+			if cfg == nil {
+				term.PrintError("Config not loaded.")
+				continue
+			}
+			enabled, ok := ShowCloudSyncPicker(cfg.CloudSync)
+			if !ok {
+				continue
+			}
+			v := enabled
+			cfg.CloudSync = &v
+			if err := cfg.Save(); err != nil {
+				term.PrintError(fmt.Sprintf("Failed to save config: %v", err))
+				continue
+			}
+			if enabled {
+				term.PrintSystem("Cloud session sync enabled.")
+				// Open the cloud session immediately so the rest of this run is tracked.
+				startCloudSession()
+			} else {
+				term.PrintSystem("Cloud session sync disabled.")
+			}
+			continue
+
 		case input == "/cc", input == "/codex", input == "/api":
 			// Instant backend switching — no restart needed.
 			cfg := agent.appConfig
@@ -1225,6 +1250,7 @@ Commands:
   /cost          Show session token usage and estimated cost
   /orch          Cycle orchestration backend: off → CC → Codex → off
   /theme         Live-preview color scheme picker
+  /cloudsync     Toggle cloud session sync (enabled/disabled)
   /cc            Switch to Claude Code backend (CC subscription, no API tokens)
   /codex         Switch to Codex CLI backend (OpenAI subscription, no API tokens)
   /api           Switch back to direct Anthropic API
