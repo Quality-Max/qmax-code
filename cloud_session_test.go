@@ -269,8 +269,8 @@ func TestCloudTracker_Complete_UploadsMessages(t *testing.T) {
 	if methods[1] != "POST" {
 		t.Errorf("second call: got %s, want POST", methods[1])
 	}
-	if paths[1] != "/api/agent-sessions/cloud-xyz/messages" {
-		t.Errorf("messages path: got %q, want /api/agent-sessions/cloud-xyz/messages", paths[1])
+	if paths[1] != "/api/agent-sessions/cloud-xyz/events" {
+		t.Errorf("messages path: got %q, want /api/agent-sessions/cloud-xyz/events", paths[1])
 	}
 }
 

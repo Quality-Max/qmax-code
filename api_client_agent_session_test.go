@@ -186,7 +186,7 @@ func TestUploadSessionMessages_PostsToCorrectEndpoint(t *testing.T) {
 		gotPath = r.URL.Path
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &gotBody)
-		_, _ = w.Write([]byte(`{}`))
+		_, _ = w.Write([]byte(`{"appended":2}`))
 	})
 
 	msgs := []Message{
@@ -198,11 +198,42 @@ func TestUploadSessionMessages_PostsToCorrectEndpoint(t *testing.T) {
 	if gotMethod != "POST" {
 		t.Errorf("method: got %q, want POST", gotMethod)
 	}
-	if gotPath != "/api/agent-sessions/sess-123/messages" {
-		t.Errorf("path: got %q", gotPath)
+	// Server exposes /events, not /messages. The 405 from /messages is the bug
+	// this test now guards against.
+	if gotPath != "/api/agent-sessions/sess-123/events" {
+		t.Errorf("path: got %q, want /api/agent-sessions/sess-123/events", gotPath)
 	}
-	if gotBody["messages"] == nil {
-		t.Error("body missing 'messages' key")
+	events, ok := gotBody["events"].([]interface{})
+	if !ok {
+		t.Fatalf("body missing 'events' array: %+v", gotBody)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	for i, ev := range events {
+		m, ok := ev.(map[string]interface{})
+		if !ok {
+			t.Fatalf("event %d not an object: %v", i, ev)
+		}
+		if m["type"] != "message" {
+			t.Errorf("event %d type: got %v, want \"message\"", i, m["type"])
+		}
+		// Server stores message bodies under "payload" — using "data" silently
+		// drops the content (event lands with payload={}). Guard against regression.
+		payload, ok := m["payload"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("event %d missing payload object: %v", i, m)
+		}
+		if payload["role"] == nil || payload["content"] == nil {
+			t.Errorf("event %d payload missing role/content: %v", i, payload)
+		}
+		if _, hasData := m["data"]; hasData {
+			t.Errorf("event %d should not use 'data' key (server expects 'payload'): %v", i, m)
+		}
+	}
+	first := events[0].(map[string]interface{})["payload"].(map[string]interface{})
+	if first["role"] != "user" || first["content"] != "hello" {
+		t.Errorf("first event payload mismatch: %+v", first)
 	}
 }
 

@@ -866,3 +866,121 @@ func ShowSessionPicker(sessions []SessionSummary, activeID string) (string, bool
 	}
 	return final.sessions[final.cursor].ID, true
 }
+
+// ─── Cloud-sync toggle ────────────────────────────────────────────────────────
+
+type cloudSyncPickerModel struct {
+	cursor    int  // 0 = enabled, 1 = disabled
+	current   bool // current value (true = enabled)
+	hasValue  bool // false when CloudSync is unset (never asked)
+	confirmed bool
+	cancelled bool
+}
+
+func newCloudSyncPickerModel(current *bool) cloudSyncPickerModel {
+	m := cloudSyncPickerModel{}
+	if current != nil {
+		m.hasValue = true
+		m.current = *current
+		if *current {
+			m.cursor = 0
+		} else {
+			m.cursor = 1
+		}
+	}
+	return m
+}
+
+func (m cloudSyncPickerModel) Init() tea.Cmd { return nil }
+
+func (m cloudSyncPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "ctrl+c", "esc", "q":
+			m.cancelled = true
+			return m, tea.Quit
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < 1 {
+				m.cursor++
+			}
+		case "enter", " ":
+			m.confirmed = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m cloudSyncPickerModel) View() string {
+	var b strings.Builder
+
+	b.WriteString(pickerSectionHeader.Render("Cloud session sync"))
+	b.WriteByte('\n')
+
+	rows := []struct {
+		label string
+		desc  string
+		value bool
+	}{
+		{"Enabled", "Sync sessions to QualityMax cloud", true},
+		{"Disabled", "Keep sessions on this machine only", false},
+	}
+
+	for i, r := range rows {
+		isCursor := i == m.cursor
+
+		arrow := "  "
+		if isCursor {
+			arrow = pickerBadgeStar.Render("▶ ")
+		}
+
+		var label string
+		if isCursor {
+			label = pickerLabelSel.Render(fmt.Sprintf("%-9s", r.label))
+		} else {
+			label = pickerLabel.Render(fmt.Sprintf("%-9s", r.label))
+		}
+
+		check := ""
+		if m.hasValue && r.value == m.current {
+			check = "  " + pickerBadgeCurrent.Render("✓ current")
+		}
+
+		desc := pickerFooter.Render(r.desc)
+		row := fmt.Sprintf("%s%s  %s%s", arrow, label, desc, check)
+		if isCursor {
+			b.WriteString(pickerRowSelected.Render(row))
+		} else {
+			b.WriteString(pickerRowNormal.Render(row))
+		}
+		b.WriteByte('\n')
+	}
+
+	b.WriteString(pickerDivider.Render(strings.Repeat("─", 52)))
+	b.WriteByte('\n')
+	b.WriteString(pickerFooter.Render("↑↓ navigate  ·  Enter confirm  ·  Esc cancel"))
+	b.WriteByte('\n')
+
+	return pickerBox.Render(b.String())
+}
+
+// ShowCloudSyncPicker opens a small TUI to toggle cloud session sync.
+// `current` is the present setting (nil = unset). Returns (chosen, ok); ok=false
+// means the user cancelled and the current value should be preserved.
+func ShowCloudSyncPicker(current *bool) (bool, bool) {
+	m := newCloudSyncPickerModel(current)
+	p := tea.NewProgram(m)
+	result, err := p.Run()
+	if err != nil {
+		return false, false
+	}
+	final := result.(cloudSyncPickerModel)
+	if final.cancelled || !final.confirmed {
+		return false, false
+	}
+	return final.cursor == 0, true
+}

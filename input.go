@@ -21,6 +21,7 @@ var slashMenuItems = []SlashMenuItem{
 	{"/help", "Show help"},
 	{"/orch", "Model + effort picker (CC / Codex / API)"},
 	{"/theme", "Live-preview color scheme picker"},
+	{"/cloudsync", "Toggle cloud session sync (enabled/disabled)"},
 	{"/cc", "Switch to Claude Code backend"},
 	{"/codex", "Switch to Codex CLI backend"},
 	{"/api", "Switch to direct Anthropic API"},
