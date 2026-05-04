@@ -289,13 +289,14 @@ func main() {
 	}
 
 	agent := NewAgent(AgentConfig{
-		AnthropicKey: anthropicKey,
-		Model:        baseModel,
-		ChatModel:    chatModel,
-		Verbose:      *verbose,
-		Context:      ctx,
-		AutoRoute:    autoRoute,
-		Professional: appConfig.Professional,
+		AnthropicKey:  anthropicKey,
+		Model:         baseModel,
+		ChatModel:     chatModel,
+		Verbose:       *verbose,
+		OutputVerbose: appConfig.OutputVerbose,
+		Context:       ctx,
+		AutoRoute:     autoRoute,
+		Professional:  appConfig.Professional,
 	})
 	agent.appConfig = appConfig
 	agent.ollama = NewOllamaClient(appConfig)
@@ -313,14 +314,14 @@ func main() {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
 			}
 		}
-		cliAgent = NewCCAgent(FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, ctx)
+		cliAgent = NewCCAgent(FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
 	case "codex":
 		if appConfig.OrchGlobalInstall && !IsOrchSetupDone("codex") {
 			if res, err := SetupCodexIntegration(); err == nil && !res.AlreadyHadMCP {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
 			}
 		}
-		ca := NewCodexAgent(FindCodex(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, ctx)
+		ca := NewCodexAgent(FindCodex(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
 		if err := ca.writeMCPConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not write Codex MCP config: %v\n", err)
 		}
@@ -515,6 +516,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 	for {
 		var input string
+		inputWasPasted := false
 
 		// Drain the prompt queue before blocking on interactive input.
 		// This processes prompts the user typed while the agent was running.
@@ -530,7 +532,12 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			fmt.Println()
 			inputHistory = append(inputHistory, input)
 		} else {
-			result := ReadInput(term.currentPrompt, inputHistory)
+			result := ReadInput(term.currentPrompt, inputHistory, agent.config.OutputVerbose)
+
+			if result.OutputToggle {
+				toggleOutputVerbose(agent, cliAgent, term)
+				continue
+			}
 
 			// Handle Ctrl+C: double-tap within 1s exits
 			if result.CtrlC {
@@ -548,6 +555,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if input == "" {
 				continue
 			}
+			inputWasPasted = result.Pasted
 			inputHistory = append(inputHistory, input)
 		}
 
@@ -760,10 +768,10 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			// Spin up the new agent with selected model + effort.
 			switch result.Backend {
 			case "cc":
-				cliAgent = NewCCAgent(FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, agent.config.Context)
+				cliAgent = NewCCAgent(FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, agent.config.Context)
 				term.PrintSystem(fmt.Sprintf("Backend: Claude Code  model: %s  effort: %s", result.ModelID, result.Effort))
 			case "codex":
-				ca := NewCodexAgent(FindCodex(), result.ModelID, result.Effort, cfg.OrchPermissionMode, agent.config.Context)
+				ca := NewCodexAgent(FindCodex(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, agent.config.Context)
 				if err := ca.writeMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: Codex MCP config: %v", err))
 				}
@@ -790,11 +798,10 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if !ok {
 				continue
 			}
-			cfg.Theme = chosen
-			ApplyTheme(ThemeByName(chosen))
-			if err := cfg.Save(); err != nil {
+			if err := cfg.SaveTheme(chosen); err != nil {
 				term.PrintError(fmt.Sprintf("Failed to save config: %v", err))
 			} else {
+				ApplyTheme(ThemeByName(chosen))
 				term.PrintSystem(fmt.Sprintf("Theme set to: %s", chosen))
 			}
 			continue
@@ -846,7 +853,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				if consent.GlobalInstall && !IsOrchSetupDone("cc") {
 					RunOrchSetup("cc", term)
 				}
-				cliAgent = NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, agent.config.Context)
+				cliAgent = NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, agent.config.Context)
 				cfg.Backend = "cc"
 				_ = cfg.Save()
 				term.PrintSystem(fmt.Sprintf("Backend → Claude Code (%s) · %s mode", bin, cfg.OrchPermissionMode))
@@ -868,7 +875,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				if consent.GlobalInstall && !IsOrchSetupDone("codex") {
 					RunOrchSetup("codex", term)
 				}
-				ca := NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, agent.config.Context)
+				ca := NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, agent.config.Context)
 				if err := ca.writeMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
 				}
@@ -955,6 +962,20 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			}
 			term.PrintSystem(fmt.Sprintf("Pasted %d chars from clipboard", len(text)))
 			input = text // fall through to normal processing
+			inputWasPasted = true
+		}
+
+		if isLargePastedText(input, inputWasPasted) {
+			path, err := savePastedTextFile(input)
+			if err != nil {
+				term.PrintError(fmt.Sprintf("Could not save pasted_file: %v", err))
+				continue
+			}
+			term.PrintSystem(fmt.Sprintf("Large paste saved as pasted_file: %s (%d bytes)", path, len([]byte(input))))
+			input = pastedFilePrompt(path, len([]byte(input)))
+			if len(inputHistory) > 0 {
+				inputHistory[len(inputHistory)-1] = input
+			}
 		}
 
 		// Detect image file paths dragged/pasted into input
@@ -1106,6 +1127,32 @@ func handleDisconnect(agent *Agent, term *Terminal) {
 	term.PrintSystem("Run /connect to log in again.")
 }
 
+func toggleOutputVerbose(agent *Agent, cliAgent CLIAgent, term *Terminal) {
+	if agent == nil {
+		return
+	}
+	cfg := agent.appConfig
+	if cfg == nil {
+		cfg = defaultConfig()
+		agent.appConfig = cfg
+	}
+	cfg.OutputVerbose = !cfg.OutputVerbose
+	agent.config.OutputVerbose = cfg.OutputVerbose
+	if cliAgent != nil {
+		cliAgent.SetOutputVerbose(cfg.OutputVerbose)
+	}
+
+	mode := "compact"
+	if cfg.OutputVerbose {
+		mode = "verbose"
+	}
+	if err := cfg.Save(); err != nil {
+		term.PrintError(fmt.Sprintf("Output mode changed to %s but could not save config: %v", mode, err))
+		return
+	}
+	term.PrintSystem(fmt.Sprintf("Output mode: %s (Ctrl+O toggles)", mode))
+}
+
 // handleKeys provides an interactive TUI for managing API keys.
 func handleKeys(agent *Agent, term *Terminal) {
 	fmt.Println()
@@ -1182,6 +1229,8 @@ Commands:
   /codex         Switch to Codex CLI backend (OpenAI subscription, no API tokens)
   /api           Switch back to direct Anthropic API
   /ollama        Toggle Ollama on/off (self-hosted LLM for chat)
+  /set output_verbose true|false
+                 Toggle compact vs detailed Codex/CC answers
   /config        Show current config settings
   /keys          Set API keys (interactive menu)
   /screenshot    Capture a screenshot and analyze it
@@ -1216,6 +1265,9 @@ Queue:
 
 Shortcuts:
   Ctrl+C         Cancel current operation (double-tap to exit)
+  Ctrl+O         Toggle compact/verbose agent output
+  Ctrl+X x3      Clear the whole input line
+  Ctrl+←/→       Move by word
 
 Models (--model flag):
   auto            Smart routing: haiku for chat, sonnet for tools (default)
@@ -1246,6 +1298,11 @@ func printConfigInfo(cfg *Config, term *Terminal) {
 	fmt.Printf("  %-20s %d\n", "Default project:", cfg.DefaultProject)
 	fmt.Printf("  %-20s %v\n", "Professional:", cfg.Professional)
 	fmt.Printf("  %-20s %v\n", "Auto-save:", cfg.AutoSave)
+	outputMode := "compact"
+	if cfg.OutputVerbose {
+		outputMode = "verbose"
+	}
+	fmt.Printf("  %-20s %s\n", "Output mode:", outputMode)
 	cloudSyncVal := "not set (will prompt)"
 	if cfg.CloudSync != nil {
 		if *cfg.CloudSync {
@@ -1269,7 +1326,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 	parts := strings.Fields(input)
 	if len(parts) < 3 {
 		term.PrintError("Usage: /set <key> <value>")
-		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, budget, apikey, ollama, backend, theme")
+		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, output_verbose, budget, apikey, ollama, backend, theme")
 		return
 	}
 	key := strings.ToLower(parts[1])
@@ -1325,6 +1382,21 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 			term.PrintSystem("Auto-save disabled.")
 		default:
 			term.PrintError("Value must be true or false.")
+			return
+		}
+
+	case "output_verbose", "output-verbose", "output":
+		switch strings.ToLower(value) {
+		case "true", "1", "yes", "on", "verbose":
+			cfg.OutputVerbose = true
+			agent.config.OutputVerbose = true
+			term.PrintSystem("Output mode set to verbose.")
+		case "false", "0", "no", "off", "compact":
+			cfg.OutputVerbose = false
+			agent.config.OutputVerbose = false
+			term.PrintSystem("Output mode set to compact.")
+		default:
+			term.PrintError("Value must be compact/verbose or true/false.")
 			return
 		}
 
@@ -1443,7 +1515,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, budget, apikey, ollama, backend, theme")
+		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, output_verbose, budget, apikey, ollama, backend, theme")
 		return
 	}
 

@@ -19,6 +19,7 @@ import (
 // which CLI is underneath.
 type CLIAgent interface {
 	Run(userMsg string, term *Terminal) (string, error)
+	SetOutputVerbose(verbose bool)
 	Cleanup()
 }
 
@@ -39,6 +40,7 @@ type CCAgent struct {
 	claudeBin      string
 	modelID        string // "" = let CC decide; otherwise passed as --model
 	effort         string // "low" | "medium" | "high" — injected into system prompt
+	outputVerbose  bool   // false = compact answer style; true = previous detailed style
 	permissionMode string // "standard" | "unattended" — see Run() for behavior
 	ccSessionID    string // CC's own session ID, for --resume
 	mcpConfigPath  string // temp MCP config written once per qmax session
@@ -159,7 +161,7 @@ func FindClaudeCode() string {
 // effort is "low" | "medium" | "high" (empty defaults to "high").
 // permissionMode is "standard" (curated allowlist) or "unattended"
 // (--dangerously-skip-permissions). Both require explicit user consent.
-func NewCCAgent(claudeBin, modelID, effort, permissionMode string, sctx *SessionContext) *CCAgent {
+func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose bool, sctx *SessionContext) *CCAgent {
 	if effort == "" {
 		effort = "high"
 	}
@@ -170,6 +172,7 @@ func NewCCAgent(claudeBin, modelID, effort, permissionMode string, sctx *Session
 		claudeBin:      claudeBin,
 		modelID:        modelID,
 		effort:         effort,
+		outputVerbose:  outputVerbose,
 		permissionMode: permissionMode,
 		sctx:           sctx,
 	}
@@ -230,7 +233,7 @@ func (a *CCAgent) Run(userMsg string, term *Terminal) (string, error) {
 	mcpPath := a.mcpConfigPath
 	a.mu.Unlock()
 
-	systemPrompt := ccQASystemPrompt + effortDirective(a.effort)
+	systemPrompt := ccQASystemPrompt + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose)
 
 	args := []string{
 		"--print", userMsg,
@@ -264,6 +267,7 @@ func (a *CCAgent) Run(userMsg string, term *Terminal) (string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, a.claudeBin, args...)
+	cmd.Stdin = strings.NewReader("")
 	cmd.Stderr = os.Stderr // CC's own errors and status messages
 
 	stdout, err := cmd.StdoutPipe()
@@ -324,12 +328,12 @@ func cleanupStaleMCPConfigs() {
 
 // ccEvent is a single line from CC's --output-format stream-json output.
 type ccEvent struct {
-	Type      string       `json:"type"`
-	Subtype   string       `json:"subtype,omitempty"`
-	SessionID string       `json:"session_id,omitempty"`
-	Message   *ccEventMsg  `json:"message,omitempty"`
-	Result    string       `json:"result,omitempty"`
-	IsError   bool         `json:"is_error,omitempty"`
+	Type      string      `json:"type"`
+	Subtype   string      `json:"subtype,omitempty"`
+	SessionID string      `json:"session_id,omitempty"`
+	Message   *ccEventMsg `json:"message,omitempty"`
+	Result    string      `json:"result,omitempty"`
+	IsError   bool        `json:"is_error,omitempty"`
 }
 
 type ccEventMsg struct {
@@ -391,7 +395,11 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 					a.lastToolName = displayName
 					a.mu.Unlock()
 					term.PrintToolIcon(displayName)
-					term.PrintToolStart(displayName, block.Input)
+					if a.outputVerbose {
+						term.PrintToolStart(displayName, block.Input)
+					} else {
+						fmt.Println()
+					}
 				}
 			}
 
@@ -407,7 +415,11 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 					toolName := a.lastToolName
 					a.mu.Unlock()
 					content := extractToolResultText(block.Content)
-					term.PrintToolResult(toolName, truncateStr(content, 200))
+					if a.outputVerbose {
+						term.PrintToolResult(toolName, truncateStr(content, 200))
+					} else {
+						term.StartThinking()
+					}
 				}
 			}
 
@@ -453,6 +465,20 @@ func effortDirective(effort string) string {
 	default: // "high" or unset
 		return "\n\nEFFORT: HIGH — Be exhaustive. Explore all coverage axes, flag every risk, leave no stone unturned."
 	}
+}
+
+// outputStyleDirective controls report length without reducing the actual QA work.
+func outputStyleDirective(verbose bool) string {
+	if verbose {
+		return "\n\nOUTPUT MODE: VERBOSE — Use the previous detailed response style. Include material findings, rationale, coverage gaps, and the next highest-impact action. Do not dump raw JSON unless explicitly requested."
+	}
+	return "\n\nOUTPUT MODE: COMPACT — Keep final answers short and high-signal by default. Lead with the result, use at most 3-5 bullets unless critical failures require more, and avoid low-risk enumeration. Still fetch real data, run tests, diagnose failures, and flag high-risk coverage gaps."
+}
+
+func (a *CCAgent) SetOutputVerbose(verbose bool) {
+	a.mu.Lock()
+	a.outputVerbose = verbose
+	a.mu.Unlock()
 }
 
 // stripMCPPrefix removes the "mcp__<server>__" prefix CC adds to MCP tool names.
