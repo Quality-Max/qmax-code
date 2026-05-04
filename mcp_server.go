@@ -46,18 +46,31 @@ func RunMCPServer() {
 			continue
 		}
 
-		var req mcpRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			continue
+		if resp, ok := handleMCPLine(line, sctx); ok {
+			_ = encoder.Encode(resp)
 		}
-
-		// JSON-RPC notifications have no id and require no response.
-		if req.ID == nil {
-			continue
-		}
-
-		_ = encoder.Encode(dispatchMCPRequest(req, sctx))
 	}
+}
+
+func handleMCPLine(line []byte, sctx *SessionContext) (mcpResponse, bool) {
+	var req mcpRequest
+	if err := json.Unmarshal(line, &req); err != nil {
+		return mcpErr(nil, -32700, "parse error"), true
+	}
+
+	// JSON-RPC notifications have no id and require no response.
+	if req.ID == nil {
+		return mcpResponse{}, false
+	}
+
+	if req.JSONRPC != "2.0" {
+		return mcpErr(req.ID, -32600, "invalid request: jsonrpc must be 2.0"), true
+	}
+	if req.Method == "" {
+		return mcpErr(req.ID, -32600, "invalid request: method is required"), true
+	}
+
+	return dispatchMCPRequest(req, sctx), true
 }
 
 // --- JSON-RPC / MCP types ---
@@ -71,7 +84,7 @@ type mcpRequest struct {
 
 type mcpResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id,omitempty"`
+	ID      interface{} `json:"id"`
 	Result  interface{} `json:"result,omitempty"`
 	Error   *mcpRPCErr  `json:"error,omitempty"`
 }

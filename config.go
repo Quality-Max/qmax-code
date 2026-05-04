@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config holds persistent user preferences for qmax-code.
@@ -58,6 +60,10 @@ type Config struct {
 	// Theme selects the terminal color scheme.
 	// Available: historic, ocean, neon, ember, aurora (dark) or paper, sky, sparkling, radiance, goldenhour (light). Empty defaults to "historic".
 	Theme string `json:"theme,omitempty"`
+
+	// OutputVerbose controls the user-facing answer style for CLI backends.
+	// false = compact terminal reports; true = previous detailed report style.
+	OutputVerbose bool `json:"output_verbose,omitempty"`
 
 	// CloudSync controls whether sessions are synced to the QualityMax cloud.
 	// nil = not asked yet (prompt fires on the next eligible session).
@@ -120,6 +126,34 @@ func (c *Config) Save() error {
 	}
 
 	return os.WriteFile(filepath.Join(dir, qmaxCodeConfigFile), data, 0600)
+}
+
+// SaveTheme persists the selected terminal color theme in the user's local
+// config file. The empty value clears the preference and restores the default.
+func (c *Config) SaveTheme(theme string) error {
+	if c == nil {
+		return fmt.Errorf("config not loaded")
+	}
+	if theme != "" {
+		valid := false
+		for _, name := range ThemeNames() {
+			if name == theme {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return fmt.Errorf("invalid theme %q; available: %s", theme, strings.Join(ThemeNames(), ", "))
+		}
+	}
+
+	previous := c.Theme
+	c.Theme = theme
+	if err := c.Save(); err != nil {
+		c.Theme = previous
+		return err
+	}
+	return nil
 }
 
 func defaultConfig() *Config {

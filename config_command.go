@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 )
 
 // handleConfigCommand implements the `qmax-code config ...` subcommand
@@ -27,6 +26,7 @@ import (
 //	default_model     → "auto", "sonnet", "opus", "haiku", or full model ID
 //	professional      → bool ("true" / "false")
 //	auto_save         → bool
+//	output_verbose    → bool (compact vs previous detailed answer style)
 //	max_token_budget  → integer
 func handleConfigCommand(args []string) {
 	if len(args) == 0 || args[0] == "show" {
@@ -80,6 +80,7 @@ func printConfig() {
 	fmt.Printf("    default_framework = %q\n", cfg.DefaultFramework)
 	fmt.Printf("    professional      = %t\n", cfg.Professional)
 	fmt.Printf("    auto_save         = %t\n", cfg.AutoSave)
+	fmt.Printf("    output_verbose    = %t\n", cfg.OutputVerbose)
 	fmt.Printf("    max_token_budget  = %d\n", cfg.MaxTokenBudget)
 	if cfg.AnthropicKey != "" {
 		fmt.Println("    anthropic_key     = (set; stored in OS keychain)")
@@ -171,6 +172,13 @@ func setConfigField(key, value string) error {
 		}
 		cfg.AutoSave = b
 
+	case "output_verbose":
+		b, err := parseConfigBool(value)
+		if err != nil {
+			return err
+		}
+		cfg.OutputVerbose = b
+
 	case "max_token_budget":
 		if value == "" {
 			cfg.MaxTokenBudget = 200000
@@ -200,20 +208,7 @@ func setConfigField(key, value string) error {
 		}
 
 	case "theme":
-		if value != "" {
-			valid := ThemeNames()
-			found := false
-			for _, n := range valid {
-				if n == value {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return fmt.Errorf("invalid theme %q; available: %s", value, strings.Join(valid, ", "))
-			}
-		}
-		cfg.Theme = value
+		return cfg.SaveTheme(value)
 
 	case "cloud_sync":
 		if value == "" {

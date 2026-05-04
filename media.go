@@ -7,7 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+const largePastedTextThreshold = 8 * 1024
 
 // imageExtensions maps file extensions to MIME types.
 var imageExtensions = map[string]string{
@@ -95,6 +98,31 @@ func PasteTextFromClipboard() (string, error) {
 		return "", fmt.Errorf("clipboard read failed: %w", err)
 	}
 	return string(out), nil
+}
+
+func isLargePastedText(text string, pasted bool) bool {
+	return pasted && len(text) >= largePastedTextThreshold
+}
+
+func savePastedTextFile(text string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, qmaxCodeConfigDir, "pastes")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("pasted_file_%s.txt", time.Now().UTC().Format("20060102T150405.000000000Z"))
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func pastedFilePrompt(path string, size int) string {
+	return fmt.Sprintf("A large text paste was saved as pasted_file. Read and use this local file: %s (%d bytes).", path, size)
 }
 
 // DetectAndLoadImages checks if the input contains file paths to images.

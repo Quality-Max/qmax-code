@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -52,30 +53,39 @@ const (
 
 // inputModel is a bubbletea model that handles text input + slash menu.
 type inputModel struct {
-	mode    inputMode
-	text    string
-	cursor  int // cursor position in runes
-	width   int // terminal width; 0 = not yet known
-	menu    int // selected menu index
-	filter  string
-	result  string // final submitted text
-	done    bool
-	ctrlC   bool // true if exited via Ctrl+C
-	prompt  string
-	history []string
-	histIdx int
+	mode          inputMode
+	text          string
+	cursor        int // cursor position in runes
+	width         int // terminal width; 0 = not yet known
+	menu          int // selected menu index
+	filter        string
+	result        string // final submitted text
+	done          bool
+	ctrlC         bool // true if exited via Ctrl+C
+	pasted        bool
+	outputToggle  bool
+	outputVerbose bool
+	clearPresses  int
+	prompt        string
+	history       []string
+	histIdx       int
 }
 
 func newInputModel(prompt string, history []string) inputModel {
+	return newInputModelWithOutputMode(prompt, history, false)
+}
+
+func newInputModelWithOutputMode(prompt string, history []string, outputVerbose bool) inputModel {
 	w := 80 // sensible fallback
 	if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && width > 0 {
 		w = width
 	}
 	return inputModel{
-		prompt:  prompt,
-		history: history,
-		histIdx: -1,
-		width:   w,
+		prompt:        prompt,
+		history:       history,
+		histIdx:       -1,
+		width:         w,
+		outputVerbose: outputVerbose,
 	}
 }
 
@@ -87,6 +97,12 @@ func (m inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		return m, nil
 	case tea.KeyMsg:
+		if msg.Type == tea.KeyCtrlO {
+			m.result = ""
+			m.done = true
+			m.outputToggle = true
+			return m, tea.Quit
+		}
 		if m.mode == modeMenu {
 			return m.updateMenu(msg)
 		}
@@ -97,6 +113,7 @@ func (m inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	runes := []rune(m.text)
+	resetClearPresses := true
 
 	switch msg.Type {
 	case tea.KeyEnter:
@@ -133,6 +150,12 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 
+	case tea.KeyCtrlLeft:
+		m.cursor = previousWordBoundary(runes, m.cursor)
+
+	case tea.KeyCtrlRight:
+		m.cursor = nextWordBoundary(runes, m.cursor)
+
 	case tea.KeyCtrlA:
 		m.cursor = 0
 
@@ -140,14 +163,8 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = len(runes)
 
 	case tea.KeyCtrlW:
-		// Delete word backwards (skip trailing spaces, then delete word chars).
 		end := m.cursor
-		for m.cursor > 0 && runes[m.cursor-1] == ' ' {
-			m.cursor--
-		}
-		for m.cursor > 0 && runes[m.cursor-1] != ' ' {
-			m.cursor--
-		}
+		m.cursor = previousWordBoundary(runes, m.cursor)
 		runes = append(runes[:m.cursor], runes[end:]...)
 		m.text = string(runes)
 
@@ -157,6 +174,17 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyCtrlK:
 		m.text = string(runes[:m.cursor])
+
+	case tea.KeyCtrlX:
+		resetClearPresses = false
+		if len(runes) > 0 {
+			m.clearPresses++
+			if m.clearPresses >= 3 {
+				m.text = ""
+				m.cursor = 0
+				m.clearPresses = 0
+			}
+		}
 
 	case tea.KeyUp:
 		if len(m.history) > 0 {
@@ -179,6 +207,9 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyRunes:
+		if msg.Paste {
+			m.pasted = true
+		}
 		ch := string(msg.Runes)
 		// Typing "/" on an empty line opens the slash menu.
 		if ch == "/" && m.text == "" {
@@ -211,8 +242,44 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type != tea.KeyUp && msg.Type != tea.KeyDown {
 		m.histIdx = -1
 	}
+	if resetClearPresses {
+		m.clearPresses = 0
+	}
 
 	return m, nil
+}
+
+// isWordChar matches readline's word definition: letters, digits, underscore.
+// Punctuation, slashes, dots, etc. are treated as separators so word motion
+// stops at each path segment / identifier boundary, matching bash/zsh muscle memory.
+func isWordChar(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
+func previousWordBoundary(runes []rune, cursor int) int {
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+	for cursor > 0 && !isWordChar(runes[cursor-1]) {
+		cursor--
+	}
+	for cursor > 0 && isWordChar(runes[cursor-1]) {
+		cursor--
+	}
+	return cursor
+}
+
+func nextWordBoundary(runes []rune, cursor int) int {
+	if cursor < 0 {
+		cursor = 0
+	}
+	for cursor < len(runes) && isWordChar(runes[cursor]) {
+		cursor++
+	}
+	for cursor < len(runes) && !isWordChar(runes[cursor]) {
+		cursor++
+	}
+	return cursor
 }
 
 func (m inputModel) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -330,6 +397,13 @@ func (m inputModel) View() string {
 				col++
 			}
 		}
+
+		mode := "compact"
+		if m.outputVerbose {
+			mode = "verbose"
+		}
+		b.WriteString("\n")
+		b.WriteString(menuHintStyle.Render(fmt.Sprintf("  Ctrl+O output: %s • Ctrl+X×3 clear • Ctrl+←/→ words • Ctrl+C cancel • / commands", mode)))
 	} else {
 		// Menu mode
 		b.WriteString(m.prompt)
@@ -364,13 +438,15 @@ func (m inputModel) View() string {
 
 // InputResult holds the result of a ReadInput call.
 type InputResult struct {
-	Text  string
-	CtrlC bool
+	Text         string
+	CtrlC        bool
+	Pasted       bool
+	OutputToggle bool
 }
 
 // ReadInput runs the bubbletea input widget and returns the submitted text.
-func ReadInput(prompt string, history []string) InputResult {
-	m := newInputModel(prompt, history)
+func ReadInput(prompt string, history []string, outputVerbose bool) InputResult {
+	m := newInputModelWithOutputMode(prompt, history, outputVerbose)
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {
@@ -378,7 +454,9 @@ func ReadInput(prompt string, history []string) InputResult {
 	}
 	final := result.(inputModel)
 	return InputResult{
-		Text:  final.result,
-		CtrlC: final.ctrlC,
+		Text:         final.result,
+		CtrlC:        final.ctrlC,
+		Pasted:       final.pasted,
+		OutputToggle: final.outputToggle,
 	}
 }

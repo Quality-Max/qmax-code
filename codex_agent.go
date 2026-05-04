@@ -32,6 +32,7 @@ type CodexAgent struct {
 	codexBin       string
 	modelID        string // "" = codex default; otherwise passed as -m
 	effort         string // "low" | "medium" | "high"
+	outputVerbose  bool   // false = compact answer style; true = previous detailed style
 	permissionMode string // "standard" (Codex prompts per-action) | "unattended" (--dangerously-bypass-approvals-and-sandbox)
 	sctx           *SessionContext
 	history        []codexTurn // conversation history managed on our side
@@ -67,7 +68,7 @@ func FindCodex() string {
 // permissionMode is "standard" or "unattended" — Codex has no allowlist primitive,
 // so Standard relies on Codex's own sandbox policy and Unattended adds
 // --dangerously-bypass-approvals-and-sandbox.
-func NewCodexAgent(bin, modelID, effort, permissionMode string, sctx *SessionContext) *CodexAgent {
+func NewCodexAgent(bin, modelID, effort, permissionMode string, outputVerbose bool, sctx *SessionContext) *CodexAgent {
 	if effort == "" {
 		effort = "high"
 	}
@@ -78,6 +79,7 @@ func NewCodexAgent(bin, modelID, effort, permissionMode string, sctx *SessionCon
 		codexBin:       bin,
 		modelID:        modelID,
 		effort:         effort,
+		outputVerbose:  outputVerbose,
 		permissionMode: permissionMode,
 		sctx:           sctx,
 	}
@@ -141,6 +143,7 @@ func (a *CodexAgent) Run(userMsg string, term *Terminal) (string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, a.codexBin, args...)
+	cmd.Stdin = strings.NewReader("")
 	cmd.Stderr = os.Stderr
 
 	stdout, err := cmd.StdoutPipe()
@@ -194,7 +197,7 @@ func (a *CodexAgent) buildPrompt(userMsg string) string {
 	history := a.history
 	a.mu.Unlock()
 
-	systemPrompt := codexQASystemPrompt + effortDirective(a.effort) + "\n\n"
+	systemPrompt := codexQASystemPrompt + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n"
 
 	if len(history) == 0 {
 		// First turn: include the system prompt.
@@ -225,6 +228,12 @@ func (a *CodexAgent) buildPrompt(userMsg string) string {
 func (a *CodexAgent) ClearHistory() {
 	a.mu.Lock()
 	a.history = nil
+	a.mu.Unlock()
+}
+
+func (a *CodexAgent) SetOutputVerbose(verbose bool) {
+	a.mu.Lock()
+	a.outputVerbose = verbose
 	a.mu.Unlock()
 }
 

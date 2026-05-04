@@ -106,6 +106,30 @@ func TestSetConfigField_BoolForms(t *testing.T) {
 	}
 }
 
+func TestSetConfigField_OutputVerboseBoolForms(t *testing.T) {
+	withTempHome(t)
+
+	if err := setConfigField("output_verbose", "true"); err != nil {
+		t.Fatalf("set output_verbose true: %v", err)
+	}
+	loaded := LoadQMaxCodeConfig()
+	if !loaded.OutputVerbose {
+		t.Fatal("expected OutputVerbose=true")
+	}
+
+	if err := setConfigField("output_verbose", "off"); err != nil {
+		t.Fatalf("set output_verbose off: %v", err)
+	}
+	loaded = LoadQMaxCodeConfig()
+	if loaded.OutputVerbose {
+		t.Fatal("expected OutputVerbose=false")
+	}
+
+	if err := setConfigField("output_verbose", "maybe"); err == nil {
+		t.Fatal("expected error for invalid output_verbose value")
+	}
+}
+
 func TestSetConfigField_UnknownKey(t *testing.T) {
 	withTempHome(t)
 
@@ -179,6 +203,68 @@ func TestSetConfigField_ThemePersistsToDisk(t *testing.T) {
 	loaded := LoadQMaxCodeConfig()
 	if loaded.Theme != "aurora" {
 		t.Errorf("loaded.Theme = %q, want \"aurora\"", loaded.Theme)
+	}
+}
+
+func TestConfigSaveTheme_PersistsLocalSelection(t *testing.T) {
+	tmp := withTempHome(t)
+	cfg := defaultConfig()
+
+	if err := cfg.SaveTheme("radiance"); err != nil {
+		t.Fatalf("SaveTheme(\"radiance\") unexpected error: %v", err)
+	}
+
+	loaded := LoadQMaxCodeConfig()
+	if loaded.Theme != "radiance" {
+		t.Errorf("loaded.Theme = %q, want \"radiance\"", loaded.Theme)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, ".qmax-code", "config.json"))
+	if err != nil {
+		t.Fatalf("config file not written: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("config JSON malformed: %v", err)
+	}
+	if parsed["theme"] != "radiance" {
+		t.Errorf("file did not contain theme=radiance; got %v", parsed["theme"])
+	}
+}
+
+func TestConfigSaveTheme_RejectsInvalidWithoutOverwriting(t *testing.T) {
+	withTempHome(t)
+	cfg := defaultConfig()
+	if err := cfg.SaveTheme("ocean"); err != nil {
+		t.Fatalf("SaveTheme(\"ocean\") unexpected error: %v", err)
+	}
+
+	if err := cfg.SaveTheme("../evil"); err == nil {
+		t.Fatal("SaveTheme(\"../evil\") expected error, got nil")
+	}
+
+	loaded := LoadQMaxCodeConfig()
+	if loaded.Theme != "ocean" {
+		t.Errorf("invalid theme overwrote persisted selection: got %q, want \"ocean\"", loaded.Theme)
+	}
+	if cfg.Theme != "ocean" {
+		t.Errorf("invalid theme overwrote in-memory selection: got %q, want \"ocean\"", cfg.Theme)
+	}
+}
+
+func TestConfigSaveTheme_EmptyClearsLocalSelection(t *testing.T) {
+	withTempHome(t)
+	cfg := defaultConfig()
+	if err := cfg.SaveTheme("neon"); err != nil {
+		t.Fatalf("SaveTheme(\"neon\") unexpected error: %v", err)
+	}
+	if err := cfg.SaveTheme(""); err != nil {
+		t.Fatalf("SaveTheme(\"\") unexpected error: %v", err)
+	}
+
+	loaded := LoadQMaxCodeConfig()
+	if loaded.Theme != "" {
+		t.Errorf("loaded.Theme = %q, want empty", loaded.Theme)
 	}
 }
 

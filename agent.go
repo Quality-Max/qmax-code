@@ -23,13 +23,14 @@ const (
 
 // AgentConfig holds configuration for the LLM agent.
 type AgentConfig struct {
-	AnthropicKey string
-	Model        string // base model (used for tool execution loops)
-	ChatModel    string // cheaper model for conversational responses
-	Verbose      bool
-	Context      *SessionContext
-	AutoRoute    bool // true = haiku for chat, sonnet for tools
-	Professional bool // disable cat personality, be direct
+	AnthropicKey  string
+	Model         string // base model (used for tool execution loops)
+	ChatModel     string // cheaper model for conversational responses
+	Verbose       bool
+	OutputVerbose bool // user-facing answer style; false = compact, true = detailed
+	Context       *SessionContext
+	AutoRoute     bool // true = haiku for chat, sonnet for tools
+	Professional  bool // disable cat personality, be direct
 }
 
 // OllamaMode controls how much work Ollama handles.
@@ -1121,6 +1122,8 @@ You MUST call list_projects first to get the slug. Never guess it.
 	if a.usage.TotalTokens() > budgetThreshold {
 		prompt += fmt.Sprintf("\n⚠️ HIGH TOKEN USAGE: Session has used %d tokens. Be extra concise.\n", a.usage.TotalTokens())
 	}
+
+	prompt += outputStyleDirective(a.config.OutputVerbose)
 
 	// Git context
 	if gi := a.config.Context.GitInfo; gi != nil {

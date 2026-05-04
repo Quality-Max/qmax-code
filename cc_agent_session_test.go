@@ -13,6 +13,7 @@ package main
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -37,6 +38,8 @@ func (m *mockCLIAgent) Run(_ string, _ *Terminal) (string, error) {
 }
 
 func (m *mockCLIAgent) Cleanup() {}
+
+func (m *mockCLIAgent) SetOutputVerbose(bool) {}
 
 // historyAfterCLITurns simulates the fixed main-loop path for N turns:
 // calls mockCLIAgent.Run() and mirrors each successful turn into history.
@@ -162,5 +165,41 @@ func TestCLIAgentMultiTurnSessionAccumulates(t *testing.T) {
 		if session.Turns != want {
 			t.Errorf("after turn %d: Turns = %d, want %d", i+1, session.Turns, want)
 		}
+	}
+}
+
+func TestOutputStyleDirectiveModes(t *testing.T) {
+	compact := outputStyleDirective(false)
+	if !strings.Contains(compact, "OUTPUT MODE: COMPACT") || !strings.Contains(compact, "Still fetch real data") {
+		t.Fatalf("compact directive does not preserve QA rigor: %q", compact)
+	}
+
+	verbose := outputStyleDirective(true)
+	if !strings.Contains(verbose, "OUTPUT MODE: VERBOSE") || !strings.Contains(verbose, "previous detailed response style") {
+		t.Fatalf("verbose directive does not describe previous style: %q", verbose)
+	}
+}
+
+func TestCodexBuildPromptReflectsOutputVerbose(t *testing.T) {
+	a := &CodexAgent{effort: "high", outputVerbose: false, sctx: &SessionContext{}}
+	if !strings.Contains(a.buildPrompt("hi"), "OUTPUT MODE: COMPACT") {
+		t.Fatal("compact directive not in built prompt")
+	}
+
+	a.SetOutputVerbose(true)
+	if !strings.Contains(a.buildPrompt("hi"), "OUTPUT MODE: VERBOSE") {
+		t.Fatal("SetOutputVerbose(true) did not propagate into the built prompt")
+	}
+}
+
+func TestCCAgentSetOutputVerboseTogglesField(t *testing.T) {
+	a := &CCAgent{effort: "high", outputVerbose: false}
+	a.SetOutputVerbose(true)
+	if !a.outputVerbose {
+		t.Fatal("SetOutputVerbose(true) did not toggle CC agent field")
+	}
+	a.SetOutputVerbose(false)
+	if a.outputVerbose {
+		t.Fatal("SetOutputVerbose(false) did not toggle CC agent field")
 	}
 }
