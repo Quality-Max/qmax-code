@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"net/http"
 	"net/http/httptest"
@@ -88,13 +89,13 @@ func fakeRFBServer(t *testing.T) (*httptest.Server, string) {
 		nc := websocket.NetConn(r.Context(), conn, websocket.MessageBinary)
 
 		// RFB 3.8 handshake
-		nc.Write([]byte("RFB 003.008\n"))             // ProtocolVersion
-		clientVer := make([]byte, 12)                  // read client echo
-		nc.Read(clientVer)
-		nc.Write([]byte{1, 1})                         // 1 security type: None
-		nc.Read(make([]byte, 1))                       // client selects type 1
-		nc.Write([]byte{0, 0, 0, 0})                   // SecurityResult OK
-		nc.Read(make([]byte, 1))                        // ClientInit shared-flag
+		_, _ = nc.Write([]byte("RFB 003.008\n")) // ProtocolVersion
+		clientVer := make([]byte, 12)
+		_, _ = nc.Read(clientVer)
+		_, _ = nc.Write([]byte{1, 1})            // 1 security type: None
+		_, _ = nc.Read(make([]byte, 1))          // client selects type 1
+		_, _ = nc.Write([]byte{0, 0, 0, 0})      // SecurityResult OK
+		_, _ = nc.Read(make([]byte, 1))          // ClientInit shared-flag
 
 		// ServerInit: 24-byte header (width=800, height=600) + 0-length name
 		si := make([]byte, 24+4)
@@ -102,7 +103,7 @@ func fakeRFBServer(t *testing.T) (*httptest.Server, string) {
 		binary.BigEndian.PutUint16(si[2:], 600)
 		// pixel format bytes (si[4:20]) left as zero — overridden by SetPixelFormat
 		binary.BigEndian.PutUint32(si[20:], 0) // name length = 0
-		nc.Write(si)
+		_, _ = nc.Write(si)
 
 		// Drain any client messages (SetPixelFormat, SetEncodings, FBUpdateReq)
 		// until the connection is closed from the other side.
@@ -123,7 +124,7 @@ func TestDialVNCHandshake(t *testing.T) {
 	srv, wsURL := fakeRFBServer(t)
 	defer srv.Close()
 
-	stream, err := DialVNC(nil, wsURL, 1)
+	stream, err := DialVNC(context.Background(), wsURL, 1)
 	if err != nil {
 		t.Fatalf("DialVNC: %v", err)
 	}
@@ -172,7 +173,7 @@ func TestDialVNCRetryOn502(t *testing.T) {
 	start := time.Now()
 	// DialVNC will fail to complete RFB (no handshake bytes), but the retry
 	// logic fires before that. We just care about timing + attempt count.
-	DialVNC(nil, wsURL, 1) //nolint:errcheck
+	DialVNC(context.Background(), wsURL, 1) //nolint:errcheck
 	elapsed := time.Since(start)
 
 	// At least one 3-second retry gap must have fired.
@@ -197,7 +198,7 @@ func TestDialVNCNoRetryOnNon5xx(t *testing.T) {
 
 	wsURL := "ws://" + srv.Listener.Addr().String() + "/websockify"
 	start := time.Now()
-	DialVNC(nil, wsURL, 1) //nolint:errcheck
+	DialVNC(context.Background(), wsURL, 1) //nolint:errcheck
 	elapsed := time.Since(start)
 
 	// No retry gap should have fired (each gap is 3s).
@@ -212,7 +213,7 @@ func TestVNCStreamCloseIdempotent(t *testing.T) {
 	srv, wsURL := fakeRFBServer(t)
 	defer srv.Close()
 
-	stream, err := DialVNC(nil, wsURL, 1)
+	stream, err := DialVNC(context.Background(), wsURL, 1)
 	if err != nil {
 		t.Fatalf("DialVNC: %v", err)
 	}
