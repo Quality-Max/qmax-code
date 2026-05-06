@@ -275,6 +275,7 @@ func main() {
 		API:         apiClient,
 		Auth:        auth,
 		Backend:     appConfig.Backend,
+		LiveFeed:    appConfig.LiveFeed,
 	}
 
 	// Build agent with smart model routing
@@ -948,6 +949,89 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		case input == "/keys":
 			handleKeys(agent, term)
 			continue
+		case input == "/browserfeed" || strings.HasPrefix(input, "/browserfeed "):
+			arg := strings.TrimSpace(strings.TrimPrefix(input, "/browserfeed"))
+			mode := blockModeQuarter
+			if strings.HasPrefix(arg, "--half ") || arg == "--half" {
+				mode = blockModeHalf
+				arg = strings.TrimSpace(strings.TrimPrefix(arg, "--half"))
+			}
+			if arg == "" {
+				term.PrintSystem("Usage: /browserfeed [--half] <noVNC URL>")
+				term.PrintSystem("  e.g. /browserfeed https://<host>/vnc.html?... (from a QM Cloud Sandbox run)")
+				term.PrintSystem("  --half : use 2-pixel half-blocks (more portable, lower res)")
+				continue
+			}
+			if err := ShowBrowserFeed(arg, mode); err != nil {
+				term.PrintError(fmt.Sprintf("browserfeed: %v", err))
+			}
+			continue
+		case input == "/live" || strings.HasPrefix(input, "/live "):
+			arg := strings.TrimSpace(strings.TrimPrefix(input, "/live"))
+			cfg := agent.appConfig
+			if cfg == nil {
+				term.PrintError("Config not loaded.")
+				continue
+			}
+			applyLiveFeed := func(next bool) {
+				cfg.LiveFeed = next
+				agent.config.Context.LiveFeed = next
+				if err := cfg.Save(); err != nil {
+					term.PrintError(fmt.Sprintf("Failed to save config: %v", err))
+					return
+				}
+				if next {
+					term.PrintSystem("Live feed enabled. Test runs and AI crawls will execute in QM Cloud Sandbox; the feed auto-opens at the end of each agent turn.")
+				} else {
+					term.PrintSystem("Live feed disabled. Future test runs and crawls will use the standard pooled runner.")
+				}
+			}
+			switch strings.ToLower(arg) {
+			case "":
+				// No argument → open the TUI picker. Matches the /cloudsync
+				// pattern so toggles feel consistent across the app.
+				next, ok := ShowLiveFeedPicker(cfg.LiveFeed)
+				if !ok {
+					continue // user cancelled; leave current value alone
+				}
+				if next == cfg.LiveFeed {
+					state := "off"
+					if cfg.LiveFeed {
+						state = "on"
+					}
+					term.PrintSystem(fmt.Sprintf("Live feed unchanged (%s).", state))
+					continue
+				}
+				applyLiveFeed(next)
+			case "on", "true", "1", "yes":
+				applyLiveFeed(true)
+			case "off", "false", "0", "no":
+				applyLiveFeed(false)
+			case "status", "show":
+				state := "off"
+				if cfg.LiveFeed {
+					state = "on"
+				}
+				term.PrintSystem(fmt.Sprintf("Live feed is %s.", state))
+			default:
+				term.PrintError("Usage: /live (interactive) | /live on | /live off")
+			}
+			continue
+		case input == "/feed":
+			url := agent.config.Context.LastLiveURL
+			if url == "" {
+				term.PrintSystem("No live feed URL captured yet.")
+				if !agent.config.Context.LiveFeed {
+					term.PrintSystem("  Enable with: /live on  (then run a test or crawl)")
+				} else {
+					term.PrintSystem("  Run a test or crawl, then try /feed again.")
+				}
+				continue
+			}
+			if err := ShowBrowserFeed(url, blockModeQuarter); err != nil {
+				term.PrintError(fmt.Sprintf("browserfeed: %v", err))
+			}
+			continue
 		case input == "/screenshot":
 			img, err := CaptureScreenshot()
 			if err != nil {
@@ -1008,6 +1092,15 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 		// Ensure a cloud session exists for this conversation (no-op after first call).
 		startCloudSession()
+
+		// Reset turn-scoped diagnostic flags. captureLiveURL uses these so
+		// we log "live URL captured" / "fell back to pooled runner" once
+		// per turn rather than once per poll.
+		if c := agent.config.Context; c != nil {
+			c.liveURLLogged = false
+			c.sandboxModeLogged = false
+			c.sandboxFallbackSeen = false
+		}
 
 		// Run through the LLM agent with streaming.
 		// Start the queue reader so the user can type the next prompt while
@@ -1082,6 +1175,67 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 		// Auto-save after every exchange for crash safety
 		autoSave()
+
+		// In CC/Codex mode, captureLiveURL ran inside a child `qmax-code
+		// serve --mcp` subprocess; the URL it stored sits on that
+		// process's sctx, not ours. Drain the side-channel file the
+		// subprocess wrote into — see live_url_channel.go for protocol.
+		if cliAgent != nil {
+			if url := drainLiveURLFromChild(); url != "" {
+				agent.config.Context.LastLiveURL = url
+				// Mark sandbox-mode-seen so maybeLaunchLiveFeed won't
+				// nag with "no URL came back" on a successful capture.
+				agent.config.Context.sandboxModeLogged = true
+			}
+		}
+
+		// End-of-turn live-feed auto-launch. If a tool call surfaced a
+		// live_browser_url during this turn (and the user opted in via
+		// /live on), open the feed now — the agent has finished talking
+		// so taking over the alt screen is safe. /feed remains as a
+		// manual replay if the user dismisses it.
+		maybeLaunchLiveFeed(agent.config.Context, term)
+	}
+}
+
+// maybeLaunchLiveFeed drains a captured live URL and opens /browserfeed
+// against it. Idempotent: no-op when LiveFeed is off or no URL has been
+// captured this turn. Clears the URL on success or after the user exits
+// so a stale URL from a previous run doesn't auto-launch again.
+//
+// When LiveFeed is on but no URL was captured this turn, prints a
+// diagnostic with the most likely causes — saves the user a server-log
+// archeology session.
+func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal) {
+	if sctx == nil || !sctx.LiveFeed {
+		return
+	}
+	if sctx.LastLiveURL == "" {
+		// Only diagnose if the agent actually ran a tool this turn that
+		// reported sandbox mode (i.e. a run/crawl actually happened).
+		// Otherwise the user just chatted and we shouldn't nag.
+		if !sctx.sandboxModeLogged {
+			return
+		}
+		term.PrintSystem("Live feed was on, but no live_browser_url came back this turn.")
+		if sctx.sandboxFallbackSeen {
+			term.PrintSystem("  Server reported is_e2b=false. Most common reason:")
+			term.PrintSystem("   • Script has agent_id set → server silently rejects the use_e2b combo")
+		} else {
+			term.PrintSystem("  Possible causes:")
+			term.PrintSystem("   • Server's E2B_API_KEY env var isn't configured (check /api/playwright-execution/health)")
+			term.PrintSystem("   • VNC stack failed to start in the sandbox (server logs: 'VNC setup FAILED')")
+			term.PrintSystem("   • Script has agent_id set → server silently rejects the use_e2b combo")
+		}
+		return
+	}
+	url := sctx.LastLiveURL
+	sctx.LastLiveURL = ""
+	term.PrintSystem("Opening live browser feed... (Ctrl+] to return)")
+	if err := ShowBrowserFeed(url, blockModeQuarter); err != nil {
+		term.PrintError(fmt.Sprintf("browserfeed: %v", err))
+		// Re-store the URL so the user can retry with /feed.
+		sctx.LastLiveURL = url
 	}
 }
 
@@ -1338,6 +1492,11 @@ func printConfigInfo(cfg *Config, term *Terminal) {
 		}
 	}
 	fmt.Printf("  %-20s %s\n", "Cloud sync:", cloudSyncVal)
+	liveFeedVal := "off"
+	if cfg.LiveFeed {
+		liveFeedVal = "on (test/crawl runs in QM Cloud Sandbox with live feed)"
+	}
+	fmt.Printf("  %-20s %s\n", "Live feed:", liveFeedVal)
 	fmt.Printf("  %-20s %d\n", "Token budget:", cfg.MaxTokenBudget)
 	if cfg.OllamaURL != "" {
 		fmt.Printf("  %-20s %s\n", "Ollama URL:", maskURL(cfg.OllamaURL))
@@ -1352,7 +1511,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 	parts := strings.Fields(input)
 	if len(parts) < 3 {
 		term.PrintError("Usage: /set <key> <value>")
-		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, output_verbose, budget, apikey, ollama, backend, theme")
+		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, theme")
 		return
 	}
 	key := strings.ToLower(parts[1])
@@ -1436,6 +1595,21 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 			v := false
 			cfg.CloudSync = &v
 			term.PrintSystem("Cloud session sync disabled.")
+		default:
+			term.PrintError("Value must be true or false.")
+			return
+		}
+
+	case "live_feed", "live-feed", "livefeed":
+		switch strings.ToLower(value) {
+		case "true", "1", "yes", "on":
+			cfg.LiveFeed = true
+			agent.config.Context.LiveFeed = true
+			term.PrintSystem("Live feed enabled — test runs and AI crawls will stream in QM Cloud Sandbox.")
+		case "false", "0", "no", "off":
+			cfg.LiveFeed = false
+			agent.config.Context.LiveFeed = false
+			term.PrintSystem("Live feed disabled.")
 		default:
 			term.PrintError("Value must be true or false.")
 			return
@@ -1541,7 +1715,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, output_verbose, budget, apikey, ollama, backend, theme")
+		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, theme")
 		return
 	}
 

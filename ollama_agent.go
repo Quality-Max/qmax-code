@@ -205,14 +205,14 @@ func (a *Agent) executeOllamaAction(action string, params map[string]interface{}
 		if scriptID == 0 {
 			return `{"error": "script_id is required"}`
 		}
-		return api.RunTest(ctx, scriptID, true, "", "")
+		return api.RunTest(ctx, scriptID, true, "", "", a.config.Context.LiveFeed)
 	case "start_crawl":
 		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
 		url := strVal(params, "url")
 		if url == "" {
 			return `{"error": "url is required"}`
 		}
-		return api.StartCrawl(ctx, projectID, url, 2, 10, "", "")
+		return api.StartCrawl(ctx, projectID, url, 2, 10, "", "", a.config.Context.LiveFeed)
 	case "review_repo":
 		repoID := intVal(params, "repo_id", 0)
 		if repoID == 0 {

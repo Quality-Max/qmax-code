@@ -190,6 +190,17 @@ func (a *CCAgent) writeMCPConfig() error {
 	if a.sctx.ProjectID > 0 {
 		env["QMAX_PROJECT_ID"] = strconv.Itoa(a.sctx.ProjectID)
 	}
+	// Live feed plumbing — the MCP subprocess has its own SessionContext,
+	// so the parent's `/live on` flag is invisible without an env hand-off.
+	// QMAX_LIVE_URL_FILE is a per-session side channel that the subprocess
+	// writes captured live_browser_url values into; the parent reads it
+	// between turns to drive the auto-launch and /feed.
+	if a.sctx.LiveFeed {
+		env["QMAX_LIVE_FEED"] = "1"
+	}
+	if path := liveURLFilePath(); path != "" {
+		env["QMAX_LIVE_URL_FILE"] = path
+	}
 
 	config := map[string]interface{}{
 		"mcpServers": map[string]interface{}{

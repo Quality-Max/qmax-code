@@ -112,6 +112,7 @@ func printConfig() {
 		}
 	}
 	fmt.Printf("    cloud_sync        = %s\n", cloudSync)
+	fmt.Printf("    live_feed         = %t  (when on: test runs / AI crawls execute in QM Cloud Sandbox with live ASCII feed)\n", cfg.LiveFeed)
 	fmt.Printf("    backend           = %q", backend)
 	switch backend {
 	case "cc":
@@ -220,6 +221,13 @@ func setConfigField(key, value string) error {
 			}
 			cfg.CloudSync = &b
 		}
+
+	case "live_feed", "live-feed", "livefeed":
+		b, err := parseConfigBool(value)
+		if err != nil {
+			return err
+		}
+		cfg.LiveFeed = b
 
 	default:
 		return fmt.Errorf("unknown config key %q", key)

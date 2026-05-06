@@ -140,10 +140,24 @@ func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force 
 
 // --- Execution operations ---
 
-func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, browser, baseURL string) string {
+// RunTest dispatches a Playwright test to the QualityMax server. When
+// useCloudSandbox is true, the server runs the script inside a QM Cloud
+// Sandbox and the resulting status responses include a `live_browser_url`
+// field that the REPL turns into a /browserfeed launch. The wire field
+// is named `use_e2b` for backwards compatibility with the server's
+// existing contract; we expose a clean name on the client side.
+//
+// We also send `live_feed_hold_seconds` so the server keeps the sandbox
+// alive briefly after the run finishes — without that, the websockify
+// port goes 502 by the time qmax-code's end-of-turn auto-launch fires.
+func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, browser, baseURL string, useCloudSandbox bool) string {
 	body := map[string]interface{}{
 		"headless":        headless,
 		"use_browserbase": false,
+	}
+	if useCloudSandbox {
+		body["use_e2b"] = true
+		body["live_feed_hold_seconds"] = liveFeedHoldSeconds
 	}
 	if browser != "" {
 		body["browser"] = browser
@@ -192,7 +206,11 @@ func (c *APIClient) SetupCICD(ctx context.Context, repoID int, framework, target
 	return c.post(ctx, fmt.Sprintf("/api/repositories/%d/setup-cicd", repoID), body)
 }
 
-func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string) string {
+// RunTestsBatch fans a batch of test IDs out to the cloud runner. Same
+// useCloudSandbox semantics as RunTest — when true, each entry runs in a
+// QM Cloud Sandbox and surfaces a `live_browser_url`; the REPL only
+// auto-launches the most recent one.
+func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string, useCloudSandbox bool) string {
 	// Parse comma-separated string into integer array for JSON serialization
 	var ids []int
 	for _, s := range strings.Split(scriptIDs, ",") {
@@ -203,6 +221,10 @@ func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string
 	}
 	body := map[string]interface{}{
 		"script_ids": ids,
+	}
+	if useCloudSandbox {
+		body["use_e2b"] = true
+		body["live_feed_hold_seconds"] = liveFeedHoldSeconds
 	}
 	if baseURL != "" {
 		body["base_url"] = baseURL
@@ -231,10 +253,18 @@ func (c *APIClient) ReportLocalResult(ctx context.Context, scriptID int, status,
 
 // --- Crawl operations ---
 
-func (c *APIClient) StartCrawl(ctx context.Context, projectID int, url string, depth, pages int, testType, instructions string) string {
+// StartCrawl kicks off an AI crawl. Same useCloudSandbox semantics as
+// RunTest — when true, the crawl runs inside a QM Cloud Sandbox with a
+// headed Chromium against Xvfb, and the status poll responses include
+// `live_browser_url`.
+func (c *APIClient) StartCrawl(ctx context.Context, projectID int, url string, depth, pages int, testType, instructions string, useCloudSandbox bool) string {
 	body := map[string]interface{}{
 		"project_id": projectID,
 		"url":        url,
+	}
+	if useCloudSandbox {
+		body["use_e2b"] = true
+		body["live_feed_hold_seconds"] = liveFeedHoldSeconds
 	}
 	if depth > 0 {
 		body["depth"] = depth

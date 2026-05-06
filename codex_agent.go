@@ -101,6 +101,13 @@ func (a *CodexAgent) writeMCPConfig() error {
 	if a.sctx.ProjectID > 0 {
 		env["QMAX_PROJECT_ID"] = fmt.Sprintf("%d", a.sctx.ProjectID)
 	}
+	// Live-feed plumbing — see writeMCPConfig in cc_agent.go for context.
+	if a.sctx.LiveFeed {
+		env["QMAX_LIVE_FEED"] = "1"
+	}
+	if path := liveURLFilePath(); path != "" {
+		env["QMAX_LIVE_URL_FILE"] = path
+	}
 
 	cfgPath := filepath.Join(codexDir, "config.toml")
 	_, err = writeCodexMCPEntry(cfgPath, env)

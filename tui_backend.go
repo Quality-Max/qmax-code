@@ -984,3 +984,116 @@ func ShowCloudSyncPicker(current *bool) (bool, bool) {
 	}
 	return final.cursor == 0, true
 }
+
+// ─── Live-feed toggle ─────────────────────────────────────────────────────────
+
+type liveFeedPickerModel struct {
+	cursor    int // 0 = on, 1 = off
+	current   bool
+	confirmed bool
+	cancelled bool
+}
+
+func newLiveFeedPickerModel(current bool) liveFeedPickerModel {
+	m := liveFeedPickerModel{current: current}
+	if current {
+		m.cursor = 0
+	} else {
+		m.cursor = 1
+	}
+	return m
+}
+
+func (m liveFeedPickerModel) Init() tea.Cmd { return nil }
+
+func (m liveFeedPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "ctrl+c", "esc", "q":
+			m.cancelled = true
+			return m, tea.Quit
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < 1 {
+				m.cursor++
+			}
+		case "enter", " ":
+			m.confirmed = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m liveFeedPickerModel) View() string {
+	var b strings.Builder
+
+	b.WriteString(pickerSectionHeader.Render("Live browser feed"))
+	b.WriteByte('\n')
+
+	rows := []struct {
+		label string
+		desc  string
+		value bool
+	}{
+		{"On", "Run tests / AI crawls in QM Cloud Sandbox; auto-open feed", true},
+		{"Off", "Use the standard pooled runner (no live feed)", false},
+	}
+
+	for i, r := range rows {
+		isCursor := i == m.cursor
+
+		arrow := "  "
+		if isCursor {
+			arrow = pickerBadgeStar.Render("▶ ")
+		}
+
+		var label string
+		if isCursor {
+			label = pickerLabelSel.Render(fmt.Sprintf("%-4s", r.label))
+		} else {
+			label = pickerLabel.Render(fmt.Sprintf("%-4s", r.label))
+		}
+
+		check := ""
+		if r.value == m.current {
+			check = "  " + pickerBadgeCurrent.Render("✓ current")
+		}
+
+		desc := pickerFooter.Render(r.desc)
+		row := fmt.Sprintf("%s%s  %s%s", arrow, label, desc, check)
+		if isCursor {
+			b.WriteString(pickerRowSelected.Render(row))
+		} else {
+			b.WriteString(pickerRowNormal.Render(row))
+		}
+		b.WriteByte('\n')
+	}
+
+	b.WriteString(pickerDivider.Render(strings.Repeat("─", 60)))
+	b.WriteByte('\n')
+	b.WriteString(pickerFooter.Render("↑↓ navigate  ·  Enter confirm  ·  Esc cancel"))
+	b.WriteByte('\n')
+
+	return pickerBox.Render(b.String())
+}
+
+// ShowLiveFeedPicker opens a small TUI to toggle the live browser feed.
+// Returns (chosen, ok); ok=false means the user cancelled and the current
+// value should be preserved.
+func ShowLiveFeedPicker(current bool) (bool, bool) {
+	m := newLiveFeedPickerModel(current)
+	p := tea.NewProgram(m)
+	result, err := p.Run()
+	if err != nil {
+		return false, false
+	}
+	final := result.(liveFeedPickerModel)
+	if final.cancelled || !final.confirmed {
+		return false, false
+	}
+	return final.cursor == 0, true
+}

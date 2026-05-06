@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -696,7 +697,7 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		return api.GenerateTestCode(ctx, intVal(input, "test_case_id", 0), boolVal(input, "force"), fw)
 
 	case "run_test":
-		return runTestWithProgress(ctx, api, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"))
+		return runTestWithProgress(ctx, api, sctx, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"))
 
 	case "run_native_test":
 		return api.RunNativeTest(ctx, intVal(input, "script_id", 0), strVal(input, "base_url"))
@@ -705,17 +706,21 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		return api.SetupCICD(ctx, intVal(input, "repo_id", 0), strVal(input, "framework"), strVal(input, "target_branch"), strVal(input, "base_url"))
 
 	case "run_tests_batch":
-		return api.RunTestsBatch(ctx, strVal(input, "script_ids"), strVal(input, "base_url"))
+		return api.RunTestsBatch(ctx, strVal(input, "script_ids"), strVal(input, "base_url"), sctx.LiveFeed)
 
 	case "check_test_status":
-		return api.CheckTestStatus(ctx, strVal(input, "execution_id"))
+		out := api.CheckTestStatus(ctx, strVal(input, "execution_id"))
+		captureLiveURL(sctx, out)
+		return out
 
 	case "start_crawl":
 		return api.StartCrawl(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "url"),
-			intVal(input, "depth", 0), intVal(input, "pages", 0), strVal(input, "test_type"), strVal(input, "instructions"))
+			intVal(input, "depth", 0), intVal(input, "pages", 0), strVal(input, "test_type"), strVal(input, "instructions"), sctx.LiveFeed)
 
 	case "crawl_status":
-		return api.CrawlStatus(ctx, strVal(input, "crawl_id"))
+		out := api.CrawlStatus(ctx, strVal(input, "crawl_id"))
+		captureLiveURL(sctx, out)
+		return out
 
 	case "crawl_results":
 		return api.CrawlResults(ctx, strVal(input, "crawl_id"))
@@ -851,9 +856,12 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 }
 
 // runTestWithProgress starts a cloud test and polls with a live progress bar + browser animation.
-func runTestWithProgress(ctx context.Context, api *APIClient, scriptID int, headless bool, browser, baseURL string) string {
+// When sctx.LiveFeed is true the test runs in a QM Cloud Sandbox; status
+// responses are scanned for `live_browser_url` and the freshest one is
+// stored on sctx for the REPL to auto-launch /browserfeed against.
+func runTestWithProgress(ctx context.Context, api *APIClient, sctx *SessionContext, scriptID int, headless bool, browser, baseURL string) string {
 	// Start the test
-	raw := api.RunTest(ctx, scriptID, headless, browser, baseURL)
+	raw := api.RunTest(ctx, scriptID, headless, browser, baseURL, sctx != nil && sctx.LiveFeed)
 	if strings.HasPrefix(raw, `{"error"`) {
 		return raw
 	}
@@ -879,6 +887,7 @@ func runTestWithProgress(ctx context.Context, api *APIClient, scriptID int, head
 		time.Sleep(2 * time.Second)
 
 		statusRaw := api.CheckTestStatus(ctx, execID)
+		captureLiveURL(sctx, statusRaw)
 		var status map[string]interface{}
 		if err := json.Unmarshal([]byte(statusRaw), &status); err != nil {
 			continue
@@ -912,7 +921,87 @@ func runTestWithProgress(ctx context.Context, api *APIClient, scriptID int, head
 
 	ClearBrowserAnimation()
 	progress.Finish(false, "Timed out")
-	return api.CheckTestStatus(ctx, execID) // final check
+	final := api.CheckTestStatus(ctx, execID)
+	captureLiveURL(sctx, final)
+	return final
+}
+
+// captureLiveURL extracts a `live_browser_url` from a status JSON payload
+// and stores it on sctx for the REPL's end-of-turn auto-launcher. No-op
+// if sctx is nil, the response isn't JSON, or the field is missing/empty.
+//
+// When sctx.LiveFeed is on, surfaces diagnostics on stderr (cyan/yellow
+// "[live]" prefix). Each is gated by a one-shot flag so a 60-poll run
+// doesn't spam the terminal:
+//   - First "real" status response: dumps the diagnostic-relevant fields
+//     (is_e2b, live_browser_url present/absent) plus the full key list
+//     so it's obvious when the server returns an unexpected shape.
+//   - First non-empty live_browser_url: confirms capture + auto-launch.
+//
+// The full-key dump on the first poll is the most useful single line —
+// it tells us whether `is_e2b` is even present and what other fields
+// the server is including, which directly maps to the relevant
+// fallback path on the server side.
+func captureLiveURL(sctx *SessionContext, raw string) {
+	if sctx == nil || raw == "" {
+		return
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return
+	}
+
+	if sctx.LiveFeed && !sctx.sandboxModeLogged {
+		// Wait for a response that looks like an actual status payload
+		// (has a `status` key) — earlier polls during enqueue can return
+		// empty or just `{success, execution_id}` and aren't useful here.
+		if _, hasStatus := m["status"]; hasStatus {
+			isE2B := "absent"
+			if v, ok := m["is_e2b"]; ok {
+				isE2B = fmt.Sprint(v)
+				if b, isBool := v.(bool); isBool && !b {
+					sctx.sandboxFallbackSeen = true
+				}
+			}
+			liveURL := "absent"
+			if v, ok := m["live_browser_url"]; ok && v != nil {
+				if s, _ := v.(string); s != "" {
+					liveURL = "present"
+				} else if v != nil {
+					liveURL = "null/empty"
+				}
+			}
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			color := "\033[36m" // cyan = informational
+			if isE2B == "false" || isE2B == "absent" {
+				color = "\033[33m" // yellow = warning, no sandbox
+			}
+			fmt.Fprintf(os.Stderr,
+				"%s[live]\033[0m first status: is_e2b=%s, live_browser_url=%s (keys: %s)\n",
+				color, isE2B, liveURL, strings.Join(keys, ","))
+			sctx.sandboxModeLogged = true
+		}
+	}
+
+	url, _ := m["live_browser_url"].(string)
+	if url == "" {
+		return
+	}
+	sctx.LastLiveURL = url
+	// In CC/Codex mode this captureLiveURL runs in a `qmax-code serve --mcp`
+	// subprocess; sctx.LastLiveURL is local to that process and the parent
+	// REPL's auto-launcher would never see it. Persist via the side
+	// channel set up in writeMCPConfig (cc_agent / codex_agent). No-op
+	// when QMAX_LIVE_URL_FILE isn't set (standalone mode).
+	persistLiveURLForParent(url)
+	if sctx.LiveFeed && !sctx.liveURLLogged {
+		fmt.Fprintln(os.Stderr, "\033[36m[live]\033[0m live_browser_url captured — auto-launch fires at end of turn")
+		sctx.liveURLLogged = true
+	}
 }
 
 func min(a, b int) int {
