@@ -1132,6 +1132,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		// drainLiveURLFromChild loop). It is intentionally NOT passed to
 		// DialVNC — the stream needs a context that outlives the goroutine.
 		watchCtx, watchCancel := context.WithCancel(context.Background())
+		defer watchCancel() // ensures cancel on any return/continue path
 		if cliAgent != nil {
 			go func() {
 				// Do NOT defer watchCancel here — it is called by the main
@@ -1335,7 +1336,7 @@ func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal, preStream *VNCStr
 	stream := preStream
 	if stream == nil {
 		var dialErr error
-		stream, dialErr = DialVNC(nil, url, 10)
+		stream, dialErr = DialVNC(context.Background(), url, 10)
 		if dialErr != nil {
 			term.PrintError(fmt.Sprintf("browserfeed: connect: %v", dialErr))
 			sctx.LastLiveURL = url

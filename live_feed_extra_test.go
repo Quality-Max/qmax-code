@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -223,7 +224,7 @@ func TestMaybeLaunchLiveFeedLiveFeedOff(t *testing.T) {
 	srv, wsURL := fakeRFBServerForFeed(t)
 	defer srv.Close()
 
-	stream, err := DialVNC(nil, wsURL, 1)
+	stream, err := DialVNC(context.Background(), wsURL, 1)
 	if err != nil {
 		t.Fatalf("DialVNC: %v", err)
 	}

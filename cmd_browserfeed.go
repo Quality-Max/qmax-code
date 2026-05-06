@@ -13,6 +13,7 @@ package main
 // that struggle with the wider Unicode set.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -34,7 +35,7 @@ const (
 // blockModeQuarter (default, sharper) or blockModeHalf (simpler, more
 // portable).
 func ShowBrowserFeed(url string, mode blockMode) error {
-	stream, err := DialVNC(nil, url, 10)
+	stream, err := DialVNC(context.Background(), url, 10)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -554,11 +555,10 @@ func updateButtonMask(mask byte, msg tea.MouseMsg) byte {
 	if !ok {
 		return mask
 	}
-	switch msg.Type {
-	case tea.MouseLeft, tea.MouseMiddle, tea.MouseRight,
-		tea.MouseWheelUp, tea.MouseWheelDown:
+	switch msg.Action {
+	case tea.MouseActionPress:
 		return mask | (1 << bit)
-	case tea.MouseRelease:
+	case tea.MouseActionRelease:
 		return mask &^ (1 << bit)
 	}
 	return mask
