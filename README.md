@@ -20,6 +20,8 @@
 [![Made with Go](https://img.shields.io/badge/made%20with-Go-00ADD8.svg)](https://go.dev/)
 [![Announcement](https://img.shields.io/badge/announcement-2026--05--01-7c6cf0.svg)](https://qualitymax.io/blog/qmax-code-open-source)
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/qualitymax)
+
 **AI-powered terminal agent for QualityMax.** Named after Max, the real cat who inspired it all.
 
 qmax-code is the LLM brain that orchestrates the open-source [`qmax`](https://github.com/Quality-Max/qmax-local-agent) CLI. It connects to the Claude API, understands your testing intent in natural language, and translates it into structured CLI operations — crawling sites, generating tests, running scripts, reviewing repos.
