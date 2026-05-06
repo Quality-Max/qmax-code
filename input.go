@@ -29,6 +29,7 @@ var slashMenuItems = []SlashMenuItem{
 	{"/api", "Switch to direct Anthropic API"},
 	{"/connect", "Log in to QualityMax (browser)"},
 	{"/disconnect", "Log out"},
+	{"/reconnect", "Restore active MCP transport"},
 	{"/status", "Auth + session info"},
 	{"/cost", "Token usage + cost"},
 	{"/config", "Show config"},

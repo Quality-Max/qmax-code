@@ -876,14 +876,36 @@ func runTestWithProgress(ctx context.Context, api *APIClient, sctx *SessionConte
 		return raw
 	}
 
+	// LiveFeed fast-return: tell the parent REPL to handle polling.
+	// The MCP subprocess returning immediately means the LLM sees a response
+	// in ~2s instead of waiting 60–90s for E2B cold-start. The parent
+	// drains the execID from the side-channel file and polls CheckTestStatus
+	// directly (see waitForLiveFeedURL in main.go).
+	if sctx != nil && sctx.LiveFeed {
+		persistExecIDForParent(execID)
+		return annotateWithClientNote(raw,
+			fmt.Sprintf("Test started (execution_id: %s). "+
+				"The live browser feed will open automatically when the sandbox is ready — "+
+				"no further tool calls needed. Wait for the user to close the feed, "+
+				"then call check_test_status ONCE to get the final result.", execID))
+	}
+
 	// Show browser animation + progress bar
 	fmt.Println()
 	ShowBrowserAnimation(0)
 	progress := NewProgressBar("Running test...", 30)
 
-	// Poll until done
+	// Poll until done. Bail out early if progress is stuck at the same value
+	// for stuckLimit consecutive polls (~60 s) — that pattern means the
+	// sandbox is hung (artifact download, OOM, etc.) and further waiting
+	// won't help. The returned JSON carries a "client_note" field so the
+	// LLM knows polling is already exhausted and need not call
+	// check_test_status again.
+	const stuckLimit = 30 // 30 × 2 s = 60 s with no progress change
 	frame := 1
-	for i := 0; i < 120; i++ { // max 4 minutes (120 * 2s)
+	lastPct := -1
+	stuckCount := 0
+	for i := 0; i < 180; i++ { // max 6 minutes
 		time.Sleep(2 * time.Second)
 
 		statusRaw := api.CheckTestStatus(ctx, execID)
@@ -917,13 +939,44 @@ func runTestWithProgress(ctx context.Context, api *APIClient, sctx *SessionConte
 			progress.Finish(st == "passed", msg)
 			return statusRaw
 		}
+
+		// Live-feed early return: as soon as the VNC URL is captured and
+		// LiveFeed is on, return immediately so the REPL can open the browser
+		// feed while the test is still running. The LLM must call
+		// check_test_status once the user closes the feed to get the result.
+		if sctx != nil && sctx.LiveFeed && sctx.LastLiveURL != "" {
+			ClearBrowserAnimation()
+			return annotateWithClientNote(statusRaw,
+				fmt.Sprintf("VNC feed is ready — returning early so the REPL opens the browser feed now. "+
+					"The test (execution_id: %s) is still running in the background. "+
+					"Call check_test_status ONCE after the user closes the feed to get the final result. "+
+					"Do NOT poll repeatedly.", execID))
+		}
+
+		// Stuck-progress detection: if the percentage hasn't moved for
+		// stuckLimit polls, the sandbox is likely hung — return early.
+		if pct == lastPct {
+			stuckCount++
+			if stuckCount >= stuckLimit {
+				ClearBrowserAnimation()
+				progress.Finish(false, fmt.Sprintf("stuck at %d%% for %ds — sandbox may be hung", pct, stuckCount*2))
+				return annotateWithClientNote(statusRaw,
+					fmt.Sprintf("Polling stopped: progress stuck at %d%% for %d seconds. "+
+						"Do NOT call check_test_status again — the run appears hung. "+
+						"Suggest retrying the test or checking server logs.", pct, stuckCount*2))
+			}
+		} else {
+			stuckCount = 0
+			lastPct = pct
+		}
 	}
 
 	ClearBrowserAnimation()
-	progress.Finish(false, "Timed out")
+	progress.Finish(false, "Timed out after 6 minutes")
 	final := api.CheckTestStatus(ctx, execID)
 	captureLiveURL(sctx, final)
-	return final
+	return annotateWithClientNote(final,
+		"Polling stopped after 6 minutes. Do NOT call check_test_status again — the run timed out.")
 }
 
 // captureLiveURL extracts a `live_browser_url` from a status JSON payload
@@ -1009,6 +1062,26 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// annotateWithClientNote merges a "client_note" key into a JSON object string.
+// Uses json.RawMessage to preserve the original value types and avoid
+// float64-ification of integers. Returns raw unchanged on parse error.
+func annotateWithClientNote(raw, note string) string {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return raw
+	}
+	noteBytes, err := json.Marshal(note)
+	if err != nil {
+		return raw
+	}
+	m["client_note"] = noteBytes
+	out, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return string(out)
 }
 
 // runLocalTest downloads a script from QualityMax and runs it. Execution

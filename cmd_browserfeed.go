@@ -13,10 +13,10 @@ package main
 // that struggle with the wider Unicode set.
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
@@ -34,45 +34,59 @@ const (
 // blockModeQuarter (default, sharper) or blockModeHalf (simpler, more
 // portable).
 func ShowBrowserFeed(url string, mode blockMode) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	stream, err := DialVNC(ctx, url, 10)
+	stream, err := DialVNC(nil, url, 10)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
+	return showBrowserFeedStream(stream, mode, fmt.Sprintf("connected to %s — Ctrl+] to quit", url))
+}
 
+// ShowBrowserFeedFromStream opens the live feed UI using an already-dialled
+// VNCStream. Ownership of the stream is transferred; the stream is closed
+// when the user quits. statusHint is shown in the status line until the
+// first frame arrives.
+func ShowBrowserFeedFromStream(stream *VNCStream, mode blockMode, statusHint string) error {
+	return showBrowserFeedStream(stream, mode, statusHint)
+}
+
+func showBrowserFeedStream(stream *VNCStream, mode blockMode, status string) error {
 	cols, rows := bfTermSize()
 	m := browserFeedModel{
-		stream: stream,
-		cancel: cancel,
-		cols:   cols,
-		rows:   rows,
-		mode:   mode,
-		status: fmt.Sprintf("connecting to %s — Ctrl+] to quit", url),
+		stream:   stream,
+		termCols: cols,
+		termRows: rows,
+		mode:     mode,
+		status:   status,
 	}
+	m.updateEffectiveDims()
 	p := tea.NewProgram(m,
 		tea.WithAltScreen(),
 		tea.WithMouseAllMotion(),
 	)
 
-	// Bridge the stream → the program. Bubble Tea owns the lifecycle of
-	// these goroutines: when p.Run() returns, ctx is cancelled and DialVNC's
-	// channels close, so the goroutines exit naturally.
+	// Bridge stream channels → Bubble Tea. Both goroutines exit when their
+	// respective channels close (stream.Close() closes both). A WaitGroup
+	// ensures they've exited before we return so callers never see a
+	// dangling goroutine after ShowBrowserFeed returns.
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		for f := range stream.Frames {
 			p.Send(frameMsg{frame: f})
 		}
 		p.Send(streamClosedMsg{})
 	}()
 	go func() {
+		defer wg.Done()
 		for e := range stream.Err {
 			p.Send(streamErrMsg{err: e})
 		}
 	}()
 
 	_, runErr := p.Run()
-	stream.Close()
+	stream.Close() // cancels context + closes channels → goroutines above exit
+	wg.Wait()
 	return runErr
 }
 
@@ -96,19 +110,35 @@ type blockLayout struct {
 	buttonMask       byte    // current pressed buttons (RFB encoding)
 }
 
+// bfSmallFraction is the fraction of the terminal used in small (default) mode.
+const bfSmallFraction = 0.6
+
 type browserFeedModel struct {
 	stream *VNCStream
-	cancel context.CancelFunc
 
 	frame      *VNCFrame
-	cols       int // terminal cells wide
-	rows       int // terminal cells tall
+	termCols   int // actual terminal width
+	termRows   int // actual terminal height
+	cols       int // effective render width (capped in small mode)
+	rows       int // effective render height
+	fullscreen bool // false = small (bfSmallFraction of terminal), true = fill
 	mode       blockMode
 	frames     int // counter for status line
 	layout     blockLayout
 	cachedView string // pre-rendered body, refreshed on frame or resize
 
 	status string // last status / error line
+}
+
+// updateEffectiveDims recomputes cols/rows from termCols/termRows + fullscreen.
+func (m *browserFeedModel) updateEffectiveDims() {
+	if m.fullscreen {
+		m.cols = m.termCols
+		m.rows = m.termRows
+	} else {
+		m.cols = bfMaxI(int(float64(m.termCols)*bfSmallFraction), 20)
+		m.rows = bfMaxI(int(float64(m.termRows)*bfSmallFraction), 8)
+	}
 }
 
 // rerender updates cachedView + layout from the current frame and dimensions.
@@ -119,6 +149,13 @@ func (m *browserFeedModel) rerender() {
 		return
 	}
 	body, layout := renderBlocks(m.frame, m.cols, m.rows-1, m.mode)
+	// Bottom-left anchor: prepend extra blank lines so the image sits at the
+	// bottom of the actual terminal rather than the top of the small viewport.
+	extraPad := m.termRows - m.rows
+	if extraPad > 0 {
+		body = strings.Repeat("\n", extraPad) + body
+		layout.topPadCells += extraPad
+	}
 	m.cachedView = body
 	m.layout = layout
 }
@@ -128,15 +165,22 @@ func (m browserFeedModel) Init() tea.Cmd { return nil }
 func (m browserFeedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.cols, m.rows = msg.Width, msg.Height
+		m.termCols, m.termRows = msg.Width, msg.Height
+		m.updateEffectiveDims()
 		m.rerender()
 		return m, nil
 
 	case tea.KeyMsg:
-		// Ctrl+] is the universal exit. Borrowed from telnet so that q,
-		// Esc, Ctrl+C all stay forwardable to the desktop.
+		// Ctrl+] exits. Borrowed from telnet so q, Esc, Ctrl+C stay forwardable.
 		if msg.Type == tea.KeyCtrlCloseBracket {
 			return m, tea.Quit
+		}
+		// Ctrl+F toggles small ↔ full-screen rendering.
+		if msg.Type == tea.KeyCtrlF {
+			m.fullscreen = !m.fullscreen
+			m.updateEffectiveDims()
+			m.rerender()
+			return m, nil
 		}
 		// Forward everything else to the remote desktop. We don't model
 		// modifier-only press/release, so each key is sent as a press +
@@ -179,8 +223,12 @@ func (m browserFeedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cellsW = int(float64(m.layout.srcW) / m.layout.cellSrcWidth)
 			cellsH = int(float64(m.layout.srcH) / m.layout.cellSrcHeight)
 		}
-		m.status = fmt.Sprintf("%dx%d → %dx%d cells  ·  %s  ·  %d frames  ·  Ctrl+] to quit",
-			msg.frame.Width, msg.frame.Height, cellsW, cellsH, modeName, m.frames)
+		sizeHint := "small · Ctrl+F full"
+		if m.fullscreen {
+			sizeHint = "full · Ctrl+F small"
+		}
+		m.status = fmt.Sprintf("%dx%d → %dx%d cells  ·  %s  ·  %s  ·  %d frames  ·  Ctrl+] quit",
+			msg.frame.Width, msg.frame.Height, cellsW, cellsH, modeName, sizeHint, m.frames)
 		return m, nil
 
 	case streamErrMsg:
@@ -188,8 +236,7 @@ func (m browserFeedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case streamClosedMsg:
-		m.status = "stream closed — Ctrl+] to exit"
-		return m, nil
+		return m, tea.Quit
 	}
 	return m, nil
 }
@@ -296,8 +343,9 @@ func renderQuarterBlocks(frame *VNCFrame, cols, rows int) (string, blockLayout) 
 	dstH := cellsH * 2
 	layout.dstW, layout.dstH = dstW, dstH
 
-	leftPad := (cols - cellsW) / 2
-	topPad := (rows - cellsH) / 2
+	// Anchor bottom-left: no left indent, all vertical slack goes above.
+	leftPad := 0
+	topPad := rows - cellsH
 	layout.leftPadCells = leftPad
 	layout.topPadCells = topPad
 	layout.cellSrcWidth = float64(frame.Width) / float64(cellsW)
@@ -429,8 +477,9 @@ func renderHalfBlocks(frame *VNCFrame, cols, rows int) (string, blockLayout) {
 	dstH := cellsH * 2
 	layout.dstW, layout.dstH = dstW, dstH
 
-	leftPad := (cols - cellsW) / 2
-	topPad := (rows - cellsH) / 2
+	// Anchor bottom-left: no left indent, all vertical slack goes above.
+	leftPad := 0
+	topPad := rows - cellsH
 	layout.leftPadCells = leftPad
 	layout.topPadCells = topPad
 	layout.cellSrcWidth = float64(frame.Width) / float64(cellsW)

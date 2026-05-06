@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,7 +15,7 @@ import (
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
-var Version = "1.15.7"
+var Version = "1.16.0"
 
 const Name = "qmax-code"
 
@@ -592,6 +593,9 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		case input == "/disconnect":
 			handleDisconnect(agent, term)
 			continue
+		case input == "/reconnect":
+			reconnectMCPTransport(cliAgent, term)
+			continue
 		case input == "/status":
 			term.PrintStatusInfo(agent.config.Context, agent.usage, agent.config.Model)
 			continue
@@ -1112,6 +1116,62 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		// Normal mode: use direct Anthropic API.
 		var llmResult string
 		var err error
+
+		// In CC/Codex mode, start a pre-connect goroutine that watches for a
+		// live_browser_url in the side-channel file every second. When one
+		// appears (mid-turn, while the test is still running), we immediately
+		// dial VNC and hold the WebSocket open. An active connection prevents
+		// the E2B sandbox from tearing down websockify, so the feed is still
+		// available after the agent turn ends even without server-side keepalive.
+		type preConnResult struct {
+			url    string
+			stream *VNCStream // nil on dial failure
+		}
+		preConnChan := make(chan preConnResult, 1)
+		// watchCtx is only used to stop the polling ticker (abort a pending
+		// drainLiveURLFromChild loop). It is intentionally NOT passed to
+		// DialVNC — the stream needs a context that outlives the goroutine.
+		watchCtx, watchCancel := context.WithCancel(context.Background())
+		if cliAgent != nil {
+			go func() {
+				// Do NOT defer watchCancel here — it is called by the main
+				// goroutine after the agent turn ends. If we cancelled it here
+				// on exit, DialVNC (which uses context.Background()) is fine,
+				// but stopping the ticker via Done() would still work.
+				ticker := time.NewTicker(1 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-watchCtx.Done():
+						return
+					case <-ticker.C:
+						url := drainLiveURLFromChild()
+						if url == "" {
+							continue
+						}
+						// Use context.Background() so the stream's lifetime is
+						// NOT tied to watchCtx. Cancelling watchCtx (at end of
+						// turn) must not kill an already-established connection.
+						stream, dialErr := DialVNC(context.Background(), url, 10)
+						res := preConnResult{url: url}
+						if dialErr == nil {
+							res.stream = stream
+						}
+						select {
+						case preConnChan <- res:
+						default:
+							if dialErr == nil {
+								stream.Close()
+							}
+						}
+						return
+					}
+				}
+			}()
+		} else {
+			watchCancel()
+		}
+
 		if cliAgent != nil {
 			if len(images) > 0 {
 				term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
@@ -1176,67 +1236,163 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		// Auto-save after every exchange for crash safety
 		autoSave()
 
+		// Stop the pre-connect watcher (no-op if it already returned) and
+		// collect any stream it established mid-turn.
+		watchCancel()
+		var preConn preConnResult
+		select {
+		case preConn = <-preConnChan:
+		default:
+		}
+
 		// In CC/Codex mode, captureLiveURL ran inside a child `qmax-code
 		// serve --mcp` subprocess; the URL it stored sits on that
-		// process's sctx, not ours. Drain the side-channel file the
-		// subprocess wrote into — see live_url_channel.go for protocol.
+		// process's sctx, not ours. Prefer the URL the pre-connect goroutine
+		// already drained; fall back to a final drain for non-cliAgent runs.
 		if cliAgent != nil {
-			if url := drainLiveURLFromChild(); url != "" {
+			if preConn.url != "" {
+				agent.config.Context.LastLiveURL = preConn.url
+				agent.config.Context.sandboxModeLogged = true
+			} else if url := drainLiveURLFromChild(); url != "" {
 				agent.config.Context.LastLiveURL = url
-				// Mark sandbox-mode-seen so maybeLaunchLiveFeed won't
-				// nag with "no URL came back" on a successful capture.
 				agent.config.Context.sandboxModeLogged = true
 			}
 		}
+
+		// Check whether run_test returned early and wrote an execution_id for
+		// us to poll directly (fast-return path, avoids 60–90s LLM block).
+		pendingExecID := drainExecIDFromChild()
 
 		// End-of-turn live-feed auto-launch. If a tool call surfaced a
 		// live_browser_url during this turn (and the user opted in via
 		// /live on), open the feed now — the agent has finished talking
 		// so taking over the alt screen is safe. /feed remains as a
 		// manual replay if the user dismisses it.
-		maybeLaunchLiveFeed(agent.config.Context, term)
+		maybeLaunchLiveFeed(agent.config.Context, term, preConn.stream, pendingExecID)
 	}
 }
 
-// maybeLaunchLiveFeed drains a captured live URL and opens /browserfeed
-// against it. Idempotent: no-op when LiveFeed is off or no URL has been
-// captured this turn. Clears the URL on success or after the user exits
-// so a stale URL from a previous run doesn't auto-launch again.
+// maybeLaunchLiveFeed opens /browserfeed using a pre-established VNCStream
+// (from the mid-turn pre-connect goroutine) or by dialling fresh from the
+// captured URL. When neither a URL nor a pre-stream is available but a
+// pendingExecID is set, it polls CheckTestStatus directly (bypassing the LLM)
+// until the live_browser_url appears — eliminating the 60–90s REPL freeze
+// caused by E2B cold-start blocking the MCP subprocess.
 //
-// When LiveFeed is on but no URL was captured this turn, prints a
-// diagnostic with the most likely causes — saves the user a server-log
-// archeology session.
-func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal) {
+// Idempotent: no-op when LiveFeed is off. Clears LastLiveURL on success so
+// a stale URL from a previous run doesn't auto-launch on the next turn.
+func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal, preStream *VNCStream, pendingExecID string) {
 	if sctx == nil || !sctx.LiveFeed {
+		if preStream != nil {
+			preStream.Close()
+		}
 		return
 	}
-	if sctx.LastLiveURL == "" {
+
+	url := sctx.LastLiveURL
+
+	// Fast-return path: run_test wrote an execution_id and returned immediately.
+	// Poll the API directly here (post-LLM-turn) so the user sees the feed as
+	// soon as the sandbox is ready rather than waiting inside the MCP tool call.
+	if url == "" && pendingExecID != "" && sctx.API != nil {
+		term.PrintSystem(fmt.Sprintf("Test started — waiting for live browser feed (exec: %s)...", pendingExecID))
+		url = waitForLiveFeedURL(sctx.API, pendingExecID, 5*time.Minute)
+	}
+
+	if url == "" {
+		if preStream != nil {
+			preStream.Close()
+		}
 		// Only diagnose if the agent actually ran a tool this turn that
 		// reported sandbox mode (i.e. a run/crawl actually happened).
 		// Otherwise the user just chatted and we shouldn't nag.
-		if !sctx.sandboxModeLogged {
+		if !sctx.sandboxModeLogged && pendingExecID == "" {
 			return
 		}
-		term.PrintSystem("Live feed was on, but no live_browser_url came back this turn.")
-		if sctx.sandboxFallbackSeen {
-			term.PrintSystem("  Server reported is_e2b=false. Most common reason:")
-			term.PrintSystem("   • Script has agent_id set → server silently rejects the use_e2b combo")
+		if pendingExecID != "" {
+			term.PrintSystem("Live feed: sandbox did not expose a live_browser_url within 5 minutes.")
 		} else {
-			term.PrintSystem("  Possible causes:")
-			term.PrintSystem("   • Server's E2B_API_KEY env var isn't configured (check /api/playwright-execution/health)")
-			term.PrintSystem("   • VNC stack failed to start in the sandbox (server logs: 'VNC setup FAILED')")
-			term.PrintSystem("   • Script has agent_id set → server silently rejects the use_e2b combo")
+			term.PrintSystem("Live feed was on, but no live_browser_url came back this turn.")
+			if sctx.sandboxFallbackSeen {
+				term.PrintSystem("  Server reported is_e2b=false. Most common reason:")
+				term.PrintSystem("   • Script has agent_id set → server silently rejects the use_e2b combo")
+			} else {
+				term.PrintSystem("  Possible causes:")
+				term.PrintSystem("   • Server's E2B_API_KEY env var isn't configured (check /api/playwright-execution/health)")
+				term.PrintSystem("   • VNC stack failed to start in the sandbox (server logs: 'VNC setup FAILED')")
+				term.PrintSystem("   • Script has agent_id set → server silently rejects the use_e2b combo")
+			}
 		}
 		return
 	}
-	url := sctx.LastLiveURL
+
 	sctx.LastLiveURL = ""
 	term.PrintSystem("Opening live browser feed... (Ctrl+] to return)")
-	if err := ShowBrowserFeed(url, blockModeQuarter); err != nil {
-		term.PrintError(fmt.Sprintf("browserfeed: %v", err))
-		// Re-store the URL so the user can retry with /feed.
+
+	// Determine which stream to use. When we have a pendingExecID, dial a
+	// fresh stream so we can monitor test status and auto-close it the moment
+	// the test finishes — avoids the "black screen until sandbox teardown" hang.
+	stream := preStream
+	if stream == nil {
+		var dialErr error
+		stream, dialErr = DialVNC(nil, url, 10)
+		if dialErr != nil {
+			term.PrintError(fmt.Sprintf("browserfeed: connect: %v", dialErr))
+			sctx.LastLiveURL = url
+			return
+		}
+	}
+
+	// When tracking a specific execution, close the stream as soon as the test
+	// reaches a terminal status — this triggers streamClosedMsg → tea.Quit so
+	// the feed exits automatically instead of showing a black screen.
+	if pendingExecID != "" && sctx.API != nil {
+		api := sctx.API
+		execID := pendingExecID
+		go func() {
+			for {
+				time.Sleep(2 * time.Second)
+				raw := api.CheckTestStatus(context.Background(), execID)
+				var sm map[string]interface{}
+				if json.Unmarshal([]byte(raw), &sm) != nil {
+					continue
+				}
+				if st, _ := sm["status"].(string); st == "passed" || st == "failed" || st == "completed" {
+					stream.Close()
+					return
+				}
+			}
+		}()
+	}
+
+	feedErr := ShowBrowserFeedFromStream(stream, blockModeQuarter,
+		fmt.Sprintf("connected to %s — Ctrl+] to quit", url))
+	if feedErr != nil {
+		term.PrintError(fmt.Sprintf("browserfeed: %v", feedErr))
 		sctx.LastLiveURL = url
 	}
+}
+
+// waitForLiveFeedURL polls CheckTestStatus until live_browser_url appears or
+// the test ends without one. Returns the URL on success, "" on timeout/failure.
+func waitForLiveFeedURL(api *APIClient, execID string, timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(2 * time.Second)
+		statusRaw := api.CheckTestStatus(context.Background(), execID)
+		var m map[string]interface{}
+		if json.Unmarshal([]byte(statusRaw), &m) != nil {
+			continue
+		}
+		if urlVal, _ := m["live_browser_url"].(string); urlVal != "" {
+			return urlVal
+		}
+		// Test already finished (no sandbox / fast failure) — stop waiting.
+		if st, _ := m["status"].(string); st == "passed" || st == "failed" || st == "completed" {
+			return ""
+		}
+	}
+	return ""
 }
 
 // handleConnect runs the browser-based auth flow from within the REPL.
@@ -1398,6 +1554,7 @@ func printREPLHelp() {
 Commands:
   /connect       Log in to QualityMax (opens browser)
   /disconnect    Log out and clear saved credentials
+  /reconnect     Restore the active CC/Codex MCP transport
   /status        Connection status + session info
   /project <id>  Set the active project
   /context       Show current session context
@@ -1465,6 +1622,25 @@ Examples:
   "run all tests and show failures"
   "import https://github.com/user/repo and review it"
   "create a PR with the generated tests"`)
+}
+
+func reconnectMCPTransport(cliAgent CLIAgent, term *Terminal) {
+	switch a := cliAgent.(type) {
+	case *CCAgent:
+		if err := a.writeMCPConfig(); err != nil {
+			term.PrintError(fmt.Sprintf("Could not restore Claude Code MCP transport: %v", err))
+			return
+		}
+		term.PrintSystem("QMax MCP transport restored for Claude Code.")
+	case *CodexAgent:
+		if err := a.writeMCPConfig(); err != nil {
+			term.PrintError(fmt.Sprintf("Could not restore Codex MCP transport: %v", err))
+			return
+		}
+		term.PrintSystem("QMax MCP transport restored for Codex.")
+	default:
+		term.PrintSystem("No CC/Codex MCP transport is active. Use /cc or /codex first.")
+	}
 }
 
 func printConfigInfo(cfg *Config, term *Terminal) {

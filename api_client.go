@@ -152,12 +152,15 @@ func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force 
 // port goes 502 by the time qmax-code's end-of-turn auto-launch fires.
 func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, browser, baseURL string, useCloudSandbox bool) string {
 	body := map[string]interface{}{
-		"headless":        headless,
-		"use_browserbase": false,
+		"headless":         headless,
+		"use_browserbase":  false,
+		// Always request keepalive: the server may use E2B even when not
+		// explicitly asked (e.g. per-script server-side policy). Without this,
+		// the websockify port is gone before the end-of-turn auto-launch fires.
+		"live_feed_hold_seconds": liveFeedHoldSeconds,
 	}
 	if useCloudSandbox {
 		body["use_e2b"] = true
-		body["live_feed_hold_seconds"] = liveFeedHoldSeconds
 	}
 	if browser != "" {
 		body["browser"] = browser
@@ -220,11 +223,11 @@ func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string
 		}
 	}
 	body := map[string]interface{}{
-		"script_ids": ids,
+		"script_ids":             ids,
+		"live_feed_hold_seconds": liveFeedHoldSeconds,
 	}
 	if useCloudSandbox {
 		body["use_e2b"] = true
-		body["live_feed_hold_seconds"] = liveFeedHoldSeconds
 	}
 	if baseURL != "" {
 		body["base_url"] = baseURL
@@ -259,12 +262,12 @@ func (c *APIClient) ReportLocalResult(ctx context.Context, scriptID int, status,
 // `live_browser_url`.
 func (c *APIClient) StartCrawl(ctx context.Context, projectID int, url string, depth, pages int, testType, instructions string, useCloudSandbox bool) string {
 	body := map[string]interface{}{
-		"project_id": projectID,
-		"url":        url,
+		"project_id":             projectID,
+		"url":                    url,
+		"live_feed_hold_seconds": liveFeedHoldSeconds,
 	}
 	if useCloudSandbox {
 		body["use_e2b"] = true
-		body["live_feed_hold_seconds"] = liveFeedHoldSeconds
 	}
 	if depth > 0 {
 		body["depth"] = depth

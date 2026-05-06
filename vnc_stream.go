@@ -65,29 +65,62 @@ type VNCStream struct {
 // fps caps how often FramebufferUpdateRequest is re-issued (the cloud
 // sandbox's xtigervnc pushes deltas, so this acts as a backstop, not a
 // polling rate).
+// DialVNC connects to a noVNC websockify endpoint. ctx may be nil, in which
+// case context.Background() is used. The returned stream is already running
+// its read loop; call Close when done.
 func DialVNC(ctx context.Context, rawURL string, fps int) (*VNCStream, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	wsURL, err := normalizeNoVNCURL(rawURL)
 	if err != nil {
 		return nil, err
 	}
 
-	dialCtx, cancelDial := context.WithTimeout(ctx, 15*time.Second)
-	defer cancelDial()
+	// dialOnce attempts a single WebSocket upgrade (subprotocol then bare).
+	// Returns the live conn or (nil, err) on hard failure.
+	dialOnce := func(dctx context.Context) (*websocket.Conn, error) {
+		c, _, e := websocket.Dial(dctx, wsURL, &websocket.DialOptions{
+			Subprotocols: []string{"binary"},
+		})
+		if e == nil {
+			return c, nil
+		}
+		c, _, e2 := websocket.Dial(dctx, wsURL, nil)
+		if e2 == nil {
+			return c, nil
+		}
+		return nil, fmt.Errorf("websocket dial %s: %w", wsURL, e)
+	}
 
-	// websockify advertises subprotocol "binary" (legacy) on some versions
-	// and accepts no subprotocol on newer noVNC. Try "binary" first; if the
-	// server rejects, retry without. This costs one extra handshake on the
-	// fallback path, fine for an interactive command.
-	conn, _, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{
-		Subprotocols: []string{"binary"},
-	})
-	if err != nil {
-		var alt error
-		conn, _, alt = websocket.Dial(dialCtx, wsURL, nil)
-		if alt != nil {
-			return nil, fmt.Errorf("websocket dial: %w", err)
+	// Retry up to 4 times with a 3-second gap for 502/503 responses. The
+	// sandbox's websockify process can take a moment to become ready after
+	// the keepalive hold kicks in; a brief wait is enough to clear it.
+	const maxAttempts = 4
+	var conn *websocket.Conn
+	for attempt := range maxAttempts {
+		dialCtx, cancelDial := context.WithTimeout(ctx, 15*time.Second)
+		conn, err = dialOnce(dialCtx)
+		cancelDial()
+		if err == nil {
+			break
+		}
+		// Only retry on gateway errors — other failures (TLS, DNS, auth) won't
+		// resolve on their own.
+		errStr := err.Error()
+		is5xx := strings.Contains(errStr, "502") || strings.Contains(errStr, "503") ||
+			strings.Contains(errStr, "504")
+		if !is5xx || attempt == maxAttempts-1 {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(3 * time.Second):
 		}
 	}
+	// conn is guaranteed non-nil here: loop exits via break (err==nil) or
+	// returns early on error, so this point is only reached on success.
 	conn.SetReadLimit(-1) // RFB framebuffer updates can be megabytes
 
 	streamCtx, cancel := context.WithCancel(ctx)

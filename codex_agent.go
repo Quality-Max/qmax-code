@@ -108,6 +108,9 @@ func (a *CodexAgent) writeMCPConfig() error {
 	if path := liveURLFilePath(); path != "" {
 		env["QMAX_LIVE_URL_FILE"] = path
 	}
+	if path := execIDFilePath(); path != "" {
+		env["QMAX_EXEC_ID_FILE"] = path
+	}
 
 	cfgPath := filepath.Join(codexDir, "config.toml")
 	_, err = writeCodexMCPEntry(cfgPath, env)
@@ -134,6 +137,10 @@ End each response with the next highest-impact action.
 
 // Run executes one conversation turn through a Codex subprocess.
 func (a *CodexAgent) Run(userMsg string, term *Terminal) (string, error) {
+	if err := a.writeMCPConfig(); err != nil {
+		return "", fmt.Errorf("MCP config: %w", err)
+	}
+
 	// Build the full prompt: QA system prompt + conversation history + current message.
 	prompt := a.buildPrompt(userMsg)
 

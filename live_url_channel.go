@@ -26,6 +26,9 @@ import (
 var (
 	liveURLFileOnce sync.Once
 	liveURLFileVal  string
+
+	execIDFileOnce sync.Once
+	execIDFileVal  string
 )
 
 // liveFeedHoldSeconds is the post-run sandbox-keepalive window we ask the
@@ -34,7 +37,7 @@ var (
 // the client opens /browserfeed; short enough that abandoned sandboxes
 // don't cost much. Server caps this via QMAX_LIVE_FEED_HOLD_MAX_SECONDS
 // (default 600) so a misconfigured client can't pin sandboxes forever.
-const liveFeedHoldSeconds = 60
+const liveFeedHoldSeconds = 120
 
 // liveURLFilePath returns the path to the per-process side-channel file,
 // computing it once per process. Empty string means we couldn't resolve
@@ -91,6 +94,63 @@ func persistLiveURLForParent(url string) {
 // when the file is missing, empty, or unreadable.
 func drainLiveURLFromChild() string {
 	path := liveURLFilePath()
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	_ = os.Remove(path)
+	return strings.TrimSpace(string(data))
+}
+
+// ── Execution-ID side channel ────────────────────────────────────────────────
+//
+// When run_test returns immediately (LiveFeed=true fast-return), the MCP
+// subprocess writes the execution_id here so the parent REPL can poll
+// CheckTestStatus directly — without blocking the LLM tool call for the
+// 60–90 s E2B cold-start window.
+
+// execIDFilePath returns the per-process path for the execution-ID file.
+func execIDFilePath() string {
+	execIDFileOnce.Do(func() {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		dir := filepath.Join(home, ".qmax-code")
+		_ = os.MkdirAll(dir, 0o700)
+		execIDFileVal = filepath.Join(dir, fmt.Sprintf(".exec-id-%d", os.Getpid()))
+	})
+	return execIDFileVal
+}
+
+// execIDFileForChild returns the path the MCP subprocess writes to
+// (passed via QMAX_EXEC_ID_FILE). Returns "" when the env var is unset.
+func execIDFileForChild() string {
+	return strings.TrimSpace(os.Getenv("QMAX_EXEC_ID_FILE"))
+}
+
+// persistExecIDForParent writes the execution ID to the side channel so
+// the parent can poll for the live_browser_url without blocking the MCP
+// tool call. No-op when QMAX_EXEC_ID_FILE is not set.
+func persistExecIDForParent(execID string) {
+	path := execIDFileForChild()
+	if path == "" || execID == "" {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(execID), 0o600); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, path)
+}
+
+// drainExecIDFromChild reads and removes the execution ID the subprocess
+// wrote. Returns "" when the file is missing or unreadable.
+func drainExecIDFromChild() string {
+	path := execIDFilePath()
 	if path == "" {
 		return ""
 	}
