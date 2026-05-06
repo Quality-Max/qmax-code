@@ -69,6 +69,17 @@ type Config struct {
 	// nil = not asked yet (prompt fires on the next eligible session).
 	// true = opted in, false = opted out.
 	CloudSync *bool `json:"cloud_sync,omitempty"`
+
+	// LiveFeed opts every test run / AI crawl into running inside a QM Cloud
+	// Sandbox so the browser is streamed live into the terminal. When true,
+	// MCP tool wrappers (run_test, run_tests_batch, start_crawl) flip the
+	// server's use_e2b flag and the REPL auto-launches /browserfeed at the
+	// end of each agent turn that produced a live URL.
+	//
+	// Default false — sandbox runs cost more than the pooled runners, and
+	// users should opt in deliberately. Toggle via /live on|off or
+	// /set live_feed true|false.
+	LiveFeed bool `json:"live_feed,omitempty"`
 }
 
 const qmaxCodeConfigDir = ".qmax-code"

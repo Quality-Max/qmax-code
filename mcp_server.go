@@ -29,11 +29,18 @@ func RunMCPServer() {
 		API:       apiClient,
 		Auth:      auth,
 		ProjectID: appConfig.DefaultProject,
+		LiveFeed:  appConfig.LiveFeed,
 	}
 
 	// Project ID override: CCAgent writes the active project into the MCP env.
 	if pid, err := strconv.Atoi(os.Getenv("QMAX_PROJECT_ID")); err == nil && pid > 0 {
 		sctx.ProjectID = pid
+	}
+	// Parent sets QMAX_LIVE_FEED=1 when /live is on. Honour that even if
+	// the on-disk config disagrees — the env var reflects the current
+	// state of the running parent REPL more reliably than disk.
+	if v := os.Getenv("QMAX_LIVE_FEED"); v == "1" || v == "true" {
+		sctx.LiveFeed = true
 	}
 
 	encoder := json.NewEncoder(os.Stdout)
@@ -123,6 +130,17 @@ func dispatchMCPRequest(req mcpRequest, sctx *SessionContext) mcpResponse {
 		var params mcpCallParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return mcpErr(req.ID, -32602, "invalid params: "+err.Error())
+		}
+		// Refresh LiveFeed from on-disk config every call so the
+		// parent REPL's `/live on|off` toggle takes effect without
+		// restarting the subprocess. ProjectID is read once at startup
+		// because it's plumbed via env; LiveFeed flips often enough
+		// during a session that a per-call disk read pays for itself.
+		if cfg := LoadQMaxCodeConfig(); cfg != nil {
+			sctx.LiveFeed = cfg.LiveFeed
+			if v := os.Getenv("QMAX_LIVE_FEED"); v == "1" || v == "true" {
+				sctx.LiveFeed = true
+			}
 		}
 		result := ExecuteTool(params.Name, params.Arguments, sctx, context.Background())
 		return mcpOK(req.ID, map[string]interface{}{

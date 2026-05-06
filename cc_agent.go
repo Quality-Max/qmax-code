@@ -190,6 +190,20 @@ func (a *CCAgent) writeMCPConfig() error {
 	if a.sctx.ProjectID > 0 {
 		env["QMAX_PROJECT_ID"] = strconv.Itoa(a.sctx.ProjectID)
 	}
+	// Live feed plumbing — the MCP subprocess has its own SessionContext,
+	// so the parent's `/live on` flag is invisible without an env hand-off.
+	// QMAX_LIVE_URL_FILE is a per-session side channel that the subprocess
+	// writes captured live_browser_url values into; the parent reads it
+	// between turns to drive the auto-launch and /feed.
+	if a.sctx.LiveFeed {
+		env["QMAX_LIVE_FEED"] = "1"
+	}
+	if path := liveURLFilePath(); path != "" {
+		env["QMAX_LIVE_URL_FILE"] = path
+	}
+	if path := execIDFilePath(); path != "" {
+		env["QMAX_EXEC_ID_FILE"] = path
+	}
 
 	config := map[string]interface{}{
 		"mcpServers": map[string]interface{}{
@@ -222,7 +236,7 @@ func (a *CCAgent) writeMCPConfig() error {
 // CC's subscription handles inference; qmax handles tools via MCP.
 func (a *CCAgent) Run(userMsg string, term *Terminal) (string, error) {
 	a.mu.Lock()
-	if a.mcpConfigPath == "" {
+	if a.mcpConfigPath == "" || fileMissing(a.mcpConfigPath) {
 		a.mu.Unlock()
 		if err := a.writeMCPConfig(); err != nil {
 			return "", fmt.Errorf("MCP config: %w", err)
@@ -288,6 +302,14 @@ func (a *CCAgent) Run(userMsg string, term *Terminal) (string, error) {
 		}
 	}
 	return result, nil
+}
+
+func fileMissing(path string) bool {
+	if path == "" {
+		return true
+	}
+	_, err := os.Stat(path)
+	return os.IsNotExist(err)
 }
 
 // Cleanup removes the temp MCP config file.

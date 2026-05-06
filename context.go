@@ -22,6 +22,25 @@ type SessionContext struct {
 	API         *APIClient  // direct API client (standalone mode, no qmax CLI needed)
 	Auth        *AuthConfig // authentication credentials
 	Backend     string      // "" | "cc" | "codex" — active CLI inference backend
+
+	// LiveFeed enables QM Cloud Sandbox execution for run_test / start_crawl
+	// and turns on auto-launch of /browserfeed when a poll response surfaces
+	// a live URL. Mirrors Config.LiveFeed; refreshed on every /set live_feed
+	// or /live toggle so the dispatcher always sees the current value.
+	LiveFeed bool
+
+	// LastLiveURL holds the most recent `live_browser_url` extracted from a
+	// run/crawl status poll. The REPL drains this between agent turns to
+	// auto-launch the feed; tool handlers write to it via captureLiveURL.
+	LastLiveURL string
+
+	// turn-scoped diagnostic flags reset by the REPL before each agent
+	// invocation. Make captureLiveURL chatty *once* per turn rather than
+	// per poll, so users see "live URL captured" or a fallback warning
+	// without having every poll spam the screen.
+	liveURLLogged       bool
+	sandboxModeLogged   bool
+	sandboxFallbackSeen bool
 }
 
 // QMaxConfig mirrors the qmax CLI config (~/.qamax/config.json).
