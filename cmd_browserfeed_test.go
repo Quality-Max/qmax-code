@@ -102,3 +102,43 @@ func TestMouseToSrcPixel(t *testing.T) {
 		t.Error("expected !ok in left/top margin")
 	}
 }
+
+func TestBuildIndexMap(t *testing.T) {
+	m := buildIndexMap(100, 10)
+	if len(m) != 10 {
+		t.Fatalf("len = %d, want 10", len(m))
+	}
+	for i, v := range m {
+		if v < 0 || v >= 100 {
+			t.Errorf("m[%d] = %d out of range", i, v)
+		}
+		if i > 0 && v < m[i-1] {
+			t.Errorf("non-monotonic at %d: %d < %d", i, v, m[i-1])
+		}
+	}
+	m = buildIndexMap(3, 9)
+	if len(m) != 9 {
+		t.Fatalf("len = %d, want 9", len(m))
+	}
+	for i, v := range m {
+		if v < 0 || v >= 3 {
+			t.Errorf("upsampled m[%d] = %d out of range", i, v)
+		}
+	}
+}
+
+func TestBuildIndexMapZeroDst(t *testing.T) {
+	m := buildIndexMap(100, 0)
+	if len(m) != 0 {
+		t.Errorf("zero dst: len = %d, want 0", len(m))
+	}
+}
+
+func TestBuildIndexMapSameSize(t *testing.T) {
+	m := buildIndexMap(5, 5)
+	for i, v := range m {
+		if v != i {
+			t.Errorf("same-size map[%d] = %d, want %d", i, v, i)
+		}
+	}
+}

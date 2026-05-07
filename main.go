@@ -12,6 +12,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/qualitymax/qmax-code/internal/vnc"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
@@ -42,9 +45,9 @@ func main() {
 	}
 
 	// Initialize error reporting only when explicitly enabled.
-	InitErrorReporting()
-	defer FlushErrorReporting()
-	defer RecoverPanic()
+	sysutil.InitErrorReporting(Version)
+	defer sysutil.FlushErrorReporting()
+	defer sysutil.RecoverPanic()
 
 	// Handle "serve --mcp" subcommand: start MCP server for Claude Code integration.
 	// CC spawns this automatically when qmax-code is listed as an MCP server.
@@ -414,7 +417,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	sessionID := generateSessionID()
 
 	// Initialize structured logger
-	agent.logger = NewLogger(sessionID)
+	agent.logger = sysutil.NewLogger(sessionID)
 	defer agent.logger.Close()
 
 	// Cloud session tracking — created once when projectID is known.
@@ -1125,7 +1128,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		// available after the agent turn ends even without server-side keepalive.
 		type preConnResult struct {
 			url    string
-			stream *VNCStream // nil on dial failure
+			stream *vnc.VNCStream // nil on dial failure
 		}
 		preConnChan := make(chan preConnResult, 1)
 		// watchCtx is only used to stop the polling ticker (abort a pending
@@ -1146,14 +1149,14 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 					case <-watchCtx.Done():
 						return
 					case <-ticker.C:
-						url := drainLiveURLFromChild()
+						url := sysutil.DrainLiveURLFromChild()
 						if url == "" {
 							continue
 						}
 						// Use context.Background() so the stream's lifetime is
 						// NOT tied to watchCtx. Cancelling watchCtx (at end of
 						// turn) must not kill an already-established connection.
-						stream, dialErr := DialVNC(context.Background(), url, 10)
+						stream, dialErr := vnc.DialVNC(context.Background(), url, 10)
 						res := preConnResult{url: url}
 						if dialErr == nil {
 							res.stream = stream
@@ -1221,7 +1224,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if cliAgent != nil {
 				backendTag = agent.config.Context.Backend
 			}
-			CaptureError(err, map[string]interface{}{
+			sysutil.CaptureError(err, map[string]interface{}{
 				"backend":     backendTag,
 				"input_len":   fmt.Sprintf("%d", len(input)),
 				"image_count": fmt.Sprintf("%d", len(images)),
@@ -1254,7 +1257,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if preConn.url != "" {
 				agent.config.Context.LastLiveURL = preConn.url
 				agent.config.Context.sandboxModeLogged = true
-			} else if url := drainLiveURLFromChild(); url != "" {
+			} else if url := sysutil.DrainLiveURLFromChild(); url != "" {
 				agent.config.Context.LastLiveURL = url
 				agent.config.Context.sandboxModeLogged = true
 			}
@@ -1262,7 +1265,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 		// Check whether run_test returned early and wrote an execution_id for
 		// us to poll directly (fast-return path, avoids 60–90s LLM block).
-		pendingExecID := drainExecIDFromChild()
+		pendingExecID := sysutil.DrainExecIDFromChild()
 
 		// End-of-turn live-feed auto-launch. If a tool call surfaced a
 		// live_browser_url during this turn (and the user opted in via
@@ -1282,7 +1285,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 //
 // Idempotent: no-op when LiveFeed is off. Clears LastLiveURL on success so
 // a stale URL from a previous run doesn't auto-launch on the next turn.
-func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal, preStream *VNCStream, pendingExecID string) {
+func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal, preStream *vnc.VNCStream, pendingExecID string) {
 	if sctx == nil || !sctx.LiveFeed {
 		if preStream != nil {
 			preStream.Close()
@@ -1336,7 +1339,7 @@ func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal, preStream *VNCStr
 	stream := preStream
 	if stream == nil {
 		var dialErr error
-		stream, dialErr = DialVNC(context.Background(), url, 10)
+		stream, dialErr = vnc.DialVNC(context.Background(), url, 10)
 		if dialErr != nil {
 			term.PrintError(fmt.Sprintf("browserfeed: connect: %v", dialErr))
 			sctx.LastLiveURL = url

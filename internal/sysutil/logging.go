@@ -1,4 +1,4 @@
-package main
+package sysutil
 
 import (
 	"crypto/rand"

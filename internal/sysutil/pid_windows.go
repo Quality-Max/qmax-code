@@ -1,16 +1,16 @@
 //go:build windows
 
-package main
+package sysutil
 
 import (
 	"os"
 )
 
-// pidAlive reports whether a process with the given PID is running.
+// PidAlive reports whether a process with the given PID is running.
 // On Windows, OpenProcess is not directly accessible from pure Go without
 // cgo; os.FindProcess always succeeds, so we attempt a no-op signal as a
 // proxy. If the process handle is invalid the call errors out.
-func pidAlive(pid int) bool {
+func PidAlive(pid int) bool {
 	p, err := os.FindProcess(pid)
 	if err != nil {
 		return false

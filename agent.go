@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
 
 // Anthropic defaults for smart routing and direct API calls.
@@ -62,7 +64,7 @@ type Agent struct {
 	client          *http.Client
 	usage           TokenUsage
 	cancel          context.CancelFunc // cancel the current streaming request
-	logger          *Logger
+	logger          *sysutil.Logger
 	ollama          *OllamaClient // optional self-hosted LLM
 	ollamaMode      OllamaMode    // off, chat, or full
 	priorSessions   string        // cached prior-session summaries from backend
@@ -626,7 +628,7 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 		// Telemetry: send only the structural fields and the API error code.
 		// The body (which may include echoed-back prompt content in validation
 		// errors) is logged locally but NOT forwarded to Bugsink.
-		CaptureError(fmt.Errorf("anthropic API error %d", resp.StatusCode), map[string]interface{}{
+		sysutil.CaptureError(fmt.Errorf("anthropic API error %d", resp.StatusCode), map[string]interface{}{
 			"model":         model,
 			"status_code":   fmt.Sprintf("%d", resp.StatusCode),
 			"message_count": fmt.Sprintf("%d", len(a.history)),

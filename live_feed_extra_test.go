@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
+
+	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/qualitymax/qmax-code/internal/vnc"
 )
 
 // ─── annotateWithClientNote ───────────────────────────────────────────────────
@@ -135,13 +141,13 @@ func TestCaptureLiveURLOnlyLogsFirstStatus(t *testing.T) {
 // ─── drainLiveURLFromChild / persistLiveURLForParent round-trip ──────────────
 
 func TestPersistAndDrainLiveURL(t *testing.T) {
-	// Reset the singleton so liveURLFilePath() recomputes on next call.
+	// Reset the singleton so sysutil.LiveURLFilePath() recomputes on next call.
 	resetLiveURLFileForTest()
 
-	// liveURLFilePath() is the parent-side path (computed once via sync.Once).
+	// sysutil.LiveURLFilePath() is the parent-side path (computed once via sync.Once).
 	// cc_agent.go sets QMAX_LIVE_URL_FILE to this same path so the child
 	// (MCP subprocess) knows where to write. Replicate that setup here.
-	parentPath := liveURLFilePath()
+	parentPath := sysutil.LiveURLFilePath()
 	if parentPath == "" {
 		t.Skip("no home directory available")
 	}
@@ -149,14 +155,14 @@ func TestPersistAndDrainLiveURL(t *testing.T) {
 	t.Setenv("QMAX_LIVE_URL_FILE", parentPath)
 
 	want := "https://6080-test.e2b.app/vnc.html"
-	persistLiveURLForParent(want) // child writes to QMAX_LIVE_URL_FILE path
+	sysutil.PersistLiveURLForParent(want) // child writes to QMAX_LIVE_URL_FILE path
 
-	got := drainLiveURLFromChild() // parent reads from liveURLFilePath()
+	got := sysutil.DrainLiveURLFromChild() // parent reads from sysutil.LiveURLFilePath()
 	if got != want {
 		t.Errorf("drain = %q, want %q", got, want)
 	}
 	// Second drain → empty (file was removed after first read).
-	if second := drainLiveURLFromChild(); second != "" {
+	if second := sysutil.DrainLiveURLFromChild(); second != "" {
 		t.Errorf("second drain should be empty, got %q", second)
 	}
 }
@@ -164,14 +170,14 @@ func TestPersistAndDrainLiveURL(t *testing.T) {
 func TestPersistLiveURLNoopWhenEnvUnset(t *testing.T) {
 	t.Setenv("QMAX_LIVE_URL_FILE", "")
 	// Must not panic or create any file.
-	persistLiveURLForParent("https://host/vnc.html")
+	sysutil.PersistLiveURLForParent("https://host/vnc.html")
 }
 
 func TestDrainLiveURLFromChildMissingFile(t *testing.T) {
 	resetLiveURLFileForTest()
 	t.Setenv("QMAX_LIVE_URL_FILE", "")
 	// The parent-side path doesn't exist yet → should return "".
-	got := drainLiveURLFromChild()
+	got := sysutil.DrainLiveURLFromChild()
 	if got != "" {
 		t.Errorf("missing file should return empty, got %q", got)
 	}
@@ -182,7 +188,7 @@ func TestDrainLiveURLFromChildMissingFile(t *testing.T) {
 func TestPersistAndDrainExecID(t *testing.T) {
 	resetExecIDFileForTest()
 
-	parentPath := execIDFilePath()
+	parentPath := sysutil.ExecIDFilePath()
 	if parentPath == "" {
 		t.Skip("no home directory available")
 	}
@@ -190,14 +196,14 @@ func TestPersistAndDrainExecID(t *testing.T) {
 	t.Setenv("QMAX_EXEC_ID_FILE", parentPath)
 
 	want := "exec_6120_1778065167"
-	persistExecIDForParent(want)
+	sysutil.PersistExecIDForParent(want)
 
-	got := drainExecIDFromChild()
+	got := sysutil.DrainExecIDFromChild()
 	if got != want {
 		t.Errorf("drain = %q, want %q", got, want)
 	}
 	// Second drain → empty (file was removed).
-	if second := drainExecIDFromChild(); second != "" {
+	if second := sysutil.DrainExecIDFromChild(); second != "" {
 		t.Errorf("second drain should be empty, got %q", second)
 	}
 }
@@ -205,13 +211,13 @@ func TestPersistAndDrainExecID(t *testing.T) {
 func TestPersistExecIDNoopWhenEnvUnset(t *testing.T) {
 	t.Setenv("QMAX_EXEC_ID_FILE", "")
 	// Must not panic or create any file.
-	persistExecIDForParent("exec_abc_123")
+	sysutil.PersistExecIDForParent("exec_abc_123")
 }
 
 func TestDrainExecIDFromChildMissingFile(t *testing.T) {
 	resetExecIDFileForTest()
 	// The parent-side path doesn't exist yet → should return "".
-	got := drainExecIDFromChild()
+	got := sysutil.DrainExecIDFromChild()
 	if got != "" {
 		t.Errorf("missing file should return empty, got %q", got)
 	}
@@ -224,7 +230,7 @@ func TestMaybeLaunchLiveFeedLiveFeedOff(t *testing.T) {
 	srv, wsURL := fakeRFBServerForFeed(t)
 	defer srv.Close()
 
-	stream, err := DialVNC(context.Background(), wsURL, 1)
+	stream, err := vnc.DialVNC(context.Background(), wsURL, 1)
 	if err != nil {
 		t.Fatalf("DialVNC: %v", err)
 	}
@@ -261,11 +267,47 @@ func TestMaybeLaunchLiveFeedNilSctx(t *testing.T) {
 
 // ─── runTestWithProgress early-return when LiveFeed + URL captured ────────────
 
-// fakeRFBServerForFeed is the same as fakeRFBServer (defined in
-// vnc_stream_extra_test.go) but package-visible alias for this file.
-func fakeRFBServerForFeed(t *testing.T) (interface{ Close() }, string) {
+// fakeRFBServerForFeed mirrors the helper in internal/vnc tests. We can't
+// reach into that package's test-only symbols from here, so we duplicate the
+// minimal RFB handshake. Kept self-contained for the same reason.
+func fakeRFBServerForFeed(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
-	return fakeRFBServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/websockify", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+			Subprotocols:       []string{"binary"},
+			InsecureSkipVerify: true,
+		})
+		if err != nil {
+			return
+		}
+		defer conn.Close(websocket.StatusNormalClosure, "")
+		nc := websocket.NetConn(r.Context(), conn, websocket.MessageBinary)
+
+		_, _ = nc.Write([]byte("RFB 003.008\n"))
+		_, _ = nc.Read(make([]byte, 12))
+		_, _ = nc.Write([]byte{1, 1})
+		_, _ = nc.Read(make([]byte, 1))
+		_, _ = nc.Write([]byte{0, 0, 0, 0})
+		_, _ = nc.Read(make([]byte, 1))
+
+		si := make([]byte, 24+4)
+		binary.BigEndian.PutUint16(si[0:], 800)
+		binary.BigEndian.PutUint16(si[2:], 600)
+		binary.BigEndian.PutUint32(si[20:], 0)
+		_, _ = nc.Write(si)
+
+		buf := make([]byte, 4096)
+		for {
+			if _, err := nc.Read(buf); err != nil {
+				return
+			}
+		}
+	})
+
+	srv := httptest.NewServer(mux)
+	wsURL := "ws://" + srv.Listener.Addr().String() + "/websockify"
+	return srv, wsURL
 }
 
 // TestAnnotatePreservesExecutionID verifies the execution_id survives round-trip.
@@ -360,7 +402,7 @@ func TestWaitForLiveFeedURLTimeout(t *testing.T) {
 func TestRunTestWithProgressLiveFeedFastReturn(t *testing.T) {
 	resetExecIDFileForTest()
 
-	parentPath := execIDFilePath()
+	parentPath := sysutil.ExecIDFilePath()
 	if parentPath == "" {
 		t.Skip("no home directory")
 	}
@@ -388,7 +430,7 @@ func TestRunTestWithProgressLiveFeedFastReturn(t *testing.T) {
 	}
 
 	// execID must be persisted in the side-channel file.
-	got := drainExecIDFromChild()
+	got := sysutil.DrainExecIDFromChild()
 	if got != "exec_fast_123" {
 		t.Errorf("side-channel execID = %q, want exec_fast_123", got)
 	}

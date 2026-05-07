@@ -21,6 +21,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
+
+	"github.com/qualitymax/qmax-code/internal/vnc"
 )
 
 type blockMode int
@@ -35,7 +37,7 @@ const (
 // blockModeQuarter (default, sharper) or blockModeHalf (simpler, more
 // portable).
 func ShowBrowserFeed(url string, mode blockMode) error {
-	stream, err := DialVNC(context.Background(), url, 10)
+	stream, err := vnc.DialVNC(context.Background(), url, 10)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -46,11 +48,11 @@ func ShowBrowserFeed(url string, mode blockMode) error {
 // VNCStream. Ownership of the stream is transferred; the stream is closed
 // when the user quits. statusHint is shown in the status line until the
 // first frame arrives.
-func ShowBrowserFeedFromStream(stream *VNCStream, mode blockMode, statusHint string) error {
+func ShowBrowserFeedFromStream(stream *vnc.VNCStream, mode blockMode, statusHint string) error {
 	return showBrowserFeedStream(stream, mode, statusHint)
 }
 
-func showBrowserFeedStream(stream *VNCStream, mode blockMode, status string) error {
+func showBrowserFeedStream(stream *vnc.VNCStream, mode blockMode, status string) error {
 	cols, rows := bfTermSize()
 	m := browserFeedModel{
 		stream:   stream,
@@ -93,7 +95,7 @@ func showBrowserFeedStream(stream *VNCStream, mode blockMode, status string) err
 
 // ─── Bubble Tea model ────────────────────────────────────────────────────────
 
-type frameMsg struct{ frame *VNCFrame }
+type frameMsg struct{ frame *vnc.VNCFrame }
 type streamErrMsg struct{ err error }
 type streamClosedMsg struct{}
 
@@ -115,9 +117,9 @@ type blockLayout struct {
 const bfSmallFraction = 0.6
 
 type browserFeedModel struct {
-	stream *VNCStream
+	stream *vnc.VNCStream
 
-	frame      *VNCFrame
+	frame      *vnc.VNCFrame
 	termCols   int // actual terminal width
 	termRows   int // actual terminal height
 	cols       int // effective render width (capped in small mode)
@@ -251,7 +253,7 @@ func (m browserFeedModel) View() string {
 
 // ─── Block renderers ─────────────────────────────────────────────────────────
 
-func renderBlocks(frame *VNCFrame, cols, rows int, mode blockMode) (string, blockLayout) {
+func renderBlocks(frame *vnc.VNCFrame, cols, rows int, mode blockMode) (string, blockLayout) {
 	switch mode {
 	case blockModeHalf:
 		return renderHalfBlocks(frame, cols, rows)
@@ -327,7 +329,7 @@ var quarterPartitions = [7]uint8{
 	0b0110, // {1,2} vs {0,3} — diagonals
 }
 
-func renderQuarterBlocks(frame *VNCFrame, cols, rows int) (string, blockLayout) {
+func renderQuarterBlocks(frame *vnc.VNCFrame, cols, rows int) (string, blockLayout) {
 	layout := blockLayout{
 		srcW: frame.Width, srcH: frame.Height,
 		pixelsPerCellX: 2, pixelsPerCellY: 2,
@@ -461,7 +463,7 @@ func scorePartition(p [4][3]byte, mask uint8) ([3]byte, [3]byte, int) {
 
 // ─── Half-block renderer (kept as fallback) ──────────────────────────────────
 
-func renderHalfBlocks(frame *VNCFrame, cols, rows int) (string, blockLayout) {
+func renderHalfBlocks(frame *vnc.VNCFrame, cols, rows int) (string, blockLayout) {
 	layout := blockLayout{
 		srcW: frame.Width, srcH: frame.Height,
 		pixelsPerCellX: 1, pixelsPerCellY: 2,
@@ -676,7 +678,7 @@ func buildIndexMap(srcLen, dstLen int) []int {
 // pixelAt returns the BGRX pixel at (x, y) as RGB. The framebuffer stores
 // little-endian 32-bit pixels with shifts R<<16, G<<8, B<<0 (see SetPixelFormat
 // in vnc_stream.go), which on disk is [B, G, R, X].
-func pixelAt(f *VNCFrame, x, y int) [3]byte {
+func pixelAt(f *vnc.VNCFrame, x, y int) [3]byte {
 	if x < 0 || y < 0 || x >= f.Width || y >= f.Height {
 		return [3]byte{0, 0, 0}
 	}

@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/security"
+	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
 
 // APIClient calls QualityMax REST API directly (no qmax CLI needed).
@@ -157,7 +160,7 @@ func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, br
 		// Always request keepalive: the server may use E2B even when not
 		// explicitly asked (e.g. per-script server-side policy). Without this,
 		// the websockify port is gone before the end-of-turn auto-launch fires.
-		"live_feed_hold_seconds": liveFeedHoldSeconds,
+		"live_feed_hold_seconds": sysutil.LiveFeedHoldSeconds,
 	}
 	if useCloudSandbox {
 		body["use_e2b"] = true
@@ -224,7 +227,7 @@ func (c *APIClient) RunTestsBatch(ctx context.Context, scriptIDs, baseURL string
 	}
 	body := map[string]interface{}{
 		"script_ids":             ids,
-		"live_feed_hold_seconds": liveFeedHoldSeconds,
+		"live_feed_hold_seconds": sysutil.LiveFeedHoldSeconds,
 	}
 	if useCloudSandbox {
 		body["use_e2b"] = true
@@ -264,7 +267,7 @@ func (c *APIClient) StartCrawl(ctx context.Context, projectID int, url string, d
 	body := map[string]interface{}{
 		"project_id":             projectID,
 		"url":                    url,
-		"live_feed_hold_seconds": liveFeedHoldSeconds,
+		"live_feed_hold_seconds": sysutil.LiveFeedHoldSeconds,
 	}
 	if useCloudSandbox {
 		body["use_e2b"] = true
@@ -817,7 +820,7 @@ func (c *APIClient) doRequest(req *http.Request) string {
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return jsonError(fmt.Sprintf("request failed: %s", redactSensitive(err.Error())))
+		return jsonError(fmt.Sprintf("request failed: %s", security.RedactSensitive(err.Error())))
 	}
 	defer resp.Body.Close()
 
@@ -844,11 +847,11 @@ func (c *APIClient) doRequest(req *http.Request) string {
 		if errMsg == "" {
 			errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(data))
 		}
-		errMsg = redactSensitive(errMsg)
+		errMsg = security.RedactSensitive(errMsg)
 
 		// Report server errors (5xx) and auth errors (401/403) to Bugsink
 		if resp.StatusCode >= 500 || resp.StatusCode == 401 || resp.StatusCode == 403 {
-			CaptureError(fmt.Errorf("API error: %s", errMsg), map[string]interface{}{
+			sysutil.CaptureError(fmt.Errorf("API error: %s", errMsg), map[string]interface{}{
 				"method":      req.Method,
 				"path":        req.URL.Path,
 				"status_code": fmt.Sprintf("%d", resp.StatusCode),
@@ -862,7 +865,7 @@ func (c *APIClient) doRequest(req *http.Request) string {
 }
 
 func jsonError(msg string) string {
-	msg = redactSensitive(msg)
+	msg = security.RedactSensitive(msg)
 	escaped, _ := json.Marshal(msg)
 	return fmt.Sprintf(`{"error": %s}`, string(escaped))
 }

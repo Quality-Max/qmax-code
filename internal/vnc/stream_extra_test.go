@@ -1,4 +1,4 @@
-package main
+package vnc
 
 import (
 	"context"
@@ -92,10 +92,10 @@ func fakeRFBServer(t *testing.T) (*httptest.Server, string) {
 		_, _ = nc.Write([]byte("RFB 003.008\n")) // ProtocolVersion
 		clientVer := make([]byte, 12)
 		_, _ = nc.Read(clientVer)
-		_, _ = nc.Write([]byte{1, 1})            // 1 security type: None
-		_, _ = nc.Read(make([]byte, 1))          // client selects type 1
-		_, _ = nc.Write([]byte{0, 0, 0, 0})      // SecurityResult OK
-		_, _ = nc.Read(make([]byte, 1))          // ClientInit shared-flag
+		_, _ = nc.Write([]byte{1, 1})       // 1 security type: None
+		_, _ = nc.Read(make([]byte, 1))     // client selects type 1
+		_, _ = nc.Write([]byte{0, 0, 0, 0}) // SecurityResult OK
+		_, _ = nc.Read(make([]byte, 1))     // ClientInit shared-flag
 
 		// ServerInit: 24-byte header (width=800, height=600) + 0-length name
 		si := make([]byte, 24+4)
@@ -225,22 +225,4 @@ func TestVNCStreamCloseIdempotent(t *testing.T) {
 	}()
 	stream.Close()
 	stream.Close()
-}
-
-// ─── buildIndexMap edge cases ─────────────────────────────────────────────────
-
-func TestBuildIndexMapZeroDst(t *testing.T) {
-	m := buildIndexMap(100, 0)
-	if len(m) != 0 {
-		t.Errorf("zero dst: len = %d, want 0", len(m))
-	}
-}
-
-func TestBuildIndexMapSameSize(t *testing.T) {
-	m := buildIndexMap(5, 5)
-	for i, v := range m {
-		if v != i {
-			t.Errorf("same-size map[%d] = %d, want %d", i, v, i)
-		}
-	}
 }

@@ -1,4 +1,4 @@
-package main
+package vnc
 
 import "testing"
 
@@ -37,31 +37,5 @@ func TestNormalizeNoVNCURLRejectsBadScheme(t *testing.T) {
 	_, err := normalizeNoVNCURL("ftp://example.com")
 	if err == nil {
 		t.Fatal("expected error on ftp scheme")
-	}
-}
-
-func TestBuildIndexMap(t *testing.T) {
-	m := buildIndexMap(100, 10)
-	if len(m) != 10 {
-		t.Fatalf("len = %d, want 10", len(m))
-	}
-	// First and last should land in source range, monotonically nondecreasing.
-	for i, v := range m {
-		if v < 0 || v >= 100 {
-			t.Errorf("m[%d] = %d out of range", i, v)
-		}
-		if i > 0 && v < m[i-1] {
-			t.Errorf("non-monotonic at %d: %d < %d", i, v, m[i-1])
-		}
-	}
-	// Upsampling: dst > src should still produce valid indices.
-	m = buildIndexMap(3, 9)
-	if len(m) != 9 {
-		t.Fatalf("len = %d, want 9", len(m))
-	}
-	for i, v := range m {
-		if v < 0 || v >= 3 {
-			t.Errorf("upsampled m[%d] = %d out of range", i, v)
-		}
 	}
 }

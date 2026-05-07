@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
 
 // CLIAgent is the interface implemented by both CCAgent (claude CLI) and
@@ -198,10 +200,10 @@ func (a *CCAgent) writeMCPConfig() error {
 	if a.sctx.LiveFeed {
 		env["QMAX_LIVE_FEED"] = "1"
 	}
-	if path := liveURLFilePath(); path != "" {
+	if path := sysutil.LiveURLFilePath(); path != "" {
 		env["QMAX_LIVE_URL_FILE"] = path
 	}
-	if path := execIDFilePath(); path != "" {
+	if path := sysutil.ExecIDFilePath(); path != "" {
 		env["QMAX_EXEC_ID_FILE"] = path
 	}
 
@@ -340,7 +342,7 @@ func cleanupStaleMCPConfigs() {
 		if err != nil {
 			continue
 		}
-		if !pidAlive(pid) {
+		if !sysutil.PidAlive(pid) {
 			_ = os.Remove(path)
 		}
 	}

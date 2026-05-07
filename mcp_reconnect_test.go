@@ -4,8 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
 
 func TestCodexRunRestoresMCPConfigBeforeExec(t *testing.T) {
@@ -99,11 +100,9 @@ func writeFakeCLI(t *testing.T, name, body string) string {
 }
 
 func resetLiveURLFileForTest() {
-	liveURLFileOnce = sync.Once{}
-	liveURLFileVal = ""
+	sysutil.ResetLiveURLFileForTest()
 }
 
 func resetExecIDFileForTest() {
-	execIDFileOnce = sync.Once{}
-	execIDFileVal = ""
+	sysutil.ResetExecIDFileForTest()
 }
