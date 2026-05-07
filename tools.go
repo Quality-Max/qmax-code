@@ -15,6 +15,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/security"
+	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
 
 // limitWriter is an io.Writer that silently discards bytes once the cap is hit.
@@ -133,7 +136,7 @@ var experimentalToolNames = map[string]bool{
 // QMAX_EXPERIMENTAL=1 is set.
 func BuildToolDefs() []ToolDef {
 	all := buildAllToolDefs()
-	if envEnabled("QMAX_EXPERIMENTAL") {
+	if sysutil.EnvEnabled("QMAX_EXPERIMENTAL") {
 		return all
 	}
 	out := make([]ToolDef, 0, len(all))
@@ -765,7 +768,7 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		if code == "" {
 			code = strVal(input, "content")
 		}
-		if violations := scanCodeSecurity(code); len(violations) > 0 {
+		if violations := security.ScanCode(code); len(violations) > 0 {
 			return fmt.Sprintf(`{"error": "Security scan failed", "violations": %q}`, strings.Join(violations, "; "))
 		}
 		scriptID := intVal(input, "script_id", 0)
@@ -882,7 +885,7 @@ func runTestWithProgress(ctx context.Context, api *APIClient, sctx *SessionConte
 	// drains the execID from the side-channel file and polls CheckTestStatus
 	// directly (see waitForLiveFeedURL in main.go).
 	if sctx != nil && sctx.LiveFeed {
-		persistExecIDForParent(execID)
+		sysutil.PersistExecIDForParent(execID)
 		return annotateWithClientNote(raw,
 			fmt.Sprintf("Test started (execution_id: %s). "+
 				"The live browser feed will open automatically when the sandbox is ready — "+
@@ -1050,7 +1053,7 @@ func captureLiveURL(sctx *SessionContext, raw string) {
 	// REPL's auto-launcher would never see it. Persist via the side
 	// channel set up in writeMCPConfig (cc_agent / codex_agent). No-op
 	// when QMAX_LIVE_URL_FILE isn't set (standalone mode).
-	persistLiveURLForParent(url)
+	sysutil.PersistLiveURLForParent(url)
 	if sctx.LiveFeed && !sctx.liveURLLogged {
 		fmt.Fprintln(os.Stderr, "\033[36m[live]\033[0m live_browser_url captured — auto-launch fires at end of turn")
 		sctx.liveURLLogged = true
@@ -1208,9 +1211,9 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 
 	// 4. Build result
 	passed := runErr == nil
-	output := redactSensitive(stdout.String())
+	output := security.RedactSensitive(stdout.String())
 	if stderr.n > 0 {
-		output += "\n--- stderr ---\n" + redactSensitive(stderr.String())
+		output += "\n--- stderr ---\n" + security.RedactSensitive(stderr.String())
 	}
 
 	// Trim output if too long (display budget)
@@ -1391,7 +1394,7 @@ func executeToolViaQMax(name string, rawInput interface{}, sctx *SessionContext,
 
 	case "run_command":
 		cmd := fmt.Sprintf("%v", input["command"])
-		if violation := validateCommand(cmd); violation != "" {
+		if violation := security.ValidateCommand(cmd); violation != "" {
 			return fmt.Sprintf(`{"error": "Command blocked: %s"}`, violation)
 		}
 		return runShell(ctx, "sh", "-c", cmd)
@@ -1429,7 +1432,7 @@ func executeToolViaQMax(name string, rawInput interface{}, sctx *SessionContext,
 		}
 
 		// Security scan before saving
-		if violations := scanCodeSecurity(code); len(violations) > 0 {
+		if violations := security.ScanCode(code); len(violations) > 0 {
 			return fmt.Sprintf(`{"error": "Security scan failed", "violations": %q}`, strings.Join(violations, "; "))
 		}
 
@@ -1467,14 +1470,14 @@ func runQMax(sctx *SessionContext, ctx context.Context, args ...string) string {
 			return `{"error": "cancelled"}`
 		}
 		if stderr.n > 0 {
-			return fmt.Sprintf(`{"error": %q}`, redactSensitive(stderr.String()))
+			return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(stderr.String()))
 		}
-		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
+		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
 	}
 
-	output := strings.TrimSpace(redactSensitive(stdout.String()))
+	output := strings.TrimSpace(security.RedactSensitive(stdout.String()))
 	if output == "" {
-		output = strings.TrimSpace(redactSensitive(stderr.String()))
+		output = strings.TrimSpace(security.RedactSensitive(stderr.String()))
 	}
 	return output
 }
@@ -1493,12 +1496,12 @@ func runShell(ctx context.Context, name string, args ...string) string {
 		}
 		combined := stdout.String() + stderr.String()
 		if combined != "" {
-			return redactSensitive(combined)
+			return security.RedactSensitive(combined)
 		}
-		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
+		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
 	}
 
-	return redactSensitive(stdout.String())
+	return security.RedactSensitive(stdout.String())
 }
 
 // extractPlaywrightError parses Playwright test output and extracts the actual error
@@ -2132,20 +2135,20 @@ func fetchScriptCode(sctx *SessionContext, ctx context.Context, scriptID string)
 	url := fmt.Sprintf("%s/api/automation/scripts/%s", apiURL, scriptID)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
+		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
+		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if resp.StatusCode != 200 {
-		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, redactSensitive(string(body)))
+		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, security.RedactSensitive(string(body)))
 	}
 	return string(body)
 }
@@ -2166,7 +2169,7 @@ func updateScriptCode(sctx *SessionContext, ctx context.Context, scriptID, name,
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
+		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
@@ -2174,13 +2177,13 @@ func updateScriptCode(sctx *SessionContext, ctx context.Context, scriptID, name,
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, redactSensitive(err.Error()))
+		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if resp.StatusCode != 200 {
-		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, redactSensitive(string(body)))
+		return fmt.Sprintf(`{"error": "HTTP %d: %s"}`, resp.StatusCode, security.RedactSensitive(string(body)))
 	}
 	return string(body)
 }
@@ -2517,7 +2520,7 @@ func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
 
 	respData, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return jsonError(fmt.Sprintf("Vision API error %d: %s", resp.StatusCode, redactSensitive(string(respData))))
+		return jsonError(fmt.Sprintf("Vision API error %d: %s", resp.StatusCode, security.RedactSensitive(string(respData))))
 	}
 
 	var result map[string]interface{}

@@ -1,4 +1,4 @@
-package main
+package security
 
 import (
 	"fmt"
@@ -47,9 +47,9 @@ var sensitivePatterns = []struct {
 	{regexp.MustCompile(`(?i)("?(?:api[_-]?key|token|anthropic[_-]?key)"?\s*[:=]\s*)[^"',\s}]+`), `${1}[REDACTED]`},
 }
 
-// redactSensitive removes common credential shapes before text is shown,
+// RedactSensitive removes common credential shapes before text is shown,
 // returned to the agent, or sent to optional telemetry.
-func redactSensitive(text string) string {
+func RedactSensitive(text string) string {
 	if text == "" {
 		return ""
 	}
@@ -77,12 +77,12 @@ func redactURLCredentials(text string) string {
 	return text
 }
 
-// detectLanguage returns one of "js" (Playwright/Jest/Cypress), "go",
+// DetectLanguage returns one of "js" (Playwright/Jest/Cypress), "go",
 // "rust", "python", or "" for an unrecognized shape. We need this because
 // the "is this a test file" and "what's dangerous" checks are
 // language-specific — `TestFoo(t *testing.T)` is valid Go testing but
 // doesn't contain `test(`, so a Playwright-only scanner rejects it.
-func detectLanguage(code string) string {
+func DetectLanguage(code string) string {
 	// Strong markers — earliest match wins. Order matters: Go's `package`
 	// keyword can appear inside JS/TS string literals, so we look for the
 	// `package X` / `func TestX` combo.
@@ -107,10 +107,10 @@ func detectLanguage(code string) string {
 	return ""
 }
 
-// hasTestDeclaration returns true if the code contains an idiomatic test
+// HasTestDeclaration returns true if the code contains an idiomatic test
 // declaration for its detected language. Used as the "this looks like a
 // test file, not arbitrary code" gate.
-func hasTestDeclaration(code, lang string) bool {
+func HasTestDeclaration(code, lang string) bool {
 	switch lang {
 	case "go":
 		// `func TestXxx(t *testing.T)` or `func BenchmarkXxx` or `func FuzzXxx`.
@@ -130,12 +130,12 @@ func hasTestDeclaration(code, lang string) bool {
 	return false
 }
 
-// scanCodeSecurity checks generated code for dangerous patterns.
+// ScanCode checks generated code for dangerous patterns.
 // Returns a list of violations, or empty if code is safe.
-func scanCodeSecurity(code string) []string {
+func ScanCode(code string) []string {
 	var violations []string
 
-	lang := detectLanguage(code)
+	lang := DetectLanguage(code)
 
 	// Only apply JS/Node dangerous-pattern checks to JS code. The existing
 	// dangerousPatterns table targets `require('fs')`, `process.env`,
@@ -162,7 +162,7 @@ func scanCodeSecurity(code string) []string {
 	// everything else, and the runner's binary allow-list remains the
 	// actual security boundary at execution time.
 	if lang == "go" {
-		allows := parseQmaxAllows(code)
+		allows := ParseAllows(code)
 		goDangers := []struct {
 			pat   *regexp.Regexp
 			why   string
@@ -246,7 +246,7 @@ func scanCodeSecurity(code string) []string {
 	// that blocked a live user session healing Go tests: the previous
 	// check only accepted Playwright/Jest patterns (`test(`, `describe(`,
 	// `it(`) and falsely rejected every Go / Rust / Python test file.
-	if !hasTestDeclaration(code, lang) {
+	if !HasTestDeclaration(code, lang) {
 		violations = append(violations, "No test declaration found — not a valid test file")
 	}
 
@@ -265,11 +265,11 @@ func scanCodeSecurity(code string) []string {
 // intentionally ignored to keep the marker visible to grep + reviewers.
 var qmaxAllowRE = regexp.MustCompile(`(?i)//\s*qmax:allow=([^\r\n]+)`)
 
-// parseQmaxAllows extracts the set of rule names the file opts into via
+// ParseAllows extracts the set of rule names the file opts into via
 // `// qmax:allow=...` markers. Returned as a set keyed by the exact rule
 // name (e.g. `os/exec`, `exec.Command`). Missing markers => empty set =>
 // default-deny stays in effect.
-func parseQmaxAllows(code string) map[string]bool {
+func ParseAllows(code string) map[string]bool {
 	allows := make(map[string]bool)
 	for _, m := range qmaxAllowRE.FindAllStringSubmatch(code, -1) {
 		for _, raw := range strings.Split(m[1], ",") {
@@ -341,9 +341,9 @@ var blockedShellTokens = []string{
 	"\n",
 }
 
-// validateCommand checks if a shell command is safe to execute.
+// ValidateCommand checks if a shell command is safe to execute.
 // Returns empty string if safe, or reason if blocked.
-func validateCommand(cmd string) string {
+func ValidateCommand(cmd string) string {
 	cmd = strings.TrimSpace(cmd)
 
 	// Block empty commands

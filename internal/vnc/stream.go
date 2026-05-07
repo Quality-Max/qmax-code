@@ -1,4 +1,4 @@
-package main
+package vnc
 
 // Minimal RFB 3.8 client over WebSocket, tailored for QM Cloud Sandbox
 // noVNC endpoints. Decodes Raw + CopyRect into a 32-bit BGRX framebuffer
@@ -291,16 +291,16 @@ func (s *VNCStream) setPixelFormat() error {
 	buf := make([]byte, 20)
 	buf[0] = 0 // SetPixelFormat
 	// PixelFormat:
-	buf[4] = 32   // bits-per-pixel
-	buf[5] = 24   // depth
-	buf[6] = 0    // big-endian-flag (0 = little-endian)
-	buf[7] = 1    // true-colour-flag
-	binary.BigEndian.PutUint16(buf[8:10], 255)   // red-max
-	binary.BigEndian.PutUint16(buf[10:12], 255)  // green-max
-	binary.BigEndian.PutUint16(buf[12:14], 255)  // blue-max
-	buf[14] = 16 // red-shift
-	buf[15] = 8  // green-shift
-	buf[16] = 0  // blue-shift
+	buf[4] = 32                                 // bits-per-pixel
+	buf[5] = 24                                 // depth
+	buf[6] = 0                                  // big-endian-flag (0 = little-endian)
+	buf[7] = 1                                  // true-colour-flag
+	binary.BigEndian.PutUint16(buf[8:10], 255)  // red-max
+	binary.BigEndian.PutUint16(buf[10:12], 255) // green-max
+	binary.BigEndian.PutUint16(buf[12:14], 255) // blue-max
+	buf[14] = 16                                // red-shift
+	buf[15] = 8                                 // green-shift
+	buf[16] = 0                                 // blue-shift
 	// padding [17..19]
 	return s.write(buf)
 }

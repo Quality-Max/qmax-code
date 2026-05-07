@@ -1,11 +1,11 @@
-package main
+package security
 
 import (
 	"strings"
 	"testing"
 )
 
-// Regression tests for the "language-aware scanCodeSecurity" fix.
+// Regression tests for the "language-aware ScanCode" fix.
 // The bug: the pre-fix scanner required Playwright-style `test(...)`
 // calls in every script, which meant Go/Rust/Python tests were all
 // rejected with "No test() or describe() found". A live user hit this
@@ -75,9 +75,9 @@ func TestDetectLanguage(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := detectLanguage(tc.code)
+			got := DetectLanguage(tc.code)
 			if got != tc.want {
-				t.Errorf("detectLanguage: got %q, want %q\nCode:\n%s", got, tc.want, tc.code)
+				t.Errorf("DetectLanguage: got %q, want %q\nCode:\n%s", got, tc.want, tc.code)
 			}
 		})
 	}
@@ -96,7 +96,7 @@ func TestFoo(t *testing.T) {
 	}
 }
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	if len(violations) != 0 {
 		t.Errorf("Valid Go test wrongly flagged. Violations: %v", violations)
 	}
@@ -108,7 +108,7 @@ fn test_addition() {
     assert_eq!(1 + 1, 2);
 }
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	if len(violations) != 0 {
 		t.Errorf("Valid Rust test wrongly flagged. Violations: %v", violations)
 	}
@@ -120,7 +120,7 @@ func TestScanCodeSecurity_PytestPasses(t *testing.T) {
 def test_addition():
     assert 1 + 1 == 2
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	if len(violations) != 0 {
 		t.Errorf("Valid pytest wrongly flagged. Violations: %v", violations)
 	}
@@ -140,7 +140,7 @@ func TestEvil(t *testing.T) {
 	exec.Command("rm", "-rf", "/").Run()
 }
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	hasOsExec := false
 	for _, v := range violations {
 		if strings.Contains(v, "os/exec") || strings.Contains(v, "shell execution") {
@@ -174,7 +174,7 @@ func TestCLI(t *testing.T) {
 	}
 }
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	for _, v := range violations {
 		if strings.Contains(v, "os/exec") || strings.Contains(v, "exec.Command") {
 			t.Errorf("With qmax:allow markers, os/exec + exec.Command must NOT be flagged. Got: %v", violations)
@@ -197,7 +197,7 @@ func TestX(t *testing.T) {
 	exec.Command("rm", "-rf", "/").Run()
 }
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	osExecOK, cmdBlocked := true, false
 	for _, v := range violations {
 		if strings.Contains(v, "os/exec import") {
@@ -226,7 +226,7 @@ import (
 
 func TestX(t *testing.T) { _ = exec.Command("ls").Run() }
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	for _, v := range violations {
 		if strings.Contains(v, "os/exec") || strings.Contains(v, "exec.Command") {
 			t.Errorf("Comma-separated marker should grant both rules. Got: %v", violations)
@@ -249,7 +249,7 @@ func TestParseQmaxAllows(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := parseQmaxAllows(c.code)
+			got := ParseAllows(c.code)
 			for _, w := range c.want {
 				if !got[w] {
 					t.Errorf("expected %q in allows; got %v", w, got)
@@ -268,7 +268,7 @@ fn test_x() {
     std::process::Command::new("sh").arg("-c").arg("evil").output().unwrap();
 }
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	hasProc := false
 	for _, v := range violations {
 		if strings.Contains(v, "Command") || strings.Contains(v, "shell execution") {
@@ -287,7 +287,7 @@ import subprocess
 def test_x():
     subprocess.run(["evil"])
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	hasSubp := false
 	for _, v := range violations {
 		if strings.Contains(v, "subprocess") || strings.Contains(v, "shell execution") {
@@ -311,7 +311,7 @@ import "testing"
 // NOTE: docs for future versions may mention process.env compatibility.
 func TestFoo(t *testing.T) {}
 `
-	violations := scanCodeSecurity(code)
+	violations := ScanCode(code)
 	for _, v := range violations {
 		if strings.Contains(v, "process.env") {
 			t.Errorf("JS process.env rule should NOT fire on Go code; got: %v", violations)
@@ -341,9 +341,9 @@ func TestHasTestDeclaration(t *testing.T) {
 			label = label[:20]
 		}
 		t.Run(c.lang+"/"+label, func(t *testing.T) {
-			got := hasTestDeclaration(c.code, c.lang)
+			got := HasTestDeclaration(c.code, c.lang)
 			if got != c.want {
-				t.Errorf("hasTestDeclaration(%q, %q) = %v, want %v", c.code, c.lang, got, c.want)
+				t.Errorf("HasTestDeclaration(%q, %q) = %v, want %v", c.code, c.lang, got, c.want)
 			}
 		})
 	}
