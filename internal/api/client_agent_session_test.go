@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"context"
@@ -175,9 +175,9 @@ func TestCompleteAgentSession_SilentOnServerError(t *testing.T) {
 
 // ---- patch() HTTP helper ----
 
-// ---- UploadSessionMessages ----
+// ---- UploadSessionEvents ----
 
-func TestUploadSessionMessages_PostsToCorrectEndpoint(t *testing.T) {
+func TestUploadSessionEvents_PostsToCorrectEndpoint(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotBody map[string]interface{}
 
@@ -189,11 +189,11 @@ func TestUploadSessionMessages_PostsToCorrectEndpoint(t *testing.T) {
 		_, _ = w.Write([]byte(`{"appended":2}`))
 	})
 
-	msgs := []Message{
-		{Role: "user", Content: "hello"},
-		{Role: "assistant", Content: "world"},
+	events := []any{
+		map[string]any{"type": "message", "payload": map[string]any{"role": "user", "content": "hello"}},
+		map[string]any{"type": "message", "payload": map[string]any{"role": "assistant", "content": "world"}},
 	}
-	client.UploadSessionMessages(context.Background(), "sess-123", msgs)
+	client.UploadSessionEvents(context.Background(), "sess-123", events)
 
 	if gotMethod != "POST" {
 		t.Errorf("method: got %q, want POST", gotMethod)
@@ -203,96 +203,72 @@ func TestUploadSessionMessages_PostsToCorrectEndpoint(t *testing.T) {
 	if gotPath != "/api/agent-sessions/sess-123/events" {
 		t.Errorf("path: got %q, want /api/agent-sessions/sess-123/events", gotPath)
 	}
-	events, ok := gotBody["events"].([]interface{})
+	got, ok := gotBody["events"].([]interface{})
 	if !ok {
 		t.Fatalf("body missing 'events' array: %+v", gotBody)
 	}
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(events))
-	}
-	for i, ev := range events {
-		m, ok := ev.(map[string]interface{})
-		if !ok {
-			t.Fatalf("event %d not an object: %v", i, ev)
-		}
-		if m["type"] != "message" {
-			t.Errorf("event %d type: got %v, want \"message\"", i, m["type"])
-		}
-		// Server stores message bodies under "payload" — using "data" silently
-		// drops the content (event lands with payload={}). Guard against regression.
-		payload, ok := m["payload"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("event %d missing payload object: %v", i, m)
-		}
-		if payload["role"] == nil || payload["content"] == nil {
-			t.Errorf("event %d payload missing role/content: %v", i, payload)
-		}
-		if _, hasData := m["data"]; hasData {
-			t.Errorf("event %d should not use 'data' key (server expects 'payload'): %v", i, m)
-		}
-	}
-	first := events[0].(map[string]interface{})["payload"].(map[string]interface{})
-	if first["role"] != "user" || first["content"] != "hello" {
-		t.Errorf("first event payload mismatch: %+v", first)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(got))
 	}
 }
 
-func TestUploadSessionMessages_SkipsWhenEmpty(t *testing.T) {
+func TestUploadSessionEvents_SkipsWhenEmpty(t *testing.T) {
 	calls := 0
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		_, _ = w.Write([]byte(`{}`))
 	})
 
-	client.UploadSessionMessages(context.Background(), "sess-123", nil)
-	client.UploadSessionMessages(context.Background(), "sess-123", []Message{})
+	client.UploadSessionEvents(context.Background(), "sess-123", nil)
+	client.UploadSessionEvents(context.Background(), "sess-123", []any{})
 
 	if calls != 0 {
-		t.Errorf("expected 0 HTTP calls for empty messages, got %d", calls)
+		t.Errorf("expected 0 HTTP calls for empty events, got %d", calls)
 	}
 }
 
-// ---- trimMessagesToFit ----
+// ---- TrimEventsToFit ----
 
-func TestTrimMessagesToFit_NoTrimWhenUnderLimit(t *testing.T) {
-	msgs := []Message{
-		{Role: "user", Content: "hi"},
-		{Role: "assistant", Content: "hello"},
+func TestTrimEventsToFit_NoTrimWhenUnderLimit(t *testing.T) {
+	events := []any{
+		map[string]any{"type": "message", "payload": map[string]any{"role": "user", "content": "hi"}},
+		map[string]any{"type": "message", "payload": map[string]any{"role": "assistant", "content": "hello"}},
 	}
-	result := trimMessagesToFit(msgs, 1024*1024)
+	result := TrimEventsToFit(events, 1024*1024)
 	if len(result) != 2 {
-		t.Errorf("expected 2 messages, got %d", len(result))
+		t.Errorf("expected 2 events, got %d", len(result))
 	}
 }
 
-func TestTrimMessagesToFit_TrimsOldestMessages(t *testing.T) {
-	msgs := []Message{
-		{Role: "user", Content: strings.Repeat("A", 500)},
-		{Role: "assistant", Content: strings.Repeat("B", 500)},
-		{Role: "user", Content: strings.Repeat("C", 500)},
-		{Role: "assistant", Content: "short"},
+func TestTrimEventsToFit_TrimsOldestEvents(t *testing.T) {
+	bulky := func(role, c string) any {
+		return map[string]any{"type": "message", "payload": map[string]any{"role": role, "content": c}}
 	}
-	// Set a tight limit that can only fit the last 2 messages
-	result := trimMessagesToFit(msgs, 600)
-	if len(result) >= len(msgs) {
-		t.Errorf("expected trimming, got %d messages (same as input)", len(result))
+	events := []any{
+		bulky("user", strings.Repeat("A", 500)),
+		bulky("assistant", strings.Repeat("B", 500)),
+		bulky("user", strings.Repeat("C", 500)),
+		bulky("assistant", "short"),
 	}
-	// Last message should always be preserved
-	last := result[len(result)-1]
-	if last.Content != "short" {
-		t.Errorf("last message should be preserved, got content %q", last.Content)
+	result := TrimEventsToFit(events, 600)
+	if len(result) >= len(events) {
+		t.Errorf("expected trimming, got %d events (same as input)", len(result))
+	}
+	// Last event should always be preserved.
+	last := result[len(result)-1].(map[string]any)
+	if last["payload"].(map[string]any)["content"] != "short" {
+		t.Errorf("last event should be preserved, got %v", last)
 	}
 }
 
-func TestTrimMessagesToFit_ReturnsAtLeastLastMessage(t *testing.T) {
-	msgs := []Message{
-		{Role: "user", Content: strings.Repeat("X", 10000)},
-		{Role: "assistant", Content: strings.Repeat("Y", 10000)},
+func TestTrimEventsToFit_ReturnsAtLeastLastEvent(t *testing.T) {
+	events := []any{
+		map[string]any{"type": "message", "payload": map[string]any{"role": "user", "content": strings.Repeat("X", 10000)}},
+		map[string]any{"type": "message", "payload": map[string]any{"role": "assistant", "content": strings.Repeat("Y", 10000)}},
 	}
-	// Impossibly small limit
-	result := trimMessagesToFit(msgs, 10)
+	result := TrimEventsToFit(events, 10)
 	if len(result) < 1 {
-		t.Error("should return at least 1 message")
+		t.Error("should return at least 1 event")
 	}
 }
 

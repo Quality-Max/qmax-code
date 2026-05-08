@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"encoding/json"
@@ -20,7 +20,7 @@ type AuthConfig struct {
 }
 
 const authFileName = "auth.json"
-const defaultCloudURL = "https://app.qualitymax.io"
+const DefaultCloudURL = "https://app.qualitymax.io"
 
 // LoadAuth loads authentication from (in priority order):
 // 1. QUALITYMAX_API_KEY env var
@@ -31,7 +31,7 @@ func LoadAuth() *AuthConfig {
 	if key := os.Getenv("QUALITYMAX_API_KEY"); key != "" {
 		return &AuthConfig{
 			APIKey:   key,
-			CloudURL: envOr("QUALITYMAX_URL", defaultCloudURL),
+			CloudURL: envOr("QUALITYMAX_URL", DefaultCloudURL),
 		}
 	}
 
@@ -40,8 +40,10 @@ func LoadAuth() *AuthConfig {
 		return cfg
 	}
 
-	// 3. Legacy ~/.qamax/config.json
-	legacy := loadQMaxConfig()
+	// 3. Legacy ~/.qamax/config.json. We read it as a small local shape rather
+	// than importing the qmax-CLI QMaxConfig type, so this file has no
+	// dependencies on other root-package types.
+	legacy := loadLegacyQMaxAuth()
 	if legacy.Token != "" || legacy.APIKey != "" {
 		// Prefer JWT token over agent API key (hex key is for agent registration, not user auth)
 		key := legacy.Token
@@ -50,7 +52,7 @@ func LoadAuth() *AuthConfig {
 		}
 		url := legacy.CloudURL
 		if url == "" {
-			url = defaultCloudURL
+			url = DefaultCloudURL
 		}
 		cfg := &AuthConfig{
 			APIKey:   key,
@@ -83,7 +85,7 @@ func SaveAuth(cfg *AuthConfig) error {
 		return err
 	}
 
-	dir := filepath.Join(home, qmaxCodeConfigDir)
+	dir := filepath.Join(home, QmaxCodeConfigDir)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -104,14 +106,14 @@ func (a *AuthConfig) IsAuthenticated() bool {
 // GetCloudURL returns the QualityMax API URL.
 func (a *AuthConfig) GetCloudURL() string {
 	if a == nil || a.CloudURL == "" {
-		return defaultCloudURL
+		return DefaultCloudURL
 	}
 	return strings.TrimRight(a.CloudURL, "/")
 }
 
 // LoginWithAPIKey validates an API key against QualityMax and saves it.
 func LoginWithAPIKey(apiKey string) (*AuthConfig, error) {
-	cloudURL := envOr("QUALITYMAX_URL", defaultCloudURL)
+	cloudURL := envOr("QUALITYMAX_URL", DefaultCloudURL)
 
 	// Validate by calling /api/me
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -150,125 +152,6 @@ func LoginWithAPIKey(apiKey string) (*AuthConfig, error) {
 	return cfg, nil
 }
 
-// LoginInteractive prompts the user to paste their API key.
-func LoginInteractive() (*AuthConfig, error) {
-	fmt.Println()
-	fmt.Println("  Get your API key from:")
-	fmt.Println("  https://app.qualitymax.io/settings → API Keys")
-	fmt.Println()
-	key := readSecret("  Paste your API key (qm-...): ")
-
-	if key == "" {
-		return nil, fmt.Errorf("no API key provided")
-	}
-
-	return LoginWithAPIKey(key)
-}
-
-// --- Browser-based login (Railway-style) ---
-
-type cliLoginResponse struct {
-	Code      string `json:"code"`
-	ExpiresAt string `json:"expires_at"`
-	AuthURL   string `json:"auth_url"`
-}
-
-type cliPollResponse struct {
-	Status string `json:"status"`
-	Token  string `json:"token,omitempty"`
-	Email  string `json:"email,omitempty"`
-	UserID string `json:"user_id,omitempty"`
-}
-
-// LoginViaBrowser performs Railway-style browser login:
-// 1. POST /api/auth/cli-login → get code + auth URL
-// 2. Open browser to auth URL
-// 3. Poll /api/auth/cli-poll until authorized or expired
-func LoginViaBrowser() (*AuthConfig, error) {
-	cloudURL := envOr("QUALITYMAX_URL", defaultCloudURL)
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	// Step 1: Get a CLI auth code
-	req, err := http.NewRequest("POST", cloudURL+"/api/auth/cli-login", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("cannot reach QualityMax: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("CLI login failed (HTTP %d)", resp.StatusCode)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	var loginResp cliLoginResponse
-	if err := json.Unmarshal(body, &loginResp); err != nil {
-		return nil, fmt.Errorf("invalid response: %w", err)
-	}
-
-	// Step 2: Open browser
-	fmt.Println()
-	fmt.Printf("  Your auth code: \033[1;35m%s\033[0m\n", loginResp.Code)
-	fmt.Println()
-	fmt.Println("  Opening browser to authorize...")
-	openBrowser(loginResp.AuthURL)
-	fmt.Println()
-	fmt.Printf("  If the browser didn't open, visit:\n  %s\n", loginResp.AuthURL)
-	fmt.Println()
-	fmt.Println("  Waiting for authorization...")
-
-	// Step 3: Poll until authorized (every 2 seconds, up to 10 minutes)
-	pollURL := cloudURL + "/api/auth/cli-poll?code=" + loginResp.Code
-	deadline := time.Now().Add(10 * time.Minute)
-
-	i := 0
-	for time.Now().Before(deadline) {
-		time.Sleep(2 * time.Second)
-
-		pollReq, _ := http.NewRequest("GET", pollURL, nil)
-		pollResp, err := client.Do(pollReq)
-		if err != nil {
-			// Network hiccup — keep trying
-			continue
-		}
-
-		pollBody, _ := io.ReadAll(pollResp.Body)
-		pollResp.Body.Close()
-
-		var poll cliPollResponse
-		if err := json.Unmarshal(pollBody, &poll); err != nil {
-			continue
-		}
-
-		switch poll.Status {
-		case "authorized":
-			cfg := &AuthConfig{
-				APIKey:   poll.Token,
-				Email:    poll.Email,
-				UserID:   poll.UserID,
-				CloudURL: cloudURL,
-			}
-			if err := SaveAuth(cfg); err != nil {
-				return cfg, fmt.Errorf("logged in but failed to save: %w", err)
-			}
-			return cfg, nil
-
-		case "expired":
-			return nil, fmt.Errorf("auth code expired — please try again")
-
-		default:
-			// Still pending — show spinner
-			fmt.Printf("\r  Waiting %s", SpinnerFrames[i%len(SpinnerFrames)])
-			i++
-		}
-	}
-
-	return nil, fmt.Errorf("timed out waiting for browser authorization")
-}
-
 // --- helpers ---
 
 // fetchMe calls /api/me to get user info (email, id) from the API.
@@ -296,7 +179,7 @@ func loadAuthFile() *AuthConfig {
 		return nil
 	}
 
-	path := filepath.Join(home, qmaxCodeConfigDir, authFileName)
+	path := filepath.Join(home, QmaxCodeConfigDir, authFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -321,4 +204,28 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// legacyQMaxAuth is the subset of fields from the qmax CLI config we care
+// about for the legacy auth fallback. Reading these inline avoids depending
+// on the (richer) QMaxConfig type defined in context.go.
+type legacyQMaxAuth struct {
+	CloudURL string `json:"api_url"`
+	Token    string `json:"token"`
+	Email    string `json:"email"`
+	APIKey   string `json:"api_key"`
+}
+
+func loadLegacyQMaxAuth() legacyQMaxAuth {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return legacyQMaxAuth{}
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".qamax", "config.json"))
+	if err != nil {
+		return legacyQMaxAuth{}
+	}
+	var cfg legacyQMaxAuth
+	_ = json.Unmarshal(data, &cfg)
+	return cfg
 }

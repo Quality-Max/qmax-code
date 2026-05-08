@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 )
 
 func TestDefaultConfig(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := DefaultConfig()
 	if cfg.DefaultModel != "auto" {
 		t.Errorf("DefaultModel: got %s, want auto", cfg.DefaultModel)
 	}
@@ -15,20 +15,6 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.MaxTokenBudget != 200000 {
 		t.Errorf("MaxTokenBudget: got %d, want 200000", cfg.MaxTokenBudget)
-	}
-}
-
-func TestResolveModelUsesCentralModelConstants(t *testing.T) {
-	cases := map[string]string{
-		"haiku":  ModelHaiku,
-		"sonnet": ModelSonnet,
-		"opus":   ModelOpus,
-		"custom": "custom",
-	}
-	for input, want := range cases {
-		if got := resolveModel(input); got != want {
-			t.Errorf("resolveModel(%q) = %q, want %q", input, got, want)
-		}
 	}
 }
 

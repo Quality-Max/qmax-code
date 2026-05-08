@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"bytes"
@@ -95,10 +95,10 @@ func (c *APIClient) ListScripts(ctx context.Context, projectID, limit int) strin
 	return c.get(ctx, path)
 }
 
-// allowedFrameworks mirrors the public framework values accepted by the
+// AllowedFrameworks mirrors the public framework values accepted by the
 // QualityMax API. We validate client-side so bad values get rejected before
 // hitting the wire and the agent can show a clearer error message.
-var allowedFrameworks = map[string]bool{
+var AllowedFrameworks = map[string]bool{
 	"":           true, // omitted → server auto-detects
 	"playwright": true,
 	"pytest":     true,
@@ -113,7 +113,7 @@ var allowedFrameworks = map[string]bool{
 // outside the allow-list, or "" if OK. Callers can short-circuit before
 // doing the HTTP POST.
 func validateFramework(framework string) string {
-	if allowedFrameworks[framework] {
+	if AllowedFrameworks[framework] {
 		return ""
 	}
 	return jsonError(fmt.Sprintf(
@@ -155,8 +155,8 @@ func (c *APIClient) GenerateTestCode(ctx context.Context, testCaseID int, force 
 // port goes 502 by the time qmax-code's end-of-turn auto-launch fires.
 func (c *APIClient) RunTest(ctx context.Context, scriptID int, headless bool, browser, baseURL string, useCloudSandbox bool) string {
 	body := map[string]interface{}{
-		"headless":         headless,
-		"use_browserbase":  false,
+		"headless":        headless,
+		"use_browserbase": false,
 		// Always request keepalive: the server may use E2B even when not
 		// explicitly asked (e.g. per-script server-side policy). Without this,
 		// the websockify port is gone before the end-of-turn auto-launch fires.
@@ -437,61 +437,51 @@ func (c *APIClient) CompleteAgentSession(ctx context.Context, cloudID string, to
 	c.patch(ctx, "/api/agent-sessions/"+cloudID, body)
 }
 
-// maxSessionUploadBytes caps the serialized message payload to avoid server
+// MaxSessionUploadBytes caps the serialized event payload to avoid server
 // rejection or excessive upload times on very long sessions.
-const maxSessionUploadBytes = 4 * 1024 * 1024 // 4 MiB
+const MaxSessionUploadBytes = 4 * 1024 * 1024 // 4 MiB
 
-// UploadSessionMessages uploads the full conversation history to a cloud session.
-// Called alongside CompleteAgentSession so the cloud has complete context for
-// cross-session recall. If the payload exceeds maxSessionUploadBytes, older
-// messages are trimmed. Errors are silently dropped.
+// UploadSessionEvents POSTs a pre-built events list to the cloud session's
+// /events endpoint. Errors are silently dropped — best-effort sync.
 //
-// The server exposes a generic /events endpoint with a discriminated-union body:
+// The server expects a discriminated-union body:
 //
-//	{"events": [{"type": "message", "payload": <Message>}, ...]}
+//	{"events": [{"type": "message", "payload": <...>}, ...]}
 //
 // Valid event types per the server enum: file_edit, message, shell_cmd,
-// test_result, tool_call — we only emit "message" here. The body must use the
-// key "payload" (not "data"); other keys are silently dropped server-side and
-// the event lands with payload={}.
-func (c *APIClient) UploadSessionMessages(ctx context.Context, cloudID string, messages []Message) {
-	if len(messages) == 0 {
+// test_result, tool_call. Caller is responsible for shape and trimming —
+// see TrimEventsToFit for the standard size-based trimmer.
+func (c *APIClient) UploadSessionEvents(ctx context.Context, cloudID string, events []any) {
+	if len(events) == 0 {
 		return
-	}
-	msgs := trimMessagesToFit(messages, maxSessionUploadBytes)
-	events := make([]map[string]interface{}, 0, len(msgs))
-	for _, m := range msgs {
-		events = append(events, map[string]interface{}{
-			"type":    "message",
-			"payload": m,
-		})
 	}
 	body := map[string]interface{}{"events": events}
 	c.post(ctx, "/api/agent-sessions/"+cloudID+"/events", body)
 }
 
-// trimMessagesToFit drops oldest messages until the JSON-encoded payload fits
-// within maxBytes. Returns the original slice if it already fits.
-func trimMessagesToFit(messages []Message, maxBytes int) []Message {
-	data, err := json.Marshal(messages)
+// TrimEventsToFit drops oldest events until the JSON-encoded payload fits
+// within maxBytes. Returns the original slice if it already fits, or the
+// last event alone if no longer suffix fits.
+func TrimEventsToFit(events []any, maxBytes int) []any {
+	data, err := json.Marshal(events)
 	if err != nil || len(data) <= maxBytes {
-		return messages
+		return events
 	}
 	// Binary search for the largest suffix that fits.
-	lo, hi := 0, len(messages)
+	lo, hi := 0, len(events)
 	for lo < hi {
 		mid := (lo + hi) / 2
-		d, _ := json.Marshal(messages[mid:])
+		d, _ := json.Marshal(events[mid:])
 		if len(d) <= maxBytes {
 			hi = mid
 		} else {
 			lo = mid + 1
 		}
 	}
-	if lo >= len(messages) {
-		return messages[len(messages)-1:] // at minimum send the last message
+	if lo >= len(events) {
+		return events[len(events)-1:]
 	}
-	return messages[lo:]
+	return events[lo:]
 }
 
 // --- Script operations ---

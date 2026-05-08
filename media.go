@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 const largePastedTextThreshold = 8 * 1024
@@ -109,7 +111,7 @@ func savePastedTextFile(text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, qmaxCodeConfigDir, "pastes")
+	dir := filepath.Join(home, api.QmaxCodeConfigDir, "pastes")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}

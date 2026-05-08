@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,7 +23,7 @@ func TestSetConfigField_DefaultFrameworkHappyPath(t *testing.T) {
 	if err := setConfigField("default_framework", "rust_cargo"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.DefaultFramework != "rust_cargo" {
 		t.Errorf("DefaultFramework: got %q, want rust_cargo", loaded.DefaultFramework)
 	}
@@ -45,7 +46,7 @@ func TestSetConfigField_UnsetEqualsEmptyValue(t *testing.T) {
 	_ = setConfigField("default_framework", "rust_cargo")
 	_ = setConfigField("default_framework", "") // "unset" semantics
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.DefaultFramework != "" {
 		t.Errorf("expected framework cleared, got %q", loaded.DefaultFramework)
 	}
@@ -68,7 +69,7 @@ func TestSetConfigField_IntValidation(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.DefaultProject != 42 {
 		t.Errorf("DefaultProject: got %d, want 42", loaded.DefaultProject)
 	}
@@ -85,7 +86,7 @@ func TestSetConfigField_BoolForms(t *testing.T) {
 		if err := setConfigField("professional", v); err != nil {
 			t.Errorf("expected %q to be true, got error: %v", v, err)
 		}
-		loaded := LoadQMaxCodeConfig()
+		loaded := api.LoadQMaxCodeConfig()
 		if !loaded.Professional {
 			t.Errorf("expected Professional true for value %q", v)
 		}
@@ -94,7 +95,7 @@ func TestSetConfigField_BoolForms(t *testing.T) {
 	// All these should coerce to false.
 	for _, v := range []string{"false", "no", "0", "off", ""} {
 		_ = setConfigField("professional", v)
-		loaded := LoadQMaxCodeConfig()
+		loaded := api.LoadQMaxCodeConfig()
 		if loaded.Professional {
 			t.Errorf("expected Professional false for value %q", v)
 		}
@@ -112,7 +113,7 @@ func TestSetConfigField_OutputVerboseBoolForms(t *testing.T) {
 	if err := setConfigField("output_verbose", "true"); err != nil {
 		t.Fatalf("set output_verbose true: %v", err)
 	}
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if !loaded.OutputVerbose {
 		t.Fatal("expected OutputVerbose=true")
 	}
@@ -120,7 +121,7 @@ func TestSetConfigField_OutputVerboseBoolForms(t *testing.T) {
 	if err := setConfigField("output_verbose", "off"); err != nil {
 		t.Fatalf("set output_verbose off: %v", err)
 	}
-	loaded = LoadQMaxCodeConfig()
+	loaded = api.LoadQMaxCodeConfig()
 	if loaded.OutputVerbose {
 		t.Fatal("expected OutputVerbose=false")
 	}
@@ -164,7 +165,7 @@ func TestSetConfigField_ThemeHappyPath(t *testing.T) {
 		if err := setConfigField("theme", name); err != nil {
 			t.Errorf("setConfigField(\"theme\", %q) unexpected error: %v", name, err)
 		}
-		loaded := LoadQMaxCodeConfig()
+		loaded := api.LoadQMaxCodeConfig()
 		if loaded.Theme != name {
 			t.Errorf("theme %q: loaded.Theme = %q, want %q", name, loaded.Theme, name)
 		}
@@ -188,7 +189,7 @@ func TestSetConfigField_ThemeEmptyUnsets(t *testing.T) {
 	if err := setConfigField("theme", ""); err != nil {
 		t.Fatalf("setConfigField(\"theme\", \"\") unexpected error: %v", err)
 	}
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.Theme != "" {
 		t.Errorf("expected Theme cleared, got %q", loaded.Theme)
 	}
@@ -200,7 +201,7 @@ func TestSetConfigField_ThemePersistsToDisk(t *testing.T) {
 	if err := setConfigField("theme", "aurora"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.Theme != "aurora" {
 		t.Errorf("loaded.Theme = %q, want \"aurora\"", loaded.Theme)
 	}
@@ -208,13 +209,13 @@ func TestSetConfigField_ThemePersistsToDisk(t *testing.T) {
 
 func TestConfigSaveTheme_PersistsLocalSelection(t *testing.T) {
 	tmp := withTempHome(t)
-	cfg := defaultConfig()
+	cfg := api.DefaultConfig()
 
-	if err := cfg.SaveTheme("radiance"); err != nil {
+	if err := SaveTheme(cfg, "radiance"); err != nil {
 		t.Fatalf("SaveTheme(\"radiance\") unexpected error: %v", err)
 	}
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.Theme != "radiance" {
 		t.Errorf("loaded.Theme = %q, want \"radiance\"", loaded.Theme)
 	}
@@ -234,16 +235,16 @@ func TestConfigSaveTheme_PersistsLocalSelection(t *testing.T) {
 
 func TestConfigSaveTheme_RejectsInvalidWithoutOverwriting(t *testing.T) {
 	withTempHome(t)
-	cfg := defaultConfig()
-	if err := cfg.SaveTheme("ocean"); err != nil {
+	cfg := api.DefaultConfig()
+	if err := SaveTheme(cfg, "ocean"); err != nil {
 		t.Fatalf("SaveTheme(\"ocean\") unexpected error: %v", err)
 	}
 
-	if err := cfg.SaveTheme("../evil"); err == nil {
+	if err := SaveTheme(cfg, "../evil"); err == nil {
 		t.Fatal("SaveTheme(\"../evil\") expected error, got nil")
 	}
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.Theme != "ocean" {
 		t.Errorf("invalid theme overwrote persisted selection: got %q, want \"ocean\"", loaded.Theme)
 	}
@@ -254,15 +255,15 @@ func TestConfigSaveTheme_RejectsInvalidWithoutOverwriting(t *testing.T) {
 
 func TestConfigSaveTheme_EmptyClearsLocalSelection(t *testing.T) {
 	withTempHome(t)
-	cfg := defaultConfig()
-	if err := cfg.SaveTheme("neon"); err != nil {
+	cfg := api.DefaultConfig()
+	if err := SaveTheme(cfg, "neon"); err != nil {
 		t.Fatalf("SaveTheme(\"neon\") unexpected error: %v", err)
 	}
-	if err := cfg.SaveTheme(""); err != nil {
+	if err := SaveTheme(cfg, ""); err != nil {
 		t.Fatalf("SaveTheme(\"\") unexpected error: %v", err)
 	}
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.Theme != "" {
 		t.Errorf("loaded.Theme = %q, want empty", loaded.Theme)
 	}
@@ -274,7 +275,7 @@ func TestSetConfigField_CloudSyncHappyPath(t *testing.T) {
 	if err := setConfigField("cloud_sync", "true"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.CloudSync == nil || !*loaded.CloudSync {
 		t.Error("expected CloudSync=true after setConfigField(cloud_sync, true)")
 	}
@@ -282,7 +283,7 @@ func TestSetConfigField_CloudSyncHappyPath(t *testing.T) {
 	if err := setConfigField("cloud_sync", "false"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	loaded = LoadQMaxCodeConfig()
+	loaded = api.LoadQMaxCodeConfig()
 	if loaded.CloudSync == nil || *loaded.CloudSync {
 		t.Error("expected CloudSync=false after setConfigField(cloud_sync, false)")
 	}
@@ -295,7 +296,7 @@ func TestSetConfigField_CloudSyncBoolForms(t *testing.T) {
 		if err := setConfigField("cloud_sync", v); err != nil {
 			t.Errorf("setConfigField(cloud_sync, %q) unexpected error: %v", v, err)
 		}
-		loaded := LoadQMaxCodeConfig()
+		loaded := api.LoadQMaxCodeConfig()
 		if loaded.CloudSync == nil || !*loaded.CloudSync {
 			t.Errorf("expected CloudSync=true for value %q", v)
 		}
@@ -304,7 +305,7 @@ func TestSetConfigField_CloudSyncBoolForms(t *testing.T) {
 		if err := setConfigField("cloud_sync", v); err != nil {
 			t.Errorf("setConfigField(cloud_sync, %q) unexpected error: %v", v, err)
 		}
-		loaded := LoadQMaxCodeConfig()
+		loaded := api.LoadQMaxCodeConfig()
 		if loaded.CloudSync == nil || *loaded.CloudSync {
 			t.Errorf("expected CloudSync=false for value %q", v)
 		}
@@ -318,7 +319,7 @@ func TestSetConfigField_CloudSyncUnsetClearsToNil(t *testing.T) {
 	if err := setConfigField("cloud_sync", ""); err != nil {
 		t.Fatalf("unset should not error: %v", err)
 	}
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.CloudSync != nil {
 		t.Errorf("expected CloudSync=nil after unset, got %v", *loaded.CloudSync)
 	}

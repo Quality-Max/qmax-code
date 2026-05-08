@@ -1,11 +1,9 @@
-package main
+package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // Config holds persistent user preferences for qmax-code.
@@ -82,17 +80,17 @@ type Config struct {
 	LiveFeed bool `json:"live_feed,omitempty"`
 }
 
-const qmaxCodeConfigDir = ".qmax-code"
+const QmaxCodeConfigDir = ".qmax-code"
 const qmaxCodeConfigFile = "config.json"
 
 // LoadQMaxCodeConfig reads persistent user preferences from ~/.qmax-code/config.json
 // and loads the Anthropic key from the OS keychain.
 func LoadQMaxCodeConfig() *Config {
-	cfg := defaultConfig()
+	cfg := DefaultConfig()
 
 	home, err := os.UserHomeDir()
 	if err == nil {
-		path := filepath.Join(home, qmaxCodeConfigDir, qmaxCodeConfigFile)
+		path := filepath.Join(home, QmaxCodeConfigDir, qmaxCodeConfigFile)
 		if data, err := os.ReadFile(path); err == nil {
 			_ = json.Unmarshal(data, cfg)
 		}
@@ -126,7 +124,7 @@ func (c *Config) Save() error {
 		return err
 	}
 
-	dir := filepath.Join(home, qmaxCodeConfigDir)
+	dir := filepath.Join(home, QmaxCodeConfigDir)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -139,35 +137,7 @@ func (c *Config) Save() error {
 	return os.WriteFile(filepath.Join(dir, qmaxCodeConfigFile), data, 0600)
 }
 
-// SaveTheme persists the selected terminal color theme in the user's local
-// config file. The empty value clears the preference and restores the default.
-func (c *Config) SaveTheme(theme string) error {
-	if c == nil {
-		return fmt.Errorf("config not loaded")
-	}
-	if theme != "" {
-		valid := false
-		for _, name := range ThemeNames() {
-			if name == theme {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("invalid theme %q; available: %s", theme, strings.Join(ThemeNames(), ", "))
-		}
-	}
-
-	previous := c.Theme
-	c.Theme = theme
-	if err := c.Save(); err != nil {
-		c.Theme = previous
-		return err
-	}
-	return nil
-}
-
-func defaultConfig() *Config {
+func DefaultConfig() *Config {
 	return &Config{
 		DefaultModel:   "auto",
 		AutoSave:       true,

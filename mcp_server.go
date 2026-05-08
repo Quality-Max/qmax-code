@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"strconv"
 )
@@ -16,13 +17,13 @@ import (
 // The server exposes all qmax tools to Claude Code so CC can call them via
 // its native tool-use mechanism — no Anthropic API tokens consumed.
 func RunMCPServer() {
-	auth := LoadAuth()
-	var apiClient *APIClient
+	auth := api.LoadAuth()
+	var apiClient *api.APIClient
 	if auth != nil && auth.IsAuthenticated() {
-		apiClient = NewAPIClient(auth)
+		apiClient = api.NewAPIClient(auth)
 	}
 
-	appConfig := LoadQMaxCodeConfig()
+	appConfig := api.LoadQMaxCodeConfig()
 	sctx := &SessionContext{
 		QMaxCfg:   loadQMaxConfig(),
 		QMaxBin:   discoverQMaxBinary(),
@@ -136,7 +137,7 @@ func dispatchMCPRequest(req mcpRequest, sctx *SessionContext) mcpResponse {
 		// restarting the subprocess. ProjectID is read once at startup
 		// because it's plumbed via env; LiveFeed flips often enough
 		// during a session that a per-call disk read pays for itself.
-		if cfg := LoadQMaxCodeConfig(); cfg != nil {
+		if cfg := api.LoadQMaxCodeConfig(); cfg != nil {
 			sctx.LiveFeed = cfg.LiveFeed
 			if v := os.Getenv("QMAX_LIVE_FEED"); v == "1" || v == "true" {
 				sctx.LiveFeed = true

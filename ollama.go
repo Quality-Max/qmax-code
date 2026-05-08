@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/qualitymax/qmax-code/internal/api"
 	"io"
 	"net/http"
 	"net/url"
@@ -38,7 +39,7 @@ const (
 
 // NewOllamaClient creates a client if URL and model are configured.
 // Returns nil if not configured.
-func NewOllamaClient(cfg *Config) *OllamaClient {
+func NewOllamaClient(cfg *api.Config) *OllamaClient {
 	if cfg.OllamaURL == "" || cfg.OllamaModel == "" {
 		return nil
 	}

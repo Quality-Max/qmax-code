@@ -1,6 +1,12 @@
 package main
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/qualitymax/qmax-code/internal/api"
+)
 
 // Theme defines the full color palette for the terminal UI.
 type Theme struct {
@@ -285,6 +291,35 @@ var allThemes = map[string]Theme{
 // ThemeNames returns available theme names in display order.
 func ThemeNames() []string {
 	return []string{"historic", "ocean", "neon", "ember", "aurora", "paper", "sky", "sparkling", "radiance", "goldenhour"}
+}
+
+// SaveTheme validates and persists the selected theme name on the config.
+// Empty value clears the preference (restoring the default). Lives here, not
+// on (*api.Config), so config.go has no dep on theme.go's name list.
+func SaveTheme(c *api.Config, theme string) error {
+	if c == nil {
+		return fmt.Errorf("config not loaded")
+	}
+	if theme != "" {
+		valid := false
+		for _, name := range ThemeNames() {
+			if name == theme {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return fmt.Errorf("invalid theme %q; available: %s", theme, strings.Join(ThemeNames(), ", "))
+		}
+	}
+
+	previous := c.Theme
+	c.Theme = theme
+	if err := c.Save(); err != nil {
+		c.Theme = previous
+		return err
+	}
+	return nil
 }
 
 // ThemeByName returns the named theme, defaulting to "historic".

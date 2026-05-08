@@ -3,15 +3,33 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
+
+// newTestClient wires an api.APIClient to a local httptest.Server so callers
+// can observe outbound requests and stub responses. Mirrors the helper in
+// internal/api tests; lives here because main-package tests can't reach
+// across the package boundary.
+func newTestClient(t *testing.T, handler http.HandlerFunc) (*api.APIClient, *httptest.Server) {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return &api.APIClient{
+		BaseURL: srv.URL,
+		APIKey:  "qm-test-key",
+		HTTP:    srv.Client(),
+	}, srv
+}
 
 // ---- applyCloudSyncChoice ----
 
 func TestApplyCloudSyncChoice_YesVariants(t *testing.T) {
 	for _, line := range []string{"y\n", "Y\n", "yes\n", "YES\n", "\n", "  \n"} {
 		withTempHome(t)
-		cfg := defaultConfig()
+		cfg := api.DefaultConfig()
 		got := applyCloudSyncChoice(cfg, line)
 		if !got {
 			t.Errorf("applyCloudSyncChoice(%q): got false, want true", line)
@@ -25,7 +43,7 @@ func TestApplyCloudSyncChoice_YesVariants(t *testing.T) {
 func TestApplyCloudSyncChoice_NoVariants(t *testing.T) {
 	for _, line := range []string{"n\n", "N\n", "no\n", "NO\n"} {
 		withTempHome(t)
-		cfg := defaultConfig()
+		cfg := api.DefaultConfig()
 		got := applyCloudSyncChoice(cfg, line)
 		if got {
 			t.Errorf("applyCloudSyncChoice(%q): got true, want false", line)
@@ -38,10 +56,10 @@ func TestApplyCloudSyncChoice_NoVariants(t *testing.T) {
 
 func TestApplyCloudSyncChoice_PersistsToDisk(t *testing.T) {
 	withTempHome(t)
-	cfg := defaultConfig()
+	cfg := api.DefaultConfig()
 	applyCloudSyncChoice(cfg, "y\n")
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.CloudSync == nil || !*loaded.CloudSync {
 		t.Error("CloudSync=true not persisted to disk")
 	}
@@ -50,7 +68,7 @@ func TestApplyCloudSyncChoice_PersistsToDisk(t *testing.T) {
 // ---- Config.CloudSync JSON round-trip ----
 
 func TestConfigCloudSync_NilOmittedFromJSON(t *testing.T) {
-	cfg := &Config{}
+	cfg := &api.Config{}
 	data, _ := json.Marshal(cfg)
 	var m map[string]interface{}
 	_ = json.Unmarshal(data, &m)
@@ -62,11 +80,11 @@ func TestConfigCloudSync_NilOmittedFromJSON(t *testing.T) {
 func TestConfigCloudSync_TruePersistedAndLoaded(t *testing.T) {
 	withTempHome(t)
 	v := true
-	cfg := defaultConfig()
+	cfg := api.DefaultConfig()
 	cfg.CloudSync = &v
 	_ = cfg.Save()
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.CloudSync == nil || !*loaded.CloudSync {
 		t.Error("CloudSync true did not survive Save/Load round-trip")
 	}
@@ -75,11 +93,11 @@ func TestConfigCloudSync_TruePersistedAndLoaded(t *testing.T) {
 func TestConfigCloudSync_FalsePersistedAndLoaded(t *testing.T) {
 	withTempHome(t)
 	v := false
-	cfg := defaultConfig()
+	cfg := api.DefaultConfig()
 	cfg.CloudSync = &v
 	_ = cfg.Save()
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.CloudSync == nil || *loaded.CloudSync {
 		t.Error("CloudSync false did not survive Save/Load round-trip")
 	}

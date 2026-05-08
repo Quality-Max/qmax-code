@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/vnc"
 )
@@ -77,13 +78,13 @@ func main() {
 		qualityMaxAPIKey := loginFlags.String("api-key", "", "QualityMax API key")
 		_ = loginFlags.Parse(os.Args[2:])
 
-		var cfg *AuthConfig
+		var cfg *api.AuthConfig
 		var err error
 		args := loginFlags.Args()
 		if *qualityMaxAPIKey != "" {
-			cfg, err = LoginWithAPIKey(*qualityMaxAPIKey)
+			cfg, err = api.LoginWithAPIKey(*qualityMaxAPIKey)
 		} else if len(args) > 0 && strings.HasPrefix(args[0], "qm-") {
-			cfg, err = LoginWithAPIKey(args[0])
+			cfg, err = api.LoginWithAPIKey(args[0])
 		} else {
 			// Browser-based login (Railway-style)
 			AnimateMax(MoodWaving, "Let's get you logged in!")
@@ -113,7 +114,7 @@ func main() {
 	}
 
 	// Load persistent user config
-	appConfig := LoadQMaxCodeConfig()
+	appConfig := api.LoadQMaxCodeConfig()
 
 	// Apply color theme before constructing any UI components.
 	ApplyTheme(ThemeByName(appConfig.Theme))
@@ -158,7 +159,7 @@ func main() {
 	}
 
 	// Load auth (new standalone mode)
-	auth := LoadAuth()
+	auth := api.LoadAuth()
 
 	// Load qmax config for cloud URL and auth token (legacy)
 	qmaxCfg := loadQMaxConfig()
@@ -170,16 +171,16 @@ func main() {
 	qmaxBin := discoverQMaxBinary()
 
 	// Initialize API client if authenticated (standalone mode)
-	var apiClient *APIClient
+	var apiClient *api.APIClient
 	if auth != nil && auth.IsAuthenticated() {
-		apiClient = NewAPIClient(auth)
+		apiClient = api.NewAPIClient(auth)
 	}
 
 	// If no qmax CLI and no API client, run full interactive setup
 	if qmaxBin == "" && apiClient == nil {
 		setupAuth, setupProjectID := RunInteractiveSetup()
 		auth = setupAuth
-		apiClient = NewAPIClient(auth)
+		apiClient = api.NewAPIClient(auth)
 		appConfig.DefaultProject = setupProjectID
 		if anthropicKey == "" {
 			anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
@@ -243,7 +244,7 @@ func main() {
 		if key != "" {
 			anthropicKey = key
 			os.Setenv("ANTHROPIC_API_KEY", key)
-			if err := SaveAnthropicKey(key); err == nil {
+			if err := api.SaveAnthropicKey(key); err == nil {
 				fmt.Println("  Saved to OS keychain.")
 			}
 		}
@@ -699,7 +700,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			// Show the unified model + effort TUI picker and apply the selection instantly.
 			cfg := agent.appConfig
 			if cfg == nil {
-				term.PrintError("Config not loaded.")
+				term.PrintError("api.Config not loaded.")
 				continue
 			}
 
@@ -799,14 +800,14 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		case input == "/theme":
 			cfg := agent.appConfig
 			if cfg == nil {
-				term.PrintError("Config not loaded.")
+				term.PrintError("api.Config not loaded.")
 				continue
 			}
 			chosen, ok := ShowThemePicker(cfg.Theme)
 			if !ok {
 				continue
 			}
-			if err := cfg.SaveTheme(chosen); err != nil {
+			if err := SaveTheme(cfg, chosen); err != nil {
 				term.PrintError(fmt.Sprintf("Failed to save config: %v", err))
 			} else {
 				ApplyTheme(ThemeByName(chosen))
@@ -817,7 +818,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		case input == "/cloudsync":
 			cfg := agent.appConfig
 			if cfg == nil {
-				term.PrintError("Config not loaded.")
+				term.PrintError("api.Config not loaded.")
 				continue
 			}
 			enabled, ok := ShowCloudSyncPicker(cfg.CloudSync)
@@ -843,7 +844,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			// Instant backend switching — no restart needed.
 			cfg := agent.appConfig
 			if cfg == nil {
-				term.PrintError("Config not loaded.")
+				term.PrintError("api.Config not loaded.")
 				continue
 			}
 
@@ -977,7 +978,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			arg := strings.TrimSpace(strings.TrimPrefix(input, "/live"))
 			cfg := agent.appConfig
 			if cfg == nil {
-				term.PrintError("Config not loaded.")
+				term.PrintError("api.Config not loaded.")
 				continue
 			}
 			applyLiveFeed := func(next bool) {
@@ -1379,7 +1380,7 @@ func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal, preStream *vnc.VN
 
 // waitForLiveFeedURL polls CheckTestStatus until live_browser_url appears or
 // the test ends without one. Returns the URL on success, "" on timeout/failure.
-func waitForLiveFeedURL(api *APIClient, execID string, timeout time.Duration) string {
+func waitForLiveFeedURL(api *api.APIClient, execID string, timeout time.Duration) string {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
@@ -1424,7 +1425,7 @@ func handleConnect(agent *Agent, term *Terminal) {
 
 	// Update session context in-place
 	ctx.Auth = auth
-	ctx.API = NewAPIClient(auth)
+	ctx.API = api.NewAPIClient(auth)
 
 	AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 	fmt.Println()
@@ -1446,7 +1447,7 @@ func handleDisconnect(agent *Agent, term *Terminal) {
 	// Remove saved auth files (both new and legacy)
 	home, _ := os.UserHomeDir()
 	if home != "" {
-		_ = os.Remove(filepath.Join(home, qmaxCodeConfigDir, "auth.json"))
+		_ = os.Remove(filepath.Join(home, api.QmaxCodeConfigDir, "auth.json"))
 		// Also clear legacy ~/.qamax/config.json token to prevent auto-reconnect
 		legacyPath := filepath.Join(home, ".qamax", "config.json")
 		if data, err := os.ReadFile(legacyPath); err == nil {
@@ -1472,7 +1473,7 @@ func toggleOutputVerbose(agent *Agent, cliAgent CLIAgent, term *Terminal) {
 	}
 	cfg := agent.appConfig
 	if cfg == nil {
-		cfg = defaultConfig()
+		cfg = api.DefaultConfig()
 		agent.appConfig = cfg
 	}
 	cfg.OutputVerbose = !cfg.OutputVerbose
@@ -1538,7 +1539,7 @@ func handleKeys(agent *Agent, term *Terminal) {
 		}
 		os.Setenv("ANTHROPIC_API_KEY", key)
 		agent.config.AnthropicKey = key
-		if err := SaveAnthropicKey(key); err != nil {
+		if err := api.SaveAnthropicKey(key); err != nil {
 			term.PrintSystem(fmt.Sprintf("Key set for this session (keychain unavailable: %s)", err))
 		} else {
 			AnimateMax(MoodHappy, "Key saved to OS keychain!")
@@ -1584,7 +1585,7 @@ Commands:
   /help          Show this help
   /quit          Exit
 
-Config examples:
+api.Config examples:
   /set model sonnet         Change default model
   /set project 42           Change default project
   /set professional true    Disable cat personality
@@ -1647,13 +1648,13 @@ func reconnectMCPTransport(cliAgent CLIAgent, term *Terminal) {
 	}
 }
 
-func printConfigInfo(cfg *Config, term *Terminal) {
+func printConfigInfo(cfg *api.Config, term *Terminal) {
 	if cfg == nil {
 		term.PrintSystem("No config loaded (using defaults).")
 		return
 	}
 	fmt.Println()
-	fmt.Printf("  %s\n", "qmax-code Config (~/.qmax-code/config.json)")
+	fmt.Printf("  %s\n", "qmax-code api.Config (~/.qmax-code/config.json)")
 	fmt.Printf("  %-20s %s\n", "Default model:", cfg.DefaultModel)
 	fmt.Printf("  %-20s %d\n", "Default project:", cfg.DefaultProject)
 	fmt.Printf("  %-20s %v\n", "Professional:", cfg.Professional)
@@ -1698,7 +1699,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 	value := parts[2]
 	cfg := agent.appConfig
 	if cfg == nil {
-		cfg = defaultConfig()
+		cfg = api.DefaultConfig()
 		agent.appConfig = cfg
 	}
 
@@ -1806,13 +1807,13 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 
 	case "apikey":
 		// Allow pasting API key directly: /set apikey qm-...
-		auth, err := LoginWithAPIKey(value)
+		auth, err := api.LoginWithAPIKey(value)
 		if err != nil {
 			term.PrintError(fmt.Sprintf("Invalid API key: %v", err))
 			return
 		}
 		agent.config.Context.Auth = auth
-		agent.config.Context.API = NewAPIClient(auth)
+		agent.config.Context.API = api.NewAPIClient(auth)
 		AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 		fmt.Println()
 		return // auth.json handles persistence
@@ -1886,7 +1887,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		// Save Anthropic API key to OS keychain
 		os.Setenv("ANTHROPIC_API_KEY", value)
 		agent.config.AnthropicKey = value
-		if err := SaveAnthropicKey(value); err != nil {
+		if err := api.SaveAnthropicKey(value); err != nil {
 			term.PrintSystem(fmt.Sprintf("Key set for this session (keychain: %s)", err))
 		} else {
 			term.PrintSystem("Anthropic API key saved to OS keychain.")
@@ -1901,9 +1902,9 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 
 	// Persist to disk
 	if err := cfg.Save(); err != nil {
-		term.PrintError(fmt.Sprintf("Config updated in memory but failed to save: %v", err))
+		term.PrintError(fmt.Sprintf("api.Config updated in memory but failed to save: %v", err))
 	} else {
-		term.PrintSystem("Config saved to ~/.qmax-code/config.json")
+		term.PrintSystem("api.Config saved to ~/.qmax-code/config.json")
 	}
 }
 
