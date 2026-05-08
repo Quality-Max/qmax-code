@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.2] - 2026-05-08
+
+### Changed
+- Phase 2 of the package reorg: extracted `internal/api` (api client, auth, keychain, config). `UploadSessionMessages([]Message)` is now `UploadSessionEvents([]any)` — the api package no longer references `Message`. `LoginInteractive` / `LoginViaBrowser` moved to `interactive_setup.go` since they need TUI helpers. Defensively `url.QueryEscape` the server-supplied auth code in the cli-poll URL. No user-visible behavior change.
+
 ## [1.16.1] - 2026-05-07
 
 ### Changed
