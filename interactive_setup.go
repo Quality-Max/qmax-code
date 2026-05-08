@@ -5,15 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/qualitymax/qmax-code/internal/api"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 // LoginInteractive prompts the user to paste their API key.
@@ -89,8 +91,11 @@ func LoginViaBrowser() (*api.AuthConfig, error) {
 	fmt.Println()
 	fmt.Println("  Waiting for authorization...")
 
-	// Step 3: Poll until authorized (every 2 seconds, up to 10 minutes)
-	pollURL := cloudURL + "/api/auth/cli-poll?code=" + loginResp.Code
+	// Step 3: Poll until authorized (every 2 seconds, up to 10 minutes).
+	// QueryEscape the code defensively — it's server-supplied and goes into
+	// a URL component, so a code containing &, #, or other URL-reserved
+	// characters would otherwise produce a malformed request.
+	pollURL := cloudURL + "/api/auth/cli-poll?code=" + url.QueryEscape(loginResp.Code)
 	deadline := time.Now().Add(10 * time.Minute)
 
 	i := 0
