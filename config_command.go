@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"strconv"
 )
@@ -19,7 +20,7 @@ import (
 //	qmax-code config unset KEY         → clear a single field
 //	qmax-code config reset             → wipe to defaults
 //
-// Supported keys mirror the public Config fields:
+// Supported keys mirror the public api.Config fields:
 //
 //	default_framework → "", "playwright", "pytest", "rust_cargo", "go_test"
 //	default_project   → integer project ID
@@ -58,12 +59,12 @@ func handleConfigCommand(args []string) {
 		fmt.Printf("  Cleared %s\n", args[1])
 
 	case "reset":
-		cfg := defaultConfig()
+		cfg := api.DefaultConfig()
 		if err := cfg.Save(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("  Config reset to defaults")
+		fmt.Println("  api.Config reset to defaults")
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown config command: %s\n", args[0])
@@ -73,7 +74,7 @@ func handleConfigCommand(args []string) {
 }
 
 func printConfig() {
-	cfg := LoadQMaxCodeConfig()
+	cfg := api.LoadQMaxCodeConfig()
 	fmt.Println("  Current config (~/.qmax-code/config.json):")
 	fmt.Printf("    default_model     = %q\n", cfg.DefaultModel)
 	fmt.Printf("    default_project   = %d\n", cfg.DefaultProject)
@@ -136,11 +137,11 @@ func printConfig() {
 // wrong value types return an error so users find out immediately rather
 // than discovering a silently-ignored setting later.
 func setConfigField(key, value string) error {
-	cfg := LoadQMaxCodeConfig()
+	cfg := api.LoadQMaxCodeConfig()
 
 	switch key {
 	case "default_framework":
-		if value != "" && !allowedFrameworks[value] {
+		if value != "" && !api.AllowedFrameworks[value] {
 			return fmt.Errorf("invalid framework %q; allowed: playwright, pytest, go, rust, go_test, rust_cargo", value)
 		}
 		cfg.DefaultFramework = value
@@ -209,7 +210,7 @@ func setConfigField(key, value string) error {
 		}
 
 	case "theme":
-		return cfg.SaveTheme(value)
+		return SaveTheme(cfg, value)
 
 	case "cloud_sync":
 		if value == "" {

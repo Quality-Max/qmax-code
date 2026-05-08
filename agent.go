@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
 
@@ -58,7 +59,7 @@ func (m OllamaMode) String() string {
 // Agent is the LLM-powered QA orchestration engine.
 type Agent struct {
 	config          AgentConfig
-	appConfig       *Config // persistent user preferences
+	appConfig       *api.Config // persistent user preferences
 	history         []Message
 	tools           []ToolDef
 	client          *http.Client

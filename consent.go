@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"strings"
 )
@@ -20,7 +21,7 @@ type orchConsentResult struct {
 //
 // Conductor's safety model: the user is the principal. We never sneak privilege
 // escalation behind a backend switch. Mode choices are explicit and persisted.
-func promptOrchConsent(cfg *Config, backend string) orchConsentResult {
+func promptOrchConsent(cfg *api.Config, backend string) orchConsentResult {
 	cliName := "Claude Code"
 	globalConfigPath := "~/.claude/settings.json"
 	if backend == "codex" {

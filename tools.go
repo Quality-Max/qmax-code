@@ -16,9 +16,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/security"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
+
+// jsonError formats msg as a JSON-encoded error object after redaction.
+// Mirrors the helper in internal/api so tool handlers can return the same
+// shape without depending on api package internals.
+func jsonError(msg string) string {
+	msg = security.RedactSensitive(msg)
+	escaped, _ := json.Marshal(msg)
+	return fmt.Sprintf(`{"error": %s}`, string(escaped))
+}
 
 // limitWriter is an io.Writer that silently discards bytes once the cap is hit.
 // Use it as cmd.Stdout/Stderr to prevent unbounded memory growth from large
@@ -666,17 +676,17 @@ func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx co
 // executeToolViaAPI handles tool execution through the QualityMax REST API.
 func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, ctx context.Context) string {
 	input := parseInput(rawInput)
-	api := sctx.API
+	client := sctx.API
 
 	switch name {
 	case "list_projects":
-		return api.ListProjects(ctx)
+		return client.ListProjects(ctx)
 
 	case "list_test_cases":
-		return api.ListTestCases(ctx, intVal(input, "project_id", sctx.ProjectID), intVal(input, "limit", 0), strVal(input, "search"))
+		return client.ListTestCases(ctx, intVal(input, "project_id", sctx.ProjectID), intVal(input, "limit", 0), strVal(input, "search"))
 
 	case "list_scripts":
-		return api.ListScripts(ctx, intVal(input, "project_id", sctx.ProjectID), intVal(input, "limit", 0))
+		return client.ListScripts(ctx, intVal(input, "project_id", sctx.ProjectID), intVal(input, "limit", 0))
 
 	case "generate_test_code":
 		// If the caller didn't pass a framework, fall back to the one the
@@ -693,75 +703,75 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 		// into the agent loop and trips up nearly every LLM.
 		fw := strVal(input, "framework")
 		if fw == "" {
-			if cfg := LoadQMaxCodeConfig(); cfg != nil {
+			if cfg := api.LoadQMaxCodeConfig(); cfg != nil {
 				fw = cfg.DefaultFramework
 			}
 		}
-		return api.GenerateTestCode(ctx, intVal(input, "test_case_id", 0), boolVal(input, "force"), fw)
+		return client.GenerateTestCode(ctx, intVal(input, "test_case_id", 0), boolVal(input, "force"), fw)
 
 	case "run_test":
-		return runTestWithProgress(ctx, api, sctx, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"))
+		return runTestWithProgress(ctx, client, sctx, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"))
 
 	case "run_native_test":
-		return api.RunNativeTest(ctx, intVal(input, "script_id", 0), strVal(input, "base_url"))
+		return client.RunNativeTest(ctx, intVal(input, "script_id", 0), strVal(input, "base_url"))
 
 	case "setup_cicd":
-		return api.SetupCICD(ctx, intVal(input, "repo_id", 0), strVal(input, "framework"), strVal(input, "target_branch"), strVal(input, "base_url"))
+		return client.SetupCICD(ctx, intVal(input, "repo_id", 0), strVal(input, "framework"), strVal(input, "target_branch"), strVal(input, "base_url"))
 
 	case "run_tests_batch":
-		return api.RunTestsBatch(ctx, strVal(input, "script_ids"), strVal(input, "base_url"), sctx.LiveFeed)
+		return client.RunTestsBatch(ctx, strVal(input, "script_ids"), strVal(input, "base_url"), sctx.LiveFeed)
 
 	case "check_test_status":
-		out := api.CheckTestStatus(ctx, strVal(input, "execution_id"))
+		out := client.CheckTestStatus(ctx, strVal(input, "execution_id"))
 		captureLiveURL(sctx, out)
 		return out
 
 	case "start_crawl":
-		return api.StartCrawl(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "url"),
+		return client.StartCrawl(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "url"),
 			intVal(input, "depth", 0), intVal(input, "pages", 0), strVal(input, "test_type"), strVal(input, "instructions"), sctx.LiveFeed)
 
 	case "crawl_status":
-		out := api.CrawlStatus(ctx, strVal(input, "crawl_id"))
+		out := client.CrawlStatus(ctx, strVal(input, "crawl_id"))
 		captureLiveURL(sctx, out)
 		return out
 
 	case "crawl_results":
-		return api.CrawlResults(ctx, strVal(input, "crawl_id"))
+		return client.CrawlResults(ctx, strVal(input, "crawl_id"))
 
 	case "list_crawl_jobs":
-		return api.ListCrawlJobs(ctx, intVal(input, "limit", 0))
+		return client.ListCrawlJobs(ctx, intVal(input, "limit", 0))
 
 	case "list_repos":
-		return api.ListRepos(ctx, intVal(input, "project_id", sctx.ProjectID))
+		return client.ListRepos(ctx, intVal(input, "project_id", sctx.ProjectID))
 
 	case "review_repo":
-		return api.ReviewRepo(ctx, intVal(input, "repo_id", 0))
+		return client.ReviewRepo(ctx, intVal(input, "repo_id", 0))
 
 	case "get_review_preferences":
-		return api.GetReviewPreferences(ctx, intVal(input, "repository_id", 0))
+		return client.GetReviewPreferences(ctx, intVal(input, "repository_id", 0))
 
 	case "set_review_preferences":
-		return api.SetReviewPreferences(ctx, strVal(input, "scope"), intVal(input, "repository_id", 0), input["preferences"])
+		return client.SetReviewPreferences(ctx, strVal(input, "scope"), intVal(input, "repository_id", 0), input["preferences"])
 
 	case "repo_coverage":
-		return api.RepoCoverage(ctx, intVal(input, "repo_id", 0))
+		return client.RepoCoverage(ctx, intVal(input, "repo_id", 0))
 
 	case "repo_quality":
-		return api.RepoQuality(ctx, intVal(input, "repo_id", 0))
+		return client.RepoQuality(ctx, intVal(input, "repo_id", 0))
 
 	case "import_repo":
-		return api.ImportRepo(ctx, strVal(input, "url"), intVal(input, "project_id", sctx.ProjectID),
+		return client.ImportRepo(ctx, strVal(input, "url"), intVal(input, "project_id", sctx.ProjectID),
 			boolVal(input, "create_project"), strVal(input, "project_name"), strVal(input, "base_url"), strVal(input, "training_consent"))
 
 	case "import_document":
-		return api.ImportDocument(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "text"), strVal(input, "source_name"))
+		return client.ImportDocument(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "text"), strVal(input, "source_name"))
 
 	case "create_pr":
-		prResp := api.CreatePR(ctx, intVal(input, "repo_id", 0), intVal(input, "project_id", sctx.ProjectID))
-		return chainSecurityAuditOnPR(ctx, api, sctx, prResp)
+		prResp := client.CreatePR(ctx, intVal(input, "repo_id", 0), intVal(input, "project_id", sctx.ProjectID))
+		return chainSecurityAuditOnPR(ctx, client, sctx, prResp)
 
 	case "get_script":
-		return api.GetScript(ctx, intVal(input, "script_id", 0))
+		return client.GetScript(ctx, intVal(input, "script_id", 0))
 
 	case "update_script":
 		code := strVal(input, "code")
@@ -772,83 +782,83 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 			return fmt.Sprintf(`{"error": "Security scan failed", "violations": %q}`, strings.Join(violations, "; "))
 		}
 		scriptID := intVal(input, "script_id", 0)
-		backup := api.GetScript(ctx, scriptID)
+		backup := client.GetScript(ctx, scriptID)
 		if !strings.HasPrefix(backup, `{"error"`) {
 			saveScriptBackup(fmt.Sprintf("%d", scriptID), backup)
 		}
-		return api.UpdateScript(ctx, scriptID, strVal(input, "name"), code)
+		return client.UpdateScript(ctx, scriptID, strVal(input, "name"), code)
 
 	case "check_job_status":
-		return api.CheckBackgroundJob(ctx, strVal(input, "job_id"))
+		return client.CheckBackgroundJob(ctx, strVal(input, "job_id"))
 
 	// --- k6 Performance Testing ---
 	case "k6_list_scripts":
-		return api.K6ListScripts(ctx, intVal(input, "project_id", sctx.ProjectID))
+		return client.K6ListScripts(ctx, intVal(input, "project_id", sctx.ProjectID))
 	case "k6_create_script":
-		return api.K6CreateScript(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "name"), strVal(input, "test_type"), strVal(input, "target_url"), strVal(input, "code"))
+		return client.K6CreateScript(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "name"), strVal(input, "test_type"), strVal(input, "target_url"), strVal(input, "code"))
 	case "k6_get_script":
-		return api.K6GetScript(ctx, intVal(input, "script_id", 0))
+		return client.K6GetScript(ctx, intVal(input, "script_id", 0))
 	case "k6_run_test":
-		return api.K6RunTest(ctx, intVal(input, "script_id", 0), intVal(input, "vus", 0), strVal(input, "duration"))
+		return client.K6RunTest(ctx, intVal(input, "script_id", 0), intVal(input, "vus", 0), strVal(input, "duration"))
 	case "k6_check_status":
-		return api.K6CheckStatus(ctx, strVal(input, "execution_id"))
+		return client.K6CheckStatus(ctx, strVal(input, "execution_id"))
 	case "k6_report":
-		return api.K6Report(ctx, strVal(input, "execution_id"))
+		return client.K6Report(ctx, strVal(input, "execution_id"))
 	case "k6_generate":
-		return api.K6Generate(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "target_url"), strVal(input, "test_type"), strVal(input, "endpoints"))
+		return client.K6Generate(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "target_url"), strVal(input, "test_type"), strVal(input, "endpoints"))
 	case "k6_convert":
-		return api.K6Convert(ctx, strVal(input, "source_code"), strVal(input, "source_framework"), strVal(input, "test_type"))
+		return client.K6Convert(ctx, strVal(input, "source_code"), strVal(input, "source_framework"), strVal(input, "test_type"))
 
 	// --- Test Case CRUD ---
 	case "create_test_case":
-		return api.CreateTestCase(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "title"), strVal(input, "description"), strVal(input, "category"), strVal(input, "priority"))
+		return client.CreateTestCase(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "title"), strVal(input, "description"), strVal(input, "category"), strVal(input, "priority"))
 	case "update_test_case":
-		return api.UpdateTestCase(ctx, intVal(input, "test_case_id", 0), strVal(input, "title"), strVal(input, "description"), strVal(input, "category"), strVal(input, "priority"), strVal(input, "status"))
+		return client.UpdateTestCase(ctx, intVal(input, "test_case_id", 0), strVal(input, "title"), strVal(input, "description"), strVal(input, "category"), strVal(input, "priority"), strVal(input, "status"))
 	case "delete_test_case":
-		return api.DeleteTestCase(ctx, intVal(input, "test_case_id", 0))
+		return client.DeleteTestCase(ctx, intVal(input, "test_case_id", 0))
 
 	// --- Project CRUD ---
 	case "create_project":
-		return api.CreateProject(ctx, strVal(input, "name"), strVal(input, "description"), strVal(input, "base_url"))
+		return client.CreateProject(ctx, strVal(input, "name"), strVal(input, "description"), strVal(input, "base_url"))
 	case "update_project":
-		return api.UpdateProject(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "name"), strVal(input, "description"), strVal(input, "base_url"))
+		return client.UpdateProject(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "name"), strVal(input, "description"), strVal(input, "base_url"))
 	case "delete_project":
-		return api.DeleteProject(ctx, intVal(input, "project_id", 0))
+		return client.DeleteProject(ctx, intVal(input, "project_id", 0))
 	case "get_project_by_slug":
-		return api.GetProjectBySlug(ctx, strVal(input, "slug"))
+		return client.GetProjectBySlug(ctx, strVal(input, "slug"))
 	case "get_project_summary":
-		return api.GetProjectSummary(ctx, intVal(input, "project_id", sctx.ProjectID))
+		return client.GetProjectSummary(ctx, intVal(input, "project_id", sctx.ProjectID))
 
 	// --- Framework Operations ---
 	case "trigger_framework_run":
-		return api.TriggerFrameworkRun(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "framework_type"))
+		return client.TriggerFrameworkRun(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "framework_type"))
 	case "export_framework":
-		return api.ExportFramework(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "framework"))
+		return client.ExportFramework(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "framework"))
 	case "get_install_command":
-		return api.GetInstallCommand(ctx, intVal(input, "project_id", sctx.ProjectID))
+		return client.GetInstallCommand(ctx, intVal(input, "project_id", sctx.ProjectID))
 
 	// --- AI-Powered ---
 	case "enhance_test_case":
-		return api.EnhanceTestCase(ctx, intVal(input, "test_case_id", 0))
+		return client.EnhanceTestCase(ctx, intVal(input, "test_case_id", 0))
 	case "generate_gap_tests":
-		return api.GenerateGapTests(ctx, intVal(input, "repo_id", 0))
+		return client.GenerateGapTests(ctx, intVal(input, "repo_id", 0))
 	case "start_crawl_from_test_case":
-		return api.StartCrawlFromTestCase(ctx, intVal(input, "test_case_id", 0))
+		return client.StartCrawlFromTestCase(ctx, intVal(input, "test_case_id", 0))
 
 	case "analyze_screenshot":
-		return analyzeScreenshot(ctx, api, strVal(input, "execution_id"), sctx)
+		return analyzeScreenshot(ctx, client, strVal(input, "execution_id"), sctx)
 	case "get_page_elements":
-		return getPageElements(ctx, api, strVal(input, "execution_id"), sctx)
+		return getPageElements(ctx, client, strVal(input, "execution_id"), sctx)
 
 	// --- QTML ---
 	case "export_qtml":
-		return api.ExportQTML(ctx, intVal(input, "project_id", sctx.ProjectID))
+		return client.ExportQTML(ctx, intVal(input, "project_id", sctx.ProjectID))
 	case "import_qtml":
-		return api.ImportQTML(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "content"))
+		return client.ImportQTML(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "content"))
 
 	// --- Deployment Testing ---
 	case "test_deployed_environment":
-		return api.TestDeployedEnvironment(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "url"))
+		return client.TestDeployedEnvironment(ctx, intVal(input, "project_id", sctx.ProjectID), strVal(input, "url"))
 
 	case "run_local_test":
 		return runLocalTest(ctx, sctx, intVal(input, "script_id", 0), strVal(input, "base_url"))
@@ -862,9 +872,9 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 // When sctx.LiveFeed is true the test runs in a QM Cloud Sandbox; status
 // responses are scanned for `live_browser_url` and the freshest one is
 // stored on sctx for the REPL to auto-launch /browserfeed against.
-func runTestWithProgress(ctx context.Context, api *APIClient, sctx *SessionContext, scriptID int, headless bool, browser, baseURL string) string {
+func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *SessionContext, scriptID int, headless bool, browser, baseURL string) string {
 	// Start the test
-	raw := api.RunTest(ctx, scriptID, headless, browser, baseURL, sctx != nil && sctx.LiveFeed)
+	raw := client.RunTest(ctx, scriptID, headless, browser, baseURL, sctx != nil && sctx.LiveFeed)
 	if strings.HasPrefix(raw, `{"error"`) {
 		return raw
 	}
@@ -911,7 +921,7 @@ func runTestWithProgress(ctx context.Context, api *APIClient, sctx *SessionConte
 	for i := 0; i < 180; i++ { // max 6 minutes
 		time.Sleep(2 * time.Second)
 
-		statusRaw := api.CheckTestStatus(ctx, execID)
+		statusRaw := client.CheckTestStatus(ctx, execID)
 		captureLiveURL(sctx, statusRaw)
 		var status map[string]interface{}
 		if err := json.Unmarshal([]byte(statusRaw), &status); err != nil {
@@ -976,7 +986,7 @@ func runTestWithProgress(ctx context.Context, api *APIClient, sctx *SessionConte
 
 	ClearBrowserAnimation()
 	progress.Finish(false, "Timed out after 6 minutes")
-	final := api.CheckTestStatus(ctx, execID)
+	final := client.CheckTestStatus(ctx, execID)
 	captureLiveURL(sctx, final)
 	return annotateWithClientNote(final,
 		"Polling stopped after 6 minutes. Do NOT call check_test_status again — the run timed out.")
@@ -2397,12 +2407,12 @@ func obj(pp []propDef) map[string]interface{} {
 
 // analyzeScreenshot fetches the screenshot from a test execution and asks Claude Vision
 // to describe what's visible on the page.
-func analyzeScreenshot(ctx context.Context, api *APIClient, executionID string, sctx *SessionContext) string {
+func analyzeScreenshot(ctx context.Context, client *api.APIClient, executionID string, sctx *SessionContext) string {
 	if executionID == "" {
 		return jsonError("execution_id is required")
 	}
 
-	screenshotURL, err := getScreenshotURL(api, executionID, sctx)
+	screenshotURL, err := getScreenshotURL(client, executionID, sctx)
 	if err != "" {
 		return jsonError(err)
 	}
@@ -2419,12 +2429,12 @@ func analyzeScreenshot(ctx context.Context, api *APIClient, executionID string, 
 
 // getPageElements fetches the screenshot and asks Claude Vision to extract
 // interactive elements with suggested Playwright selectors.
-func getPageElements(ctx context.Context, api *APIClient, executionID string, sctx *SessionContext) string {
+func getPageElements(ctx context.Context, client *api.APIClient, executionID string, sctx *SessionContext) string {
 	if executionID == "" {
 		return jsonError("execution_id is required")
 	}
 
-	screenshotURL, err := getScreenshotURL(api, executionID, sctx)
+	screenshotURL, err := getScreenshotURL(client, executionID, sctx)
 	if err != "" {
 		return jsonError(err)
 	}
@@ -2440,8 +2450,8 @@ func getPageElements(ctx context.Context, api *APIClient, executionID string, sc
 }
 
 // getScreenshotURL fetches the screenshot URL from a test execution result.
-func getScreenshotURL(api *APIClient, executionID string, sctx *SessionContext) (string, string) {
-	raw := api.CheckTestStatus(context.Background(), executionID)
+func getScreenshotURL(client *api.APIClient, executionID string, sctx *SessionContext) (string, string) {
+	raw := client.CheckTestStatus(context.Background(), executionID)
 
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(raw), &data); err != nil {
@@ -2550,7 +2560,7 @@ func callBackendVisionAnalysis(sctx *SessionContext, imageURL, prompt string) st
 
 // chainSecurityAuditOnPR fires a security audit PR check after create_pr succeeds
 // and appends the findings to the PR creation result so the agent can self-correct.
-func chainSecurityAuditOnPR(ctx context.Context, api *APIClient, sctx *SessionContext, prResp string) string {
+func chainSecurityAuditOnPR(ctx context.Context, client *api.APIClient, sctx *SessionContext, prResp string) string {
 	// Parse pr_number from the create_pr response.
 	var prData map[string]interface{}
 	prNumber := 0
@@ -2596,7 +2606,7 @@ func chainSecurityAuditOnPR(ctx context.Context, api *APIClient, sctx *SessionCo
 		return prResp // cannot determine base commit — skip security check
 	}
 
-	auditResp := api.SecurityAuditPRCheck(ctx, repoSlug, prNumber, baseSHA, headSHA)
+	auditResp := client.SecurityAuditPRCheck(ctx, repoSlug, prNumber, baseSHA, headSHA)
 
 	// Combine both results for the agent.
 	return fmt.Sprintf("%s\n\n--- Security Audit PR Check ---\n%s", prResp, auditResp)

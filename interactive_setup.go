@@ -5,17 +5,147 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
+// LoginInteractive prompts the user to paste their API key.
+func LoginInteractive() (*api.AuthConfig, error) {
+	fmt.Println()
+	fmt.Println("  Get your API key from:")
+	fmt.Println("  https://app.qualitymax.io/settings → API Keys")
+	fmt.Println()
+	key := readSecret("  Paste your API key (qm-...): ")
+
+	if key == "" {
+		return nil, fmt.Errorf("no API key provided")
+	}
+
+	return api.LoginWithAPIKey(key)
+}
+
+// --- Browser-based login (Railway-style) ---
+
+type cliLoginResponse struct {
+	Code      string `json:"code"`
+	ExpiresAt string `json:"expires_at"`
+	AuthURL   string `json:"auth_url"`
+}
+
+type cliPollResponse struct {
+	Status string `json:"status"`
+	Token  string `json:"token,omitempty"`
+	Email  string `json:"email,omitempty"`
+	UserID string `json:"user_id,omitempty"`
+}
+
+// LoginViaBrowser performs Railway-style browser login:
+// 1. POST /api/auth/cli-login → get code + auth URL
+// 2. Open browser to auth URL
+// 3. Poll /api/auth/cli-poll until authorized or expired
+func LoginViaBrowser() (*api.AuthConfig, error) {
+	cloudURL := os.Getenv("QUALITYMAX_URL")
+	if cloudURL == "" {
+		cloudURL = api.DefaultCloudURL
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Step 1: Get a CLI auth code
+	req, err := http.NewRequest("POST", cloudURL+"/api/auth/cli-login", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot reach QualityMax: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("CLI login failed (HTTP %d)", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var loginResp cliLoginResponse
+	if err := json.Unmarshal(body, &loginResp); err != nil {
+		return nil, fmt.Errorf("invalid response: %w", err)
+	}
+
+	// Step 2: Open browser
+	fmt.Println()
+	fmt.Printf("  Your auth code: \033[1;35m%s\033[0m\n", loginResp.Code)
+	fmt.Println()
+	fmt.Println("  Opening browser to authorize...")
+	openBrowser(loginResp.AuthURL)
+	fmt.Println()
+	fmt.Printf("  If the browser didn't open, visit:\n  %s\n", loginResp.AuthURL)
+	fmt.Println()
+	fmt.Println("  Waiting for authorization...")
+
+	// Step 3: Poll until authorized (every 2 seconds, up to 10 minutes).
+	// QueryEscape the code defensively — it's server-supplied and goes into
+	// a URL component, so a code containing &, #, or other URL-reserved
+	// characters would otherwise produce a malformed request.
+	pollURL := cloudURL + "/api/auth/cli-poll?code=" + url.QueryEscape(loginResp.Code)
+	deadline := time.Now().Add(10 * time.Minute)
+
+	i := 0
+	for time.Now().Before(deadline) {
+		time.Sleep(2 * time.Second)
+
+		pollReq, _ := http.NewRequest("GET", pollURL, nil)
+		pollResp, err := client.Do(pollReq)
+		if err != nil {
+			// Network hiccup — keep trying
+			continue
+		}
+
+		pollBody, _ := io.ReadAll(pollResp.Body)
+		pollResp.Body.Close()
+
+		var poll cliPollResponse
+		if err := json.Unmarshal(pollBody, &poll); err != nil {
+			continue
+		}
+
+		switch poll.Status {
+		case "authorized":
+			cfg := &api.AuthConfig{
+				APIKey:   poll.Token,
+				Email:    poll.Email,
+				UserID:   poll.UserID,
+				CloudURL: cloudURL,
+			}
+			if err := api.SaveAuth(cfg); err != nil {
+				return cfg, fmt.Errorf("logged in but failed to save: %w", err)
+			}
+			return cfg, nil
+
+		case "expired":
+			return nil, fmt.Errorf("auth code expired — please try again")
+
+		default:
+			// Still pending — show spinner
+			fmt.Printf("\r  Waiting %s", SpinnerFrames[i%len(SpinnerFrames)])
+			i++
+		}
+	}
+
+	return nil, fmt.Errorf("timed out waiting for browser authorization")
+}
+
 // RunInteractiveSetup guides a first-time user through login and project selection.
-// Returns the AuthConfig and selected project ID.
-func RunInteractiveSetup() (*AuthConfig, int) {
+// Returns the api.AuthConfig and selected project ID.
+func RunInteractiveSetup() (*api.AuthConfig, int) {
 	fmt.Println()
 	AnimateMax(MoodWaving, GetMaxGreeting())
 	fmt.Println()
@@ -30,7 +160,7 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 		"I have an API key already",
 	})
 
-	var auth *AuthConfig
+	var auth *api.AuthConfig
 	var err error
 
 	switch choice {
@@ -79,7 +209,7 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 			[]string{"Yes, save it", "No, I'll pick per-call"},
 		)
 		if confirm == 0 {
-			cfg := LoadQMaxCodeConfig()
+			cfg := api.LoadQMaxCodeConfig()
 			cfg.DefaultFramework = detected
 			_ = cfg.Save()
 			fmt.Printf("  Saved. You can change it later by editing ~/.qmax-code/config.json.\n")
@@ -96,7 +226,7 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 	}
 
 	// Step 3: Anthropic key check
-	cfg := LoadQMaxCodeConfig()
+	cfg := api.LoadQMaxCodeConfig()
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
 	if anthropicKey == "" {
 		anthropicKey = cfg.AnthropicKey
@@ -112,7 +242,7 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 		if key != "" {
 			os.Setenv("ANTHROPIC_API_KEY", key)
 			// Save to OS keychain
-			if err := SaveAnthropicKey(key); err != nil {
+			if err := api.SaveAnthropicKey(key); err != nil {
 				// Fallback: warn but continue
 				fmt.Printf("\n  Note: Could not save to keychain (%s)\n", err)
 				fmt.Println("  Key is set for this session. Set ANTHROPIC_API_KEY in your shell profile to persist.")
@@ -139,7 +269,7 @@ func RunInteractiveSetup() (*AuthConfig, int) {
 }
 
 // loginWithKeyPrompt asks the user to paste their API key.
-func loginWithKeyPrompt() (*AuthConfig, error) {
+func loginWithKeyPrompt() (*api.AuthConfig, error) {
 	key := readSecret("  Paste your API key (qm-...): ")
 
 	if key == "" {
@@ -164,7 +294,7 @@ func loginWithKeyPrompt() (*AuthConfig, error) {
 		}
 	}()
 
-	auth, err := LoginWithAPIKey(key)
+	auth, err := api.LoginWithAPIKey(key)
 	done <- true
 	fmt.Print("\r  Validating ")
 
@@ -178,14 +308,14 @@ func loginWithKeyPrompt() (*AuthConfig, error) {
 }
 
 // selectProject lists projects and lets the user pick one.
-func selectProject(auth *AuthConfig) int {
-	api := NewAPIClient(auth)
-	if api == nil {
+func selectProject(auth *api.AuthConfig) int {
+	client := api.NewAPIClient(auth)
+	if client == nil {
 		return 0
 	}
 
 	fmt.Println("  Loading projects...")
-	result := api.ListProjects(context.Background())
+	result := client.ListProjects(context.Background())
 
 	// Try to parse as JSON array
 	var projects []map[string]interface{}
@@ -218,7 +348,7 @@ func selectProject(auth *AuthConfig) int {
 	fmt.Printf("\n  Selected: %s\n", strVal2(projects[choice], "name"))
 
 	// Save to config
-	cfg := LoadQMaxCodeConfig()
+	cfg := api.LoadQMaxCodeConfig()
 	cfg.DefaultProject = id
 	_ = cfg.Save()
 

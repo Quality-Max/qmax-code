@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/vnc"
 )
@@ -340,7 +341,7 @@ func TestWaitForLiveFeedURLReturnsWhenURLAppears(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	api := &APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
+	api := &api.APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
 	start := time.Now()
 	got := waitForLiveFeedURL(api, "exec_test", 30*time.Second)
 	elapsed := time.Since(start)
@@ -366,7 +367,7 @@ func TestWaitForLiveFeedURLStopsOnFinalStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	api := &APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
+	api := &api.APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
 	start := time.Now()
 	got := waitForLiveFeedURL(api, "exec_test", 30*time.Second)
 	elapsed := time.Since(start)
@@ -389,7 +390,7 @@ func TestWaitForLiveFeedURLTimeout(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	api := &APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
+	api := &api.APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
 	// Use a very short timeout so the test doesn't take long.
 	got := waitForLiveFeedURL(api, "exec_test", 3*time.Second)
 	if got != "" {
@@ -416,7 +417,7 @@ func TestRunTestWithProgressLiveFeedFastReturn(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	api := &APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
+	api := &api.APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
 	sctx := &SessionContext{LiveFeed: true, API: api}
 
 	result := runTestWithProgress(t.Context(), api, sctx, 42, true, "", "")

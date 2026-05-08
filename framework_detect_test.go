@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"path/filepath"
 	"testing"
@@ -158,7 +159,7 @@ func TestConfigPre180ForwardCompat(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 
 	// All legacy fields preserved.
 	if loaded.DefaultModel != "opus" {
@@ -188,13 +189,13 @@ func TestConfigRoundTripIncludesDefaultFramework(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	cfg := defaultConfig()
+	cfg := api.DefaultConfig()
 	cfg.DefaultFramework = "rust_cargo"
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
 
-	loaded := LoadQMaxCodeConfig()
+	loaded := api.LoadQMaxCodeConfig()
 	if loaded.DefaultFramework != "rust_cargo" {
 		t.Errorf("DefaultFramework lost through round-trip: got %q, want rust_cargo", loaded.DefaultFramework)
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,13 +16,13 @@ import (
 type SessionContext struct {
 	ProjectID   int
 	QMaxCfg     QMaxConfig
-	QMaxBin     string      // resolved path to qmax binary (empty = standalone mode)
-	QMaxInfo    string      // output of `qmax status` at startup
-	GitInfo     *GitInfo    // git context from cwd
-	ProjectFile string      // name of .qmax.yml file if detected
-	API         *APIClient  // direct API client (standalone mode, no qmax CLI needed)
-	Auth        *AuthConfig // authentication credentials
-	Backend     string      // "" | "cc" | "codex" — active CLI inference backend
+	QMaxBin     string          // resolved path to qmax binary (empty = standalone mode)
+	QMaxInfo    string          // output of `qmax status` at startup
+	GitInfo     *GitInfo        // git context from cwd
+	ProjectFile string          // name of .qmax.yml file if detected
+	API         *api.APIClient  // direct API client (standalone mode, no qmax CLI needed)
+	Auth        *api.AuthConfig // authentication credentials
+	Backend     string          // "" | "cc" | "codex" — active CLI inference backend
 
 	// LiveFeed enables QM Cloud Sandbox execution for run_test / start_crawl
 	// and turns on auto-launch of /browserfeed when a poll response surfaces
