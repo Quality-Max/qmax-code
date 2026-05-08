@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.1] - 2026-05-07
+
+### Changed
+- Internal restructure: extracted `internal/security`, `internal/vnc`, and `internal/sysutil` out of the flat root `package main`. No user-visible behavior change. Sets up follow-up extractions (agent, tui, api, session, tools, mcp) once a shared `internal/core` package lands.
+
 ## [1.15.7] - 2026-05-04
 
 ### Fixed
