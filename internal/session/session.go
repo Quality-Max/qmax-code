@@ -60,6 +60,14 @@ func sessionFilePath(id string) string {
 	return filepath.Join(dir, id+".json")
 }
 
+// IsValidSessionID is the same validator used internally to gate filesystem
+// access. Exported so callers (e.g. REPL /resume handlers) can validate user
+// input *at the call site* and produce a clear error before LoadSession is
+// reached. Validation is duplicated rather than relying on LoadSession's
+// internal check so taint-tracking SAST tools see sanitization on the path
+// from user input to LoadSession.
+func IsValidSessionID(id string) bool { return isValidSessionID(id) }
+
 func isValidSessionID(id string) bool {
 	if id == "" || len(id) > 64 {
 		return false

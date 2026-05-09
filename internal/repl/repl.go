@@ -235,6 +235,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			var loadErr error
 			if resumeTarget == "" || resumeTarget == "/resume" || resumeTarget == "last" {
 				sess, loadErr = session.LoadLastSession()
+			} else if !session.IsValidSessionID(resumeTarget) {
+				// Block path traversal (e.g. "../etc/passwd") at the call
+				// site so the user input never reaches the filesystem layer.
+				loadErr = fmt.Errorf("invalid session ID %q", resumeTarget)
 			} else {
 				sess, loadErr = session.LoadSession(resumeTarget)
 			}
@@ -266,6 +270,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 			chosenID, ok := tui.ShowSessionPicker(items, sessionID)
 			if !ok {
+				continue
+			}
+			// Belt-and-suspenders: chosenID came from session.ListSessions()
+			// (filenames we wrote ourselves) but validate before LoadSession
+			// to make the no-traversal invariant visible to SAST.
+			if !session.IsValidSessionID(chosenID) {
+				term.PrintError(fmt.Sprintf("Invalid session ID %q", chosenID))
 				continue
 			}
 			sess, loadErr := session.LoadSession(chosenID)
@@ -354,6 +365,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					term.PrintError("Ollama not configured. Set ollama_url and ollama_model first.")
 					term.PrintSystem("  qmax-code config set ollama_url https://llm2.qualitymax.io")
 					term.PrintSystem("  qmax-code config set ollama_model llama3.2:3b")
+					continue
+				}
+				// Reject malformed/unsupported URL schemes (file://, javascript:, …)
+				// before they reach the HTTP client.
+				if err := agent.ValidateOllamaURL(cfg.OllamaURL); err != nil {
+					term.PrintError(fmt.Sprintf("Ollama URL rejected: %v", err))
 					continue
 				}
 				if ag.Ollama == nil {
@@ -567,6 +584,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintError("Ollama not configured. Set it first:")
 				term.PrintSystem("  qmax-code config set ollama_url https://user:pass@llm.example.com")
 				term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
+				continue
+			}
+			if err := agent.ValidateOllamaURL(cfg.OllamaURL); err != nil {
+				term.PrintError(fmt.Sprintf("Ollama URL rejected: %v", err))
 				continue
 			}
 			if ag.Ollama == nil {
@@ -1336,6 +1357,10 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 				term.PrintError("No Ollama URL configured. Set it first:")
 				term.PrintSystem("  qmax-code config set ollama_url https://user:pass@llm.example.com")
 				term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
+				return
+			}
+			if err := agent.ValidateOllamaURL(cfg.OllamaURL); err != nil {
+				term.PrintError(fmt.Sprintf("Ollama URL rejected: %v", err))
 				return
 			}
 			ag.Ollama = agent.NewOllamaClient(cfg)
