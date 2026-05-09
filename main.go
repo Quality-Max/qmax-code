@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/session"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/tui"
 	"github.com/qualitymax/qmax-code/internal/vnc"
@@ -101,7 +102,7 @@ func main() {
 	}
 
 	if *listSessions {
-		sessions, err := ListSessions(20)
+		sessions, err := session.ListSessions(20)
 		if err != nil || len(sessions) == 0 {
 			fmt.Println("No sessions found.")
 			os.Exit(0)
@@ -360,27 +361,27 @@ func main() {
 
 	// Handle --resume flag
 	if *resumeID != "" {
-		var session *Session
+		var sess *session.Session
 		var loadErr error
 		if *resumeID == "last" {
-			session, loadErr = LoadLastSession()
+			sess, loadErr = session.LoadLastSession()
 		} else {
-			session, loadErr = LoadSession(*resumeID)
+			sess, loadErr = session.LoadSession(*resumeID)
 		}
 		if loadErr != nil {
 			fmt.Fprintf(os.Stderr, "Cannot resume session %q: %v\n", *resumeID, loadErr)
 			os.Exit(1)
 		}
-		agent.history = session.Messages
-		agent.usage = session.Usage
-		if session.ProjectID > 0 {
-			agent.config.Context.ProjectID = session.ProjectID
+		agent.history = sess.Messages
+		agent.usage = sess.Usage
+		if sess.ProjectID > 0 {
+			agent.config.Context.ProjectID = sess.ProjectID
 		}
-		fmt.Printf("Resumed session %s (%d turns)\n", session.ID, session.Turns)
+		fmt.Printf("Resumed session %s (%d turns)\n", sess.ID, sess.Turns)
 	}
 
 	// Clean up old sessions (>7 days)
-	if removed := CleanupOldSessions(); removed > 0 && *verbose {
+	if removed := session.CleanupOldSessions(); removed > 0 && *verbose {
 		fmt.Printf("[cleanup] Removed %d old sessions\n", removed)
 	}
 
@@ -413,17 +414,17 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	}
 
 	// Prompt queue — collects prompts typed while the agent is running.
-	pq := &promptQueue{}
+	pq := &session.PromptQueue{}
 
-	// Session ID for this conversation
-	sessionID := generateSessionID()
+	// session.Session ID for this conversation
+	sessionID := session.GenerateSessionID()
 
 	// Initialize structured logger
 	agent.logger = sysutil.NewLogger(sessionID)
 	defer agent.logger.Close()
 
 	// Cloud session tracking — created once when projectID is known.
-	var tracker cloudSessionTracker
+	var tracker session.CloudSessionTracker
 	startCloudSession := func() {
 		api := agent.config.Context.API
 		projectID := agent.config.Context.ProjectID
@@ -433,7 +434,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		cfg := agent.appConfig
 		// First eligible session: ask the user once and persist their choice.
 		if cfg != nil && cfg.CloudSync == nil {
-			promptCloudSyncConsent(cfg, term.ReadConsent)
+			session.PromptCloudSyncConsent(cfg, term.ReadConsent)
 		}
 		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
 			return
@@ -445,7 +446,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
 			return
 		}
-		tracker.Complete(agent.config.Context.API, agent.usage.TotalTokens(), sessionSummary(agent.history), agent.history)
+		tracker.Complete(agent.config.Context.API, agent.usage.TotalTokens(), session.SummaryFor(agent.history), agent.history)
 	}
 
 	// Graceful interrupt handling
@@ -456,14 +457,14 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 	autoSave := func() {
 		if len(agent.history) > 0 && (agent.appConfig == nil || agent.appConfig.AutoSave) {
-			_ = SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
+			_ = session.SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
 		}
 	}
 
 	saveAndExit := func() {
-		_ = SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
+		_ = session.SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
 		completeCloudSession()
-		fmt.Fprintf(os.Stderr, "Session %s saved.\n", sessionID)
+		fmt.Fprintf(os.Stderr, "session.Session %s saved.\n", sessionID)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -504,7 +505,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		fmt.Printf("  %sSession: %s%s\n", tui.ColorDim, sessionID, tui.ColorReset)
 
 		// Hint about recent session if one exists
-		if recent, err := ListSessions(1); err == nil && len(recent) > 0 {
+		if recent, err := session.ListSessions(1); err == nil && len(recent) > 0 {
 			age := time.Since(recent[0].UpdatedAt)
 			if age < 24*time.Hour {
 				fmt.Printf("  %sRecent session: %s (%d turns, %s ago) — type /resume to continue%s\n",
@@ -527,9 +528,9 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 		// Drain the prompt queue before blocking on interactive input.
 		// This processes prompts the user typed while the agent was running.
-		if queued, ok := pq.pop(); ok {
+		if queued, ok := pq.Pop(); ok {
 			input = queued
-			remaining := pq.len()
+			remaining := pq.Len()
 			fmt.Println()
 			if remaining > 0 {
 				term.PrintSystem(fmt.Sprintf("processing queued prompt  (%d more in queue)", remaining))
@@ -610,31 +611,31 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		case input == "/resume" || strings.HasPrefix(input, "/resume "):
 			resumeTarget := strings.TrimPrefix(input, "/resume ")
 			resumeTarget = strings.TrimSpace(resumeTarget)
-			var session *Session
+			var sess *session.Session
 			var loadErr error
 			if resumeTarget == "" || resumeTarget == "/resume" || resumeTarget == "last" {
-				session, loadErr = LoadLastSession()
+				sess, loadErr = session.LoadLastSession()
 			} else {
-				session, loadErr = LoadSession(resumeTarget)
+				sess, loadErr = session.LoadSession(resumeTarget)
 			}
 			if loadErr != nil {
 				term.PrintError(fmt.Sprintf("Cannot resume: %v", loadErr))
 				term.PrintSystem("Use /sessions to see available sessions")
 			} else {
-				sanitizeSessionMessages(session.Messages)
-				agent.history = session.Messages
-				agent.usage = session.Usage
-				sessionID = session.ID
-				if session.ProjectID > 0 {
-					agent.config.Context.ProjectID = session.ProjectID
+				session.SanitizeSessionMessages(sess.Messages)
+				agent.history = sess.Messages
+				agent.usage = sess.Usage
+				sessionID = sess.ID
+				if sess.ProjectID > 0 {
+					agent.config.Context.ProjectID = sess.ProjectID
 				}
 				term.SetSessionPrompt(sessionID)
 				term.PrintSystem(fmt.Sprintf("Resumed session %s (%d turns, project #%d)",
-					session.ID, session.Turns, session.ProjectID))
+					sess.ID, sess.Turns, sess.ProjectID))
 			}
 			continue
 		case input == "/sessions":
-			sessions, err := ListSessions(10)
+			sessions, err := session.ListSessions(10)
 			if err != nil || len(sessions) == 0 {
 				term.PrintSystem("No saved sessions.")
 				continue
@@ -647,24 +648,24 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if !ok {
 				continue
 			}
-			session, loadErr := LoadSession(chosenID)
+			sess, loadErr := session.LoadSession(chosenID)
 			if loadErr != nil {
 				term.PrintError(fmt.Sprintf("Cannot resume: %v", loadErr))
 			} else {
-				sanitizeSessionMessages(session.Messages)
-				agent.history = session.Messages
-				agent.usage = session.Usage
-				sessionID = session.ID
-				if session.ProjectID > 0 {
-					agent.config.Context.ProjectID = session.ProjectID
+				session.SanitizeSessionMessages(sess.Messages)
+				agent.history = sess.Messages
+				agent.usage = sess.Usage
+				sessionID = sess.ID
+				if sess.ProjectID > 0 {
+					agent.config.Context.ProjectID = sess.ProjectID
 				}
 				term.SetSessionPrompt(sessionID)
 				term.PrintSystem(fmt.Sprintf("Resumed session %s (%d turns, project #%d)",
-					session.ID, session.Turns, session.ProjectID))
+					sess.ID, sess.Turns, sess.ProjectID))
 			}
 			continue
 		case input == "/save":
-			if err := SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model); err != nil {
+			if err := session.SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model); err != nil {
 				term.PrintError(fmt.Sprintf("Failed to save: %v", err))
 			} else {
 				term.PrintSystem(fmt.Sprintf("Session %s saved.", sessionID))
@@ -679,7 +680,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			continue
 
 		case input == "/queue":
-			items := pq.peek()
+			items := pq.Peek()
 			if len(items) == 0 {
 				term.PrintSystem("Queue is empty. Type /queue <prompt> to add, or just type while the agent is running.")
 			} else {
@@ -697,8 +698,8 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		case strings.HasPrefix(input, "/queue "):
 			queued := strings.TrimSpace(strings.TrimPrefix(input, "/queue "))
 			if queued != "" {
-				pq.push(queued)
-				term.PrintSystem(fmt.Sprintf("queued [%d]: %s", pq.len(), queued))
+				pq.Push(queued)
+				term.PrintSystem(fmt.Sprintf("queued [%d]: %s", pq.Len(), queued))
 			}
 			continue
 		case input == "/orch":
@@ -1127,7 +1128,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		// Start the queue reader so the user can type the next prompt while
 		// the agent is working.  It is stopped (and fully drained) before
 		// the next tui.ReadInput call so stdin is never shared between readers.
-		stopQueueReader := startQueueReader(pq, term)
+		stopQueueReader := session.StartQueueReader(pq, term)
 
 		// CC mode: delegate entirely to Claude Code subprocess (uses CC subscription).
 		// Normal mode: use direct Anthropic API.
@@ -1202,8 +1203,8 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				// CCAgent/CodexAgent manage their own subprocess state; qmax's
 				// history would otherwise stay empty and autoSave would no-op.
 				agent.history = append(agent.history,
-					Message{Role: "user", Content: cleanInput},
-					Message{Role: "assistant", Content: llmResult},
+					api.Message{Role: "user", Content: cleanInput},
+					api.Message{Role: "assistant", Content: llmResult},
 				)
 			}
 		} else if len(images) > 0 {
@@ -1225,7 +1226,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		stopQueueReader()
 
 		// If prompts were queued during this run, surface them.
-		if n := pq.len(); n > 0 {
+		if n := pq.Len(); n > 0 {
 			fmt.Println()
 			term.PrintSystem(fmt.Sprintf("%d prompt(s) queued — processing next automatically", n))
 		}

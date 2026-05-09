@@ -1,4 +1,4 @@
-package main
+package session
 
 import (
 	"crypto/rand"
@@ -21,7 +21,7 @@ type Session struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	ProjectID int            `json:"project_id,omitempty"`
 	Model     string         `json:"model,omitempty"`
-	Messages  []Message      `json:"messages"`
+	Messages  []api.Message  `json:"messages"`
 	Usage     api.TokenUsage `json:"usage"`
 	Turns     int            `json:"turns"`
 }
@@ -29,8 +29,8 @@ type Session struct {
 const sessionsSubDir = "sessions"
 const sessionTTL = 7 * 24 * time.Hour // 7 days
 
-// generateSessionID creates a short random hex ID like Claude Code uses.
-func generateSessionID() string {
+// GenerateSessionID creates a short random hex ID like Claude Code uses.
+func GenerateSessionID() string {
 	b := make([]byte, 4) // 8 hex chars
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
@@ -56,7 +56,7 @@ func sessionFilePath(id string) string {
 
 // SaveSession persists the current conversation to disk.
 // Called after every message exchange for crash safety.
-func SaveSession(sessionID string, history []Message, projectID int, usage api.TokenUsage, model string) error {
+func SaveSession(sessionID string, history []api.Message, projectID int, usage api.TokenUsage, model string) error {
 	dir := sessionDirPath()
 	if dir == "" {
 		return fmt.Errorf("cannot determine home directory")
@@ -66,7 +66,7 @@ func SaveSession(sessionID string, history []Message, projectID int, usage api.T
 	}
 
 	// Sanitize before saving to prevent persisting corruption
-	sanitizeSessionMessages(history)
+	SanitizeSessionMessages(history)
 
 	// Count user turns
 	turns := 0
@@ -119,16 +119,16 @@ func LoadSession(id string) (*Session, error) {
 	}
 
 	// Sanitize loaded messages — fix corrupted tool_use blocks
-	sanitizeSessionMessages(session.Messages)
+	SanitizeSessionMessages(session.Messages)
 
 	return &session, nil
 }
 
-// sanitizeSessionMessages fixes common corruption issues in saved sessions:
+// SanitizeSessionMessages fixes common corruption issues in saved sessions:
 // - tool_use blocks missing Input field (causes Anthropic API 400 errors)
 // - text blocks with extra Input field (causes "Extra inputs are not permitted")
 // - tool_result blocks with nil Content
-func sanitizeSessionMessages(messages []Message) {
+func SanitizeSessionMessages(messages []api.Message) {
 	for i := range messages {
 		blocks, ok := messages[i].Content.([]interface{})
 		if !ok {
@@ -246,7 +246,7 @@ func ListSessions(limit int) ([]SessionSummary, error) {
 // sessionSummary builds a short human-readable summary from the conversation
 // history to upload with cloud sessions. It takes the first user message as the
 // topic and appends the turn count.
-func sessionSummary(history []Message) string {
+func SummaryFor(history []api.Message) string {
 	if len(history) == 0 {
 		return ""
 	}

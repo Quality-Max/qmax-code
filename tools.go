@@ -110,13 +110,6 @@ func boolVal(input map[string]interface{}, key string) bool {
 	return false
 }
 
-// ToolDef is a Claude API tool definition.
-type ToolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"input_schema"`
-}
-
 // experimentalToolNames lists tools that are gated behind QMAX_EXPERIMENTAL=1.
 // These surfaces work but lack public docs / support guarantees, per
 // OPEN_SOURCE_SCOPE.md Phase 2. Set QMAX_EXPERIMENTAL=1 to expose them to the
@@ -145,12 +138,12 @@ var experimentalToolNames = map[string]bool{
 // BuildToolDefs returns the public tool definitions exposed to the LLM agent
 // and via the MCP server. Experimental tools are filtered out unless
 // QMAX_EXPERIMENTAL=1 is set.
-func BuildToolDefs() []ToolDef {
+func BuildToolDefs() []api.ToolDef {
 	all := buildAllToolDefs()
 	if sysutil.EnvEnabled("QMAX_EXPERIMENTAL") {
 		return all
 	}
-	out := make([]ToolDef, 0, len(all))
+	out := make([]api.ToolDef, 0, len(all))
 	for _, d := range all {
 		if !experimentalToolNames[d.Name] {
 			out = append(out, d)
@@ -162,8 +155,8 @@ func BuildToolDefs() []ToolDef {
 // buildAllToolDefs returns every tool definition, including experimental ones.
 // Used internally; public callers go through BuildToolDefs which applies the
 // QMAX_EXPERIMENTAL gate.
-func buildAllToolDefs() []ToolDef {
-	return []ToolDef{
+func buildAllToolDefs() []api.ToolDef {
+	return []api.ToolDef{
 		// --- Project operations ---
 		{
 			Name:        "list_projects",

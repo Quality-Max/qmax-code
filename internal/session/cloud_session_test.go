@@ -1,9 +1,10 @@
-package main
+package session
 
 import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/qualitymax/qmax-code/internal/api"
@@ -24,18 +25,29 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) (*api.APIClient, *htt
 	}, srv
 }
 
-// ---- applyCloudSyncChoice ----
+// withTempHome points $HOME at a fresh temp dir for the test and restores it
+// in cleanup. Local copy of the helper in main package's config_command_test.go.
+func withTempHome(t *testing.T) string {
+	t.Helper()
+	orig := os.Getenv("HOME")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	t.Cleanup(func() { os.Setenv("HOME", orig) })
+	return tmp
+}
+
+// ---- ApplyCloudSyncChoice ----
 
 func TestApplyCloudSyncChoice_YesVariants(t *testing.T) {
 	for _, line := range []string{"y\n", "Y\n", "yes\n", "YES\n", "\n", "  \n"} {
 		withTempHome(t)
 		cfg := api.DefaultConfig()
-		got := applyCloudSyncChoice(cfg, line)
+		got := ApplyCloudSyncChoice(cfg, line)
 		if !got {
-			t.Errorf("applyCloudSyncChoice(%q): got false, want true", line)
+			t.Errorf("ApplyCloudSyncChoice(%q): got false, want true", line)
 		}
 		if cfg.CloudSync == nil || !*cfg.CloudSync {
-			t.Errorf("applyCloudSyncChoice(%q): cfg.CloudSync not set to true", line)
+			t.Errorf("ApplyCloudSyncChoice(%q): cfg.CloudSync not set to true", line)
 		}
 	}
 }
@@ -44,12 +56,12 @@ func TestApplyCloudSyncChoice_NoVariants(t *testing.T) {
 	for _, line := range []string{"n\n", "N\n", "no\n", "NO\n"} {
 		withTempHome(t)
 		cfg := api.DefaultConfig()
-		got := applyCloudSyncChoice(cfg, line)
+		got := ApplyCloudSyncChoice(cfg, line)
 		if got {
-			t.Errorf("applyCloudSyncChoice(%q): got true, want false", line)
+			t.Errorf("ApplyCloudSyncChoice(%q): got true, want false", line)
 		}
 		if cfg.CloudSync == nil || *cfg.CloudSync {
-			t.Errorf("applyCloudSyncChoice(%q): cfg.CloudSync not set to false", line)
+			t.Errorf("ApplyCloudSyncChoice(%q): cfg.CloudSync not set to false", line)
 		}
 	}
 }
@@ -57,7 +69,7 @@ func TestApplyCloudSyncChoice_NoVariants(t *testing.T) {
 func TestApplyCloudSyncChoice_PersistsToDisk(t *testing.T) {
 	withTempHome(t)
 	cfg := api.DefaultConfig()
-	applyCloudSyncChoice(cfg, "y\n")
+	ApplyCloudSyncChoice(cfg, "y\n")
 
 	loaded := api.LoadQMaxCodeConfig()
 	if loaded.CloudSync == nil || !*loaded.CloudSync {
@@ -103,11 +115,11 @@ func TestConfigCloudSync_FalsePersistedAndLoaded(t *testing.T) {
 	}
 }
 
-// ---- cloudSessionTracker.Start ----
+// ---- CloudSessionTracker.Start ----
 
 func TestCloudTracker_Start_SkipsWhenAPIIsNil(t *testing.T) {
 	calls := 0
-	var tracker cloudSessionTracker
+	var tracker CloudSessionTracker
 	// Passing nil api — real Start must bail out before making any HTTP call.
 	// We verify indirectly: cloudID stays empty.
 	tracker.Start(nil, 184, "claude-sonnet-4-6")
@@ -124,7 +136,7 @@ func TestCloudTracker_Start_SkipsWhenProjectIDIsZero(t *testing.T) {
 		_, _ = w.Write([]byte(`{"session_id":"should-not-see-this"}`))
 	})
 
-	var tracker cloudSessionTracker
+	var tracker CloudSessionTracker
 	tracker.Start(client, 0, "claude-sonnet-4-6")
 
 	if calls != 0 {
@@ -140,7 +152,7 @@ func TestCloudTracker_Start_HappyPath(t *testing.T) {
 		_, _ = w.Write([]byte(`{"session_id":"cloud-xyz"}`))
 	})
 
-	var tracker cloudSessionTracker
+	var tracker CloudSessionTracker
 	tracker.Start(client, 184, "claude-sonnet-4-6")
 
 	if tracker.cloudID != "cloud-xyz" {
@@ -155,7 +167,7 @@ func TestCloudTracker_Start_Idempotent(t *testing.T) {
 		_, _ = w.Write([]byte(`{"session_id":"cloud-first"}`))
 	})
 
-	var tracker cloudSessionTracker
+	var tracker CloudSessionTracker
 	tracker.Start(client, 184, "claude-sonnet-4-6")
 	tracker.Start(client, 184, "claude-sonnet-4-6") // second call — must be a no-op
 	tracker.Start(client, 184, "claude-sonnet-4-6") // third call  — same
@@ -174,7 +186,7 @@ func TestCloudTracker_Start_CloudIDEmptyOnServerError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"boom"}`))
 	})
 
-	var tracker cloudSessionTracker
+	var tracker CloudSessionTracker
 	tracker.Start(client, 184, "claude-sonnet-4-6")
 
 	if tracker.cloudID != "" {
@@ -182,7 +194,7 @@ func TestCloudTracker_Start_CloudIDEmptyOnServerError(t *testing.T) {
 	}
 }
 
-// ---- cloudSessionTracker.Complete ----
+// ---- CloudSessionTracker.Complete ----
 
 func TestCloudTracker_Complete_SkipsWhenCloudIDEmpty(t *testing.T) {
 	calls := 0
@@ -191,7 +203,7 @@ func TestCloudTracker_Complete_SkipsWhenCloudIDEmpty(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	})
 
-	var tracker cloudSessionTracker // cloudID == ""
+	var tracker CloudSessionTracker // cloudID == ""
 	tracker.Complete(client, 500, "some summary", nil)
 
 	if calls != 0 {
@@ -201,7 +213,7 @@ func TestCloudTracker_Complete_SkipsWhenCloudIDEmpty(t *testing.T) {
 
 func TestCloudTracker_Complete_SkipsWhenAPIIsNil(t *testing.T) {
 	// Manually set cloudID to simulate a started session, then pass nil api.
-	tracker := cloudSessionTracker{cloudID: "cloud-abc"}
+	tracker := CloudSessionTracker{cloudID: "cloud-abc"}
 	// Should not panic.
 	tracker.Complete(nil, 100, "summary", nil)
 }
@@ -214,7 +226,7 @@ func TestCloudTracker_Complete_PatchesWithCloudID(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	})
 
-	tracker := cloudSessionTracker{cloudID: "cloud-abc"}
+	tracker := CloudSessionTracker{cloudID: "cloud-abc"}
 	tracker.Complete(client, 200, "did stuff  [2 turns]", nil)
 
 	if gotMethod != "PATCH" {
@@ -231,7 +243,7 @@ func TestCloudTracker_Complete_SilentOnServerError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"boom"}`))
 	})
 
-	tracker := cloudSessionTracker{cloudID: "cloud-abc"}
+	tracker := CloudSessionTracker{cloudID: "cloud-abc"}
 	// Must not panic or block.
 	tracker.Complete(client, 100, "summary", nil)
 }
@@ -252,7 +264,7 @@ func TestCloudTracker_StartThenComplete_UsesCorrectCloudID(t *testing.T) {
 		}
 	})
 
-	var tracker cloudSessionTracker
+	var tracker CloudSessionTracker
 	tracker.Start(client, 184, "claude-sonnet-4-6")
 	tracker.Complete(client, 750, "lifecycle test  [5 turns]", nil)
 
@@ -270,12 +282,12 @@ func TestCloudTracker_Complete_UploadsMessages(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	})
 
-	msgs := []Message{
+	msgs := []api.Message{
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "hi there"},
 	}
 
-	tracker := cloudSessionTracker{cloudID: "cloud-xyz"}
+	tracker := CloudSessionTracker{cloudID: "cloud-xyz"}
 	tracker.Complete(client, 300, "test upload", msgs)
 
 	if len(paths) != 2 {
@@ -299,7 +311,7 @@ func TestCloudTracker_Complete_SkipsUploadWhenNoMessages(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	})
 
-	tracker := cloudSessionTracker{cloudID: "cloud-xyz"}
+	tracker := CloudSessionTracker{cloudID: "cloud-xyz"}
 	tracker.Complete(client, 100, "empty session", nil)
 
 	// Only the PATCH to complete, no POST for messages
