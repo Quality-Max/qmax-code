@@ -45,13 +45,36 @@ func sessionDirPath() string {
 	return filepath.Join(home, ".qmax-code", sessionsSubDir)
 }
 
-// sessionFilePath returns the path for a specific session.
+// sessionFilePath returns the path for a specific session, or "" if id is
+// invalid. id must be a non-empty string of [a-zA-Z0-9_-] only — anything
+// else (path separators, "..", spaces, control chars) is rejected so user
+// input from /resume <id> can't traverse out of the sessions directory.
 func sessionFilePath(id string) string {
+	if !isValidSessionID(id) {
+		return ""
+	}
 	dir := sessionDirPath()
 	if dir == "" {
 		return ""
 	}
 	return filepath.Join(dir, id+".json")
+}
+
+func isValidSessionID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // SaveSession persists the current conversation to disk.
@@ -103,6 +126,9 @@ func SaveSession(sessionID string, history []api.Message, projectID int, usage a
 
 // LoadSession loads a specific session by ID.
 func LoadSession(id string) (*Session, error) {
+	if !isValidSessionID(id) {
+		return nil, fmt.Errorf("invalid session ID %q (must be alphanumeric, _ or -, ≤64 chars)", id)
+	}
 	path := sessionFilePath(id)
 	if path == "" {
 		return nil, fmt.Errorf("cannot determine session path")
