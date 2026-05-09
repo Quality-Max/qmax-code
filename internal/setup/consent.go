@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"bufio"
@@ -9,8 +9,8 @@ import (
 	"github.com/qualitymax/qmax-code/internal/api"
 )
 
-// orchConsentResult is what activateBackend gets back from the consent prompt.
-type orchConsentResult struct {
+// ConsentResult is what activateBackend gets back from the consent prompt.
+type ConsentResult struct {
 	Proceed        bool   // user said yes; false means cancel activation
 	PermissionMode string // "standard" | "unattended"
 	GlobalInstall  bool   // ok to write into ~/.claude/settings.json or ~/.codex/config.toml
@@ -22,7 +22,7 @@ type orchConsentResult struct {
 //
 // Conductor's safety model: the user is the principal. We never sneak privilege
 // escalation behind a backend switch. Mode choices are explicit and persisted.
-func promptOrchConsent(cfg *api.Config, backend string) orchConsentResult {
+func PromptOrchConsent(cfg *api.Config, backend string) ConsentResult {
 	cliName := "Claude Code"
 	globalConfigPath := "~/.claude/settings.json"
 	if backend == "codex" {
@@ -30,7 +30,7 @@ func promptOrchConsent(cfg *api.Config, backend string) orchConsentResult {
 		globalConfigPath = "~/.codex/config.toml"
 	}
 
-	res := orchConsentResult{
+	res := ConsentResult{
 		PermissionMode: cfg.OrchPermissionMode,
 		GlobalInstall:  cfg.OrchGlobalInstall,
 	}
@@ -69,16 +69,16 @@ func promptOrchConsent(cfg *api.Config, backend string) orchConsentResult {
 			ans2 := strings.ToLower(strings.TrimSpace(line))
 			if ans2 != "y" && ans2 != "yes" {
 				fmt.Println("  Cancelled.")
-				return orchConsentResult{Proceed: false}
+				return ConsentResult{Proceed: false}
 			}
 		default:
 			fmt.Println("  Cancelled.")
-			return orchConsentResult{Proceed: false}
+			return ConsentResult{Proceed: false}
 		}
 	}
 
 	// Second prompt: global install. Only ask if not previously consented and not already done.
-	if !res.GlobalInstall && !IsOrchSetupDone(backend) {
+	if !res.GlobalInstall && !IsOrchInstalled(backend) {
 		fmt.Println()
 		fmt.Printf("  Optional: register qmax tools globally in %s\n", globalConfigPath)
 		fmt.Printf("  so they appear in every `%s` session, not just qmax-code.\n", strings.ToLower(cliName))

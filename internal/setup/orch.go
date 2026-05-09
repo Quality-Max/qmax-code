@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"encoding/json"
@@ -11,8 +11,8 @@ import (
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
-// OrchSetupResult describes what autosetup did so the caller can display it.
-type OrchSetupResult struct {
+// InstallResult describes what autosetup did so the caller can display it.
+type InstallResult struct {
 	MCPWritten    bool
 	MCPPath       string
 	AlreadyHadMCP bool
@@ -25,7 +25,7 @@ type OrchSetupResult struct {
 //   - CC gets all qmax QA tools (list, run, generate, crawl, review…)
 //   - When qmax-code is the host, CC's own tools (bash, file ops, web) are
 //     also fully active and the system prompt instructs CC to use both.
-func SetupCCIntegration() (*OrchSetupResult, error) {
+func InstallCC() (*InstallResult, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func SetupCCIntegration() (*OrchSetupResult, error) {
 // SetupCodexIntegration writes the qmax MCP server into ~/.codex/config.toml
 // so Codex picks up qmax tools whenever the user invokes `codex` directly,
 // in addition to when qmax-code spawns it.
-func SetupCodexIntegration() (*OrchSetupResult, error) {
+func InstallCodex() (*InstallResult, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func SetupCodexIntegration() (*OrchSetupResult, error) {
 // writeMCPEntry merges the qmax MCP entry into a JSON config file.
 // Existing keys are preserved; only the "qmax" entry under "mcpServers" is
 // added or updated.
-func writeMCPEntry(path string) (*OrchSetupResult, error) {
+func writeMCPEntry(path string) (*InstallResult, error) {
 	// Load existing config (may not exist yet).
 	cfg := map[string]interface{}{}
 	if data, err := os.ReadFile(path); err == nil {
@@ -93,7 +93,7 @@ func writeMCPEntry(path string) (*OrchSetupResult, error) {
 		return nil, err
 	}
 
-	return &OrchSetupResult{
+	return &InstallResult{
 		MCPWritten:    true,
 		MCPPath:       path,
 		AlreadyHadMCP: alreadyHad,
@@ -101,13 +101,13 @@ func writeMCPEntry(path string) (*OrchSetupResult, error) {
 }
 
 // writeCodexMCPEntry wraps agent.WriteCodexMCPEntry, packaging the
-// already-had flag into an OrchSetupResult.
-func writeCodexMCPEntry(path string, env map[string]string) (*OrchSetupResult, error) {
+// already-had flag into an InstallResult.
+func writeCodexMCPEntry(path string, env map[string]string) (*InstallResult, error) {
 	alreadyHad, err := agent.WriteCodexMCPEntry(path, env)
 	if err != nil {
 		return nil, err
 	}
-	return &OrchSetupResult{
+	return &InstallResult{
 		MCPWritten:    true,
 		MCPPath:       path,
 		AlreadyHadMCP: alreadyHad,
@@ -116,11 +116,11 @@ func writeCodexMCPEntry(path string, env map[string]string) (*OrchSetupResult, e
 
 // RunOrchSetup runs the one-time integration setup for the chosen backend,
 // printing progress to the terminal.
-func RunOrchSetup(backend string, term *tui.Terminal) {
+func RunOrch(backend string, term *tui.Terminal) {
 	switch backend {
 	case "cc":
 		term.PrintSystem("Setting up Claude Code integration…")
-		res, err := SetupCCIntegration()
+		res, err := InstallCC()
 		if err != nil {
 			term.PrintError(fmt.Sprintf("CC setup failed: %v", err))
 			return
@@ -135,7 +135,7 @@ func RunOrchSetup(backend string, term *tui.Terminal) {
 
 	case "codex":
 		term.PrintSystem("Setting up Codex integration…")
-		res, err := SetupCodexIntegration()
+		res, err := InstallCodex()
 		if err != nil {
 			term.PrintError(fmt.Sprintf("Codex setup failed: %v", err))
 			return
@@ -151,7 +151,7 @@ func RunOrchSetup(backend string, term *tui.Terminal) {
 
 // IsOrchSetupDone returns true if the qmax MCP entry already exists in the
 // CLI's config file. Used to skip the setup banner on subsequent launches.
-func IsOrchSetupDone(backend string) bool {
+func IsOrchInstalled(backend string) bool {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return false

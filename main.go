@@ -17,6 +17,7 @@ import (
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/mcp"
 	"github.com/qualitymax/qmax-code/internal/session"
+	"github.com/qualitymax/qmax-code/internal/setup"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/tui"
 	"github.com/qualitymax/qmax-code/internal/vnc"
@@ -92,7 +93,7 @@ func main() {
 		} else {
 			// Browser-based login (Railway-style)
 			tui.AnimateMax(tui.MoodWaving, "Let's get you logged in!")
-			cfg, err = LoginViaBrowser()
+			cfg, err = setup.LoginViaBrowser()
 		}
 		if err != nil {
 			tui.AnimateMax(tui.MoodSad, "Login failed: "+err.Error())
@@ -182,7 +183,7 @@ func main() {
 
 	// If no qmax CLI and no API client, run full interactive setup
 	if qmaxBin == "" && apiClient == nil {
-		setupAuth, setupProjectID := RunInteractiveSetup()
+		setupAuth, setupProjectID := setup.RunInteractive()
 		auth = setupAuth
 		apiClient = api.NewAPIClient(auth)
 		appConfig.DefaultProject = setupProjectID
@@ -206,7 +207,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
 			os.Exit(1)
 		}
-		consent := promptOrchConsent(appConfig, "cc")
+		consent := setup.PromptOrchConsent(appConfig, "cc")
 		if !consent.Proceed {
 			fmt.Fprintln(os.Stderr, "  CC backend not activated. Falling back to direct API.")
 			cliBackend = ""
@@ -225,7 +226,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
 			os.Exit(1)
 		}
-		consent := promptOrchConsent(appConfig, "codex")
+		consent := setup.PromptOrchConsent(appConfig, "codex")
 		if !consent.Proceed {
 			fmt.Fprintln(os.Stderr, "  Codex backend not activated. Falling back to direct API.")
 			cliBackend = ""
@@ -244,7 +245,7 @@ func main() {
 		fmt.Println("  Anthropic API key needed (this powers the AI).")
 		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
 		fmt.Println()
-		key := readSecret("  Paste your Anthropic key: ")
+		key := setup.ReadSecret("  Paste your Anthropic key: ")
 		if key != "" {
 			anthropicKey = key
 			os.Setenv("ANTHROPIC_API_KEY", key)
@@ -319,15 +320,15 @@ func main() {
 	// performed only when the user opted into it during the consent prompt.
 	switch cliBackend {
 	case "cc":
-		if appConfig.OrchGlobalInstall && !IsOrchSetupDone("cc") {
-			if res, err := SetupCCIntegration(); err == nil && !res.AlreadyHadMCP {
+		if appConfig.OrchGlobalInstall && !setup.IsOrchInstalled("cc") {
+			if res, err := setup.InstallCC(); err == nil && !res.AlreadyHadMCP {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
 			}
 		}
 		cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
 	case "codex":
-		if appConfig.OrchGlobalInstall && !IsOrchSetupDone("codex") {
-			if res, err := SetupCodexIntegration(); err == nil && !res.AlreadyHadMCP {
+		if appConfig.OrchGlobalInstall && !setup.IsOrchInstalled("codex") {
+			if res, err := setup.InstallCodex(); err == nil && !res.AlreadyHadMCP {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
 			}
 		}
@@ -771,15 +772,15 @@ func runREPL(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool) {
 
 			// Consent gate: required before activating CC/Codex (autonomous shell + edits).
 			if result.Backend != "" {
-				consent := promptOrchConsent(cfg, result.Backend)
+				consent := setup.PromptOrchConsent(cfg, result.Backend)
 				if !consent.Proceed {
 					term.PrintSystem("Backend not changed.")
 					continue
 				}
 				cfg.OrchPermissionMode = consent.PermissionMode
 				cfg.OrchGlobalInstall = consent.GlobalInstall
-				if consent.GlobalInstall && !IsOrchSetupDone(result.Backend) {
-					RunOrchSetup(result.Backend, term)
+				if consent.GlobalInstall && !setup.IsOrchInstalled(result.Backend) {
+					setup.RunOrch(result.Backend, term)
 				}
 			}
 
@@ -893,15 +894,15 @@ func runREPL(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool) {
 					term.PrintSystem("  https://claude.ai/download")
 					continue
 				}
-				consent := promptOrchConsent(cfg, "cc")
+				consent := setup.PromptOrchConsent(cfg, "cc")
 				if !consent.Proceed {
 					term.PrintSystem("Backend not changed.")
 					continue
 				}
 				cfg.OrchPermissionMode = consent.PermissionMode
 				cfg.OrchGlobalInstall = consent.GlobalInstall
-				if consent.GlobalInstall && !IsOrchSetupDone("cc") {
-					RunOrchSetup("cc", term)
+				if consent.GlobalInstall && !setup.IsOrchInstalled("cc") {
+					setup.RunOrch("cc", term)
 				}
 				cliAgent = agent.NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
 				cfg.Backend = "cc"
@@ -915,15 +916,15 @@ func runREPL(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool) {
 					term.PrintSystem("  npm install -g @openai/codex")
 					continue
 				}
-				consent := promptOrchConsent(cfg, "codex")
+				consent := setup.PromptOrchConsent(cfg, "codex")
 				if !consent.Proceed {
 					term.PrintSystem("Backend not changed.")
 					continue
 				}
 				cfg.OrchPermissionMode = consent.PermissionMode
 				cfg.OrchGlobalInstall = consent.GlobalInstall
-				if consent.GlobalInstall && !IsOrchSetupDone("codex") {
-					RunOrchSetup("codex", term)
+				if consent.GlobalInstall && !setup.IsOrchInstalled("codex") {
+					setup.RunOrch("codex", term)
 				}
 				ca := agent.NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
 				if err := ca.WriteMCPConfig(); err != nil {
@@ -1430,7 +1431,7 @@ func handleConnect(ag *agent.Agent, term *tui.Terminal) {
 	tui.AnimateMax(tui.MoodWaving, "Let's connect you to QualityMax!")
 	fmt.Println()
 
-	auth, err := LoginViaBrowser()
+	auth, err := setup.LoginViaBrowser()
 	if err != nil {
 		tui.AnimateMax(tui.MoodSad, "Connection failed: "+err.Error())
 		fmt.Println()
@@ -1536,7 +1537,7 @@ func handleKeys(ag *agent.Agent, term *tui.Terminal) {
 	}
 	fmt.Println()
 
-	choice := promptChoice("  What would you like to do?", []string{
+	choice := setup.PromptChoice("  What would you like to do?", []string{
 		"Set Anthropic API key",
 		"Connect to QualityMax (browser)",
 		"Disconnect from QualityMax",
@@ -1548,7 +1549,7 @@ func handleKeys(ag *agent.Agent, term *tui.Terminal) {
 		fmt.Println()
 		fmt.Println("  Get your key at: https://console.anthropic.com/settings/keys")
 		fmt.Println()
-		key := readSecret("  Paste your Anthropic key: ")
+		key := setup.ReadSecret("  Paste your Anthropic key: ")
 		if key == "" {
 			term.PrintSystem("Cancelled.")
 			return
