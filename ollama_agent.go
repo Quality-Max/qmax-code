@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/qualitymax/qmax-code/internal/tui"
 	"strings"
+
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // OllamaAgentMode provides a full Ollama-powered agent that handles both

@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 func withTempHome(t *testing.T) string {

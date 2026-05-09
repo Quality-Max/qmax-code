@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/chzyer/readline"
+
 	"github.com/qualitymax/qmax-code/internal/api"
 )
 

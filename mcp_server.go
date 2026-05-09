@@ -4,9 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"strconv"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 // RunMCPServer starts an MCP (Model Context Protocol) server over stdin/stdout.

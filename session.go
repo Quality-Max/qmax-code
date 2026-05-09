@@ -5,12 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 // Session represents a saved conversation session.

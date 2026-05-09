@@ -8,8 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/qualitymax/qmax-code/internal/tui"
 	"golang.org/x/sys/unix"
+
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // startQueueReader starts a background goroutine that reads lines from stdin

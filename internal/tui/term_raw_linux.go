@@ -3,8 +3,9 @@
 package tui
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
+
+	"golang.org/x/sys/unix"
 )
 
 type TermState struct {

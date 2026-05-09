@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
 	"os"
 	"strconv"
+
+	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // handleConfigCommand implements the `qmax-code config ...` subcommand
@@ -91,7 +93,7 @@ func printConfig() {
 	}
 	if cfg.OllamaURL != "" {
 		// Mask credentials in URL for display
-		fmt.Printf("    ollama_url        = %q\n", maskURL(cfg.OllamaURL))
+		fmt.Printf("    ollama_url        = %q\n", sysutil.MaskURL(cfg.OllamaURL))
 		fmt.Printf("    ollama_model      = %q\n", cfg.OllamaModel)
 	} else {
 		fmt.Println("    ollama_url        = (not set)")

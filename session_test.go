@@ -1,12 +1,13 @@
 package main
 
 import (
-	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 func TestGenerateSessionID(t *testing.T) {

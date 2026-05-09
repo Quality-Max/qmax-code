@@ -3,11 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/qualitymax/qmax-code/internal/tui"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 const qmaxMCPCommand = "qmax-code"

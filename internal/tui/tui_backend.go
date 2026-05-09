@@ -9,7 +9,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -214,7 +216,7 @@ func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, olla
 			backend:  "ollama",
 			modelID:  ollamaModel,
 			label:    ollamaModel,
-			subLabel: maskURL(ollamaURL),
+			subLabel: sysutil.MaskURL(ollamaURL),
 			isFav:    true,
 		})
 	}
@@ -679,12 +681,24 @@ func ShowThemePicker(currentTheme string) (string, bool) {
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
+// ModelPickerOpts collects the inputs to ShowModelPicker. Lives as a struct
+// rather than positional args so new fields can land without a signature
+// break, and so the boolean flags don't read as mystery true/false at the
+// call site.
+type ModelPickerOpts struct {
+	CurrentBackend string // "" | "cc" | "codex" | "ollama" — drives initial cursor position
+	CurrentModelID string // specific model ID currently active, or ""
+	Effort         string // "low" | "medium" | "high"; empty defaults to "high"
+	OllamaURL      string // currently configured Ollama endpoint; "" hides the section
+	OllamaModel    string // currently configured Ollama model; "" hides the section
+	CCInstalled    bool   // pre-resolved (don't shell out from picker.View per frame)
+	CodexInstalled bool
+}
+
 // ShowModelPicker opens the unified model + effort TUI.
-// ollamaURL and ollamaModel are the currently configured Ollama endpoint/model;
-// pass empty strings to hide the Ollama section.
 // Returns the result; Confirmed=false means the user cancelled.
-func ShowModelPicker(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string, ccInstalled, codexInstalled bool) ModelPickerResult {
-	m := newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel, ccInstalled, codexInstalled)
+func ShowModelPicker(opts ModelPickerOpts) ModelPickerResult {
+	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled)
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {
@@ -1116,18 +1130,4 @@ func ShowLiveFeedPicker(current bool) (bool, bool) {
 		return false, false
 	}
 	return final.cursor == 0, true
-}
-
-// maskURL replaces user-info credentials in a URL with ****. Local copy of
-// the helper in main package's ollama.go — kept inline so this package
-// stays leaf-clean and we do not import back into main.
-func maskURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
-	}
-	if u.User != nil {
-		u.User = url.UserPassword(u.User.Username(), "****")
-	}
-	return u.String()
 }

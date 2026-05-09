@@ -3,9 +3,10 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"strings"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 // orchConsentResult is what activateBackend gets back from the consent prompt.

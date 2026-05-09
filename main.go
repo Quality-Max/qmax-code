@@ -714,7 +714,15 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if agent.ollamaMode == OllamaModeFull {
 				currentBackend = "ollama"
 			}
-			result := tui.ShowModelPicker(currentBackend, cfg.ModelOverride, cfg.Effort, cfg.OllamaURL, cfg.OllamaModel, FindClaudeCode() != "", FindCodex() != "")
+			result := tui.ShowModelPicker(tui.ModelPickerOpts{
+				CurrentBackend: currentBackend,
+				CurrentModelID: cfg.ModelOverride,
+				Effort:         cfg.Effort,
+				OllamaURL:      cfg.OllamaURL,
+				OllamaModel:    cfg.OllamaModel,
+				CCInstalled:    FindClaudeCode() != "",
+				CodexInstalled: FindCodex() != "",
+			})
 			if !result.Confirmed {
 				continue
 			}
@@ -738,7 +746,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				cfg.Backend = ""
 				agent.config.Context.Backend = ""
 				_ = cfg.Save()
-				term.PrintSystem(fmt.Sprintf("Backend: Ollama  model: %s  endpoint: %s", cfg.OllamaModel, maskURL(cfg.OllamaURL)))
+				term.PrintSystem(fmt.Sprintf("Backend: Ollama  model: %s  endpoint: %s", cfg.OllamaModel, sysutil.MaskURL(cfg.OllamaURL)))
 				continue
 			}
 
@@ -1685,7 +1693,7 @@ func printConfigInfo(cfg *api.Config, term *tui.Terminal) {
 	fmt.Printf("  %-20s %s\n", "Live feed:", liveFeedVal)
 	fmt.Printf("  %-20s %d\n", "Token budget:", cfg.MaxTokenBudget)
 	if cfg.OllamaURL != "" {
-		fmt.Printf("  %-20s %s\n", "Ollama URL:", maskURL(cfg.OllamaURL))
+		fmt.Printf("  %-20s %s\n", "Ollama URL:", sysutil.MaskURL(cfg.OllamaURL))
 		fmt.Printf("  %-20s %s\n", "Ollama model:", cfg.OllamaModel)
 	} else {
 		fmt.Printf("  %-20s %s\n", "Ollama:", "(not configured)")
@@ -1833,7 +1841,7 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 				return
 			}
 			agent.ollama = NewOllamaClient(cfg)
-			term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", maskURL(cfg.OllamaURL), cfg.OllamaModel))
+			term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", sysutil.MaskURL(cfg.OllamaURL), cfg.OllamaModel))
 		case "false", "0", "no", "off", "disabled":
 			agent.ollama = nil
 			term.PrintSystem("Ollama disabled. Using Claude for all calls.")

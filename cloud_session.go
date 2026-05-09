@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/qualitymax/qmax-code/internal/api"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 // promptCloudSyncConsent asks the user once whether they want sessions synced
