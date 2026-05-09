@@ -15,6 +15,7 @@ import (
 
 	"github.com/qualitymax/qmax-code/internal/agent"
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/mcp"
 	"github.com/qualitymax/qmax-code/internal/session"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/tui"
@@ -57,7 +58,7 @@ func main() {
 	// CC spawns this automatically when qmax-code is listed as an MCP server.
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		if len(os.Args) > 2 && os.Args[2] == "--mcp" {
-			RunMCPServer()
+			mcp.RunServer(Version)
 			return
 		}
 		fmt.Fprintln(os.Stderr, "Usage: qmax-code serve --mcp")
