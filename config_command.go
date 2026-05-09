@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/tui"
 	"os"
 	"strconv"
 )
@@ -210,7 +211,7 @@ func setConfigField(key, value string) error {
 		}
 
 	case "theme":
-		return SaveTheme(cfg, value)
+		return tui.SaveTheme(cfg, value)
 
 	case "cloud_sync":
 		if value == "" {

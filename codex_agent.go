@@ -12,7 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // CodexAgent orchestrates an OpenAI Codex CLI subprocess for LLM inference.
@@ -36,7 +38,7 @@ type CodexAgent struct {
 	effort         string // "low" | "medium" | "high"
 	outputVerbose  bool   // false = compact answer style; true = previous detailed style
 	permissionMode string // "standard" (Codex prompts per-action) | "unattended" (--dangerously-bypass-approvals-and-sandbox)
-	sctx           *SessionContext
+	sctx           *api.SessionContext
 	history        []codexTurn // conversation history managed on our side
 	mu             sync.Mutex
 }
@@ -70,7 +72,7 @@ func FindCodex() string {
 // permissionMode is "standard" or "unattended" — Codex has no allowlist primitive,
 // so Standard relies on Codex's own sandbox policy and Unattended adds
 // --dangerously-bypass-approvals-and-sandbox.
-func NewCodexAgent(bin, modelID, effort, permissionMode string, outputVerbose bool, sctx *SessionContext) *CodexAgent {
+func NewCodexAgent(bin, modelID, effort, permissionMode string, outputVerbose bool, sctx *api.SessionContext) *CodexAgent {
 	if effort == "" {
 		effort = "high"
 	}
@@ -138,7 +140,7 @@ End each response with the next highest-impact action.
 `
 
 // Run executes one conversation turn through a Codex subprocess.
-func (a *CodexAgent) Run(userMsg string, term *Terminal) (string, error) {
+func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	if err := a.writeMCPConfig(); err != nil {
 		return "", fmt.Errorf("MCP config: %w", err)
 	}

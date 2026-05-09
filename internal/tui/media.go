@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"encoding/base64"
@@ -13,6 +13,15 @@ import (
 )
 
 const largePastedTextThreshold = 8 * 1024
+
+// ImageAttachment holds a base64-encoded image to send with a message.
+// Lives here (not in agent.go) because media.go produces it from clipboard,
+// disk, and screenshot capture; agent.go only consumes it as a parameter.
+type ImageAttachment struct {
+	MediaType string // "image/png", "image/jpeg", etc.
+	Data      string // base64-encoded
+	FileName  string // original filename (for display)
+}
 
 // imageExtensions maps file extensions to MIME types.
 var imageExtensions = map[string]string{
@@ -102,11 +111,11 @@ func PasteTextFromClipboard() (string, error) {
 	return string(out), nil
 }
 
-func isLargePastedText(text string, pasted bool) bool {
+func IsLargePastedText(text string, pasted bool) bool {
 	return pasted && len(text) >= largePastedTextThreshold
 }
 
-func savePastedTextFile(text string) (string, error) {
+func SavePastedTextFile(text string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -123,7 +132,7 @@ func savePastedTextFile(text string) (string, error) {
 	return path, nil
 }
 
-func pastedFilePrompt(path string, size int) string {
+func PastedFilePrompt(path string, size int) string {
 	return fmt.Sprintf("A large text paste was saved as pasted_file. Read and use this local file: %s (%d bytes).", path, size)
 }
 

@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"os"
@@ -8,13 +8,13 @@ import (
 
 func TestLargePastedTextDetectionRequiresPaste(t *testing.T) {
 	large := strings.Repeat("x", largePastedTextThreshold)
-	if !isLargePastedText(large, true) {
+	if !IsLargePastedText(large, true) {
 		t.Fatal("large bracketed paste should be treated as pasted_file")
 	}
-	if isLargePastedText(large, false) {
+	if IsLargePastedText(large, false) {
 		t.Fatal("large typed input should not be treated as pasted_file")
 	}
-	if isLargePastedText("small paste", true) {
+	if IsLargePastedText("small paste", true) {
 		t.Fatal("small paste should remain inline")
 	}
 }
@@ -23,9 +23,9 @@ func TestSavePastedTextFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	path, err := savePastedTextFile("sensitive pasted body")
+	path, err := SavePastedTextFile("sensitive pasted body")
 	if err != nil {
-		t.Fatalf("savePastedTextFile: %v", err)
+		t.Fatalf("SavePastedTextFile: %v", err)
 	}
 	if !strings.Contains(path, "pasted_file_") {
 		t.Fatalf("path %q does not use pasted_file naming", path)

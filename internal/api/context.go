@@ -1,9 +1,8 @@
-package main
+package api
 
 import (
 	"context"
 	"encoding/json"
-	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,13 +15,13 @@ import (
 type SessionContext struct {
 	ProjectID   int
 	QMaxCfg     QMaxConfig
-	QMaxBin     string          // resolved path to qmax binary (empty = standalone mode)
-	QMaxInfo    string          // output of `qmax status` at startup
-	GitInfo     *GitInfo        // git context from cwd
-	ProjectFile string          // name of .qmax.yml file if detected
-	API         *api.APIClient  // direct API client (standalone mode, no qmax CLI needed)
-	Auth        *api.AuthConfig // authentication credentials
-	Backend     string          // "" | "cc" | "codex" — active CLI inference backend
+	QMaxBin     string      // resolved path to qmax binary (empty = standalone mode)
+	QMaxInfo    string      // output of `qmax status` at startup
+	GitInfo     *GitInfo    // git context from cwd
+	ProjectFile string      // name of .qmax.yml file if detected
+	API         *APIClient  // direct API client (standalone mode, no qmax CLI needed)
+	Auth        *AuthConfig // authentication credentials
+	Backend     string      // "" | "cc" | "codex" — active CLI inference backend
 
 	// LiveFeed enables QM Cloud Sandbox execution for run_test / start_crawl
 	// and turns on auto-launch of /browserfeed when a poll response surfaces
@@ -39,9 +38,9 @@ type SessionContext struct {
 	// invocation. Make captureLiveURL chatty *once* per turn rather than
 	// per poll, so users see "live URL captured" or a fallback warning
 	// without having every poll spam the screen.
-	liveURLLogged       bool
-	sandboxModeLogged   bool
-	sandboxFallbackSeen bool
+	LiveURLLogged       bool
+	SandboxModeLogged   bool
+	SandboxFallbackSeen bool
 }
 
 // QMaxConfig mirrors the qmax CLI config (~/.qamax/config.json).
@@ -88,9 +87,9 @@ func (u *TokenUsage) EstimatedCost(model string) float64 {
 	return (float64(u.InputTokens)/1_000_000)*inputRate + (float64(u.OutputTokens)/1_000_000)*outputRate
 }
 
-// loadQMaxConfig reads the qmax CLI config file.
+// LoadQMaxConfig reads the qmax CLI config file.
 // Returns an empty config if the file doesn't exist — the user can log in via the qmax CLI.
-func loadQMaxConfig() QMaxConfig {
+func LoadQMaxConfig() QMaxConfig {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return QMaxConfig{}
@@ -110,9 +109,9 @@ func loadQMaxConfig() QMaxConfig {
 	return cfg
 }
 
-// discoverQMaxBinary finds the qmax binary, checking multiple locations.
+// DiscoverQMaxBinary finds the qmax binary, checking multiple locations.
 // Order: ./qmax, ~/.qmax/qmax, then PATH.
-func discoverQMaxBinary() string {
+func DiscoverQMaxBinary() string {
 	// 1. Current directory
 	if _, err := os.Stat("./qmax"); err == nil {
 		return "./qmax"
@@ -134,8 +133,8 @@ func discoverQMaxBinary() string {
 	return ""
 }
 
-// probeQMaxStatus runs `qmax status` to get auth/account info with a timeout.
-func probeQMaxStatus(binary string) string {
+// ProbeQMaxStatus runs `qmax status` to get auth/account info with a timeout.
+func ProbeQMaxStatus(binary string) string {
 	if binary == "" {
 		return ""
 	}
@@ -149,13 +148,13 @@ func probeQMaxStatus(binary string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// formatQMaxInstallHint returns install instructions when qmax is missing.
-func formatQMaxInstallHint() string {
+// FormatQMaxInstallHint returns install instructions when qmax is missing.
+func FormatQMaxInstallHint() string {
 	return "qmax CLI not found. Install it:\n\n  curl -fsSL https://get.qualitymax.io/cli | sh\n\nOr download from: https://docs.qualitymax.io/cli"
 }
 
-// detectProjectFromCwd checks for .qmax.yml or .qualitymax.yml in cwd.
-func detectProjectFromCwd() (int, string) {
+// DetectProjectFromCwd checks for .qmax.yml or .qualitymax.yml in cwd.
+func DetectProjectFromCwd() (int, string) {
 	for _, name := range []string{".qmax.yml", ".qualitymax.yml", ".qmax.yaml", ".qualitymax.yaml"} {
 		data, err := os.ReadFile(name)
 		if err != nil {
@@ -179,8 +178,8 @@ func detectProjectFromCwd() (int, string) {
 	return 0, ""
 }
 
-// detectGitInfo reads basic git info from the current directory.
-func detectGitInfo() *GitInfo {
+// DetectGitInfo reads basic git info from the current directory.
+func DetectGitInfo() *GitInfo {
 	// Check if we're in a git repo
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
 	if err := cmd.Run(); err != nil {

@@ -24,9 +24,9 @@ func RunMCPServer() {
 	}
 
 	appConfig := api.LoadQMaxCodeConfig()
-	sctx := &SessionContext{
-		QMaxCfg:   loadQMaxConfig(),
-		QMaxBin:   discoverQMaxBinary(),
+	sctx := &api.SessionContext{
+		QMaxCfg:   api.LoadQMaxConfig(),
+		QMaxBin:   api.DiscoverQMaxBinary(),
 		API:       apiClient,
 		Auth:      auth,
 		ProjectID: appConfig.DefaultProject,
@@ -60,7 +60,7 @@ func RunMCPServer() {
 	}
 }
 
-func handleMCPLine(line []byte, sctx *SessionContext) (mcpResponse, bool) {
+func handleMCPLine(line []byte, sctx *api.SessionContext) (mcpResponse, bool) {
 	var req mcpRequest
 	if err := json.Unmarshal(line, &req); err != nil {
 		return mcpErr(nil, -32700, "parse error"), true
@@ -115,7 +115,7 @@ type mcpCallParams struct {
 
 // --- Request dispatcher ---
 
-func dispatchMCPRequest(req mcpRequest, sctx *SessionContext) mcpResponse {
+func dispatchMCPRequest(req mcpRequest, sctx *api.SessionContext) mcpResponse {
 	switch req.Method {
 	case "initialize":
 		return mcpOK(req.ID, map[string]interface{}{

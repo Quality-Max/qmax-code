@@ -15,6 +15,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // mockCLIAgent is a CLIAgent stub that returns scripted responses without
@@ -25,7 +28,7 @@ type mockCLIAgent struct {
 	err       error // if set, Run returns this error on every call
 }
 
-func (m *mockCLIAgent) Run(_ string, _ *Terminal) (string, error) {
+func (m *mockCLIAgent) Run(_ string, _ *tui.Terminal) (string, error) {
 	if m.err != nil {
 		return "", m.err
 	}
@@ -106,7 +109,7 @@ func TestCLIAgentSessionSavedWithCorrectTurns(t *testing.T) {
 	if len(history) == 0 {
 		t.Fatal("history is empty — mirroring fix not applied, autoSave would no-op")
 	}
-	if err := SaveSession(sessionID, history, 0, TokenUsage{}, "cc"); err != nil {
+	if err := SaveSession(sessionID, history, 0, api.TokenUsage{}, "cc"); err != nil {
 		t.Fatalf("SaveSession: %v", err)
 	}
 
@@ -153,7 +156,7 @@ func TestCLIAgentMultiTurnSessionAccumulates(t *testing.T) {
 				Message{Role: "assistant", Content: result},
 			)
 		}
-		if err := SaveSession(sessionID, history, 0, TokenUsage{}, "cc"); err != nil {
+		if err := SaveSession(sessionID, history, 0, api.TokenUsage{}, "cc"); err != nil {
 			t.Fatalf("turn %d: SaveSession: %v", i+1, err)
 		}
 
@@ -181,7 +184,7 @@ func TestOutputStyleDirectiveModes(t *testing.T) {
 }
 
 func TestCodexBuildPromptReflectsOutputVerbose(t *testing.T) {
-	a := &CodexAgent{effort: "high", outputVerbose: false, sctx: &SessionContext{}}
+	a := &CodexAgent{effort: "high", outputVerbose: false, sctx: &api.SessionContext{}}
 	if !strings.Contains(a.buildPrompt("hi"), "OUTPUT MODE: COMPACT") {
 		t.Fatal("compact directive not in built prompt")
 	}

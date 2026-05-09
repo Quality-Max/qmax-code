@@ -1,17 +1,17 @@
 //go:build darwin
 
-package main
+package tui
 
 import (
 	"golang.org/x/sys/unix"
 	"os"
 )
 
-type termState struct {
+type TermState struct {
 	old unix.Termios
 }
 
-func enableRawMode() (*termState, error) {
+func EnableRawMode() (*TermState, error) {
 	fd := int(os.Stdin.Fd())
 	old, err := unix.IoctlGetTermios(fd, unix.TIOCGETA)
 	if err != nil {
@@ -24,10 +24,10 @@ func enableRawMode() (*termState, error) {
 	if err := unix.IoctlSetTermios(fd, unix.TIOCSETA, &raw); err != nil {
 		return nil, err
 	}
-	return &termState{old: *old}, nil
+	return &TermState{old: *old}, nil
 }
 
-func restoreTermMode(state *termState) {
+func RestoreTermMode(state *TermState) {
 	if state != nil {
 		_ = unix.IoctlSetTermios(int(os.Stdin.Fd()), unix.TIOCSETA, &state.old)
 	}

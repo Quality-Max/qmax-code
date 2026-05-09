@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/qualitymax/qmax-code/internal/tui"
 	"os"
 	"path/filepath"
 	"sort"
@@ -219,7 +220,7 @@ func tomlQuote(s string) string {
 
 // RunOrchSetup runs the one-time integration setup for the chosen backend,
 // printing progress to the terminal.
-func RunOrchSetup(backend string, term *Terminal) {
+func RunOrchSetup(backend string, term *tui.Terminal) {
 	switch backend {
 	case "cc":
 		term.PrintSystem("Setting up Claude Code integration…")

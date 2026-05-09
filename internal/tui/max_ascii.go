@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"fmt"
@@ -98,7 +98,7 @@ func AnimateMax(mood MaxMood, speech string) {
 
 // AnimateMaxTransition shows Max changing from one mood to another.
 func AnimateMaxTransition(from, to MaxMood, speech string) {
-	fmt.Print("\033[?25l") // hide cursor
+	fmt.Print("\033[?25l")       // hide cursor
 	defer fmt.Print("\033[?25h") // show cursor
 
 	// Show "from" briefly
@@ -209,4 +209,3 @@ var maxFrames = map[MaxMood]MaxFrame{
 		Speech: "*waves paw*",
 	},
 }
-

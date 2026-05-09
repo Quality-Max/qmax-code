@@ -13,14 +13,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // CLIAgent is the interface implemented by both CCAgent (claude CLI) and
 // CodexAgent (codex CLI). It lets main.go switch backends without caring
 // which CLI is underneath.
 type CLIAgent interface {
-	Run(userMsg string, term *Terminal) (string, error)
+	Run(userMsg string, term *tui.Terminal) (string, error)
 	SetOutputVerbose(verbose bool)
 	Cleanup()
 }
@@ -46,7 +48,7 @@ type CCAgent struct {
 	permissionMode string // "standard" | "unattended" — see Run() for behavior
 	ccSessionID    string // CC's own session ID, for --resume
 	mcpConfigPath  string // temp MCP config written once per qmax session
-	sctx           *SessionContext
+	sctx           *api.SessionContext
 	lastToolName   string // track last tool name for result display
 	mu             sync.Mutex
 }
@@ -163,7 +165,7 @@ func FindClaudeCode() string {
 // effort is "low" | "medium" | "high" (empty defaults to "high").
 // permissionMode is "standard" (curated allowlist) or "unattended"
 // (--dangerously-skip-permissions). Both require explicit user consent.
-func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose bool, sctx *SessionContext) *CCAgent {
+func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose bool, sctx *api.SessionContext) *CCAgent {
 	if effort == "" {
 		effort = "high"
 	}
@@ -192,7 +194,7 @@ func (a *CCAgent) writeMCPConfig() error {
 	if a.sctx.ProjectID > 0 {
 		env["QMAX_PROJECT_ID"] = strconv.Itoa(a.sctx.ProjectID)
 	}
-	// Live feed plumbing — the MCP subprocess has its own SessionContext,
+	// Live feed plumbing — the MCP subprocess has its own api.SessionContext,
 	// so the parent's `/live on` flag is invisible without an env hand-off.
 	// QMAX_LIVE_URL_FILE is a per-session side channel that the subprocess
 	// writes captured live_browser_url values into; the parent reads it
@@ -236,7 +238,7 @@ func (a *CCAgent) writeMCPConfig() error {
 
 // Run executes one conversation turn through a CC subprocess.
 // CC's subscription handles inference; qmax handles tools via MCP.
-func (a *CCAgent) Run(userMsg string, term *Terminal) (string, error) {
+func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	a.mu.Lock()
 	if a.mcpConfigPath == "" || fileMissing(a.mcpConfigPath) {
 		a.mu.Unlock()
@@ -377,7 +379,7 @@ type ccBlock struct {
 
 // parseStream reads CC's NDJSON output and renders it in the terminal.
 // Returns the full text of the final response.
-func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, term *Terminal) string {
+func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, term *tui.Terminal) string {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)
 
@@ -440,7 +442,7 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 					a.mu.Unlock()
 					content := extractToolResultText(block.Content)
 					if a.outputVerbose {
-						term.PrintToolResult(toolName, truncateStr(content, 200))
+						term.PrintToolResult(toolName, tui.TruncateStr(content, 200))
 					} else {
 						term.StartThinking()
 					}

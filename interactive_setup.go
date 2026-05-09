@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // LoginInteractive prompts the user to paste their API key.
@@ -135,7 +136,7 @@ func LoginViaBrowser() (*api.AuthConfig, error) {
 
 		default:
 			// Still pending — show spinner
-			fmt.Printf("\r  Waiting %s", SpinnerFrames[i%len(SpinnerFrames)])
+			fmt.Printf("\r  Waiting %s", tui.SpinnerFrames[i%len(tui.SpinnerFrames)])
 			i++
 		}
 	}
@@ -147,7 +148,7 @@ func LoginViaBrowser() (*api.AuthConfig, error) {
 // Returns the api.AuthConfig and selected project ID.
 func RunInteractiveSetup() (*api.AuthConfig, int) {
 	fmt.Println()
-	AnimateMax(MoodWaving, GetMaxGreeting())
+	tui.AnimateMax(tui.MoodWaving, tui.GetMaxGreeting())
 	fmt.Println()
 	fmt.Println("  Looks like this is your first time here.")
 	fmt.Println("  Let's get you set up — it takes 30 seconds.")
@@ -165,7 +166,7 @@ func RunInteractiveSetup() (*api.AuthConfig, int) {
 
 	switch choice {
 	case 0: // Yes, log me in → browser auth (Railway-style)
-		AnimateMax(MoodThinking, "Opening browser...")
+		tui.AnimateMax(tui.MoodThinking, "Opening browser...")
 		auth, err = LoginViaBrowser()
 	case 1: // No, create one
 		openBrowser("https://qualitymax.io/auth/email/signup?ref=qmax-code")
@@ -173,21 +174,21 @@ func RunInteractiveSetup() (*api.AuthConfig, int) {
 		fmt.Println("  Browser opened! Create your free account, then come back.")
 		fmt.Println("  Press Enter when you're ready to log in...")
 		waitForEnter()
-		AnimateMax(MoodThinking, "Opening browser...")
+		tui.AnimateMax(tui.MoodThinking, "Opening browser...")
 		auth, err = LoginViaBrowser()
 	case 2: // I have an API key
 		auth, err = loginWithKeyPrompt()
 	}
 
 	if err != nil {
-		AnimateMax(MoodSad, "Login failed: "+err.Error())
+		tui.AnimateMax(tui.MoodSad, "Login failed: "+err.Error())
 		fmt.Println()
 		fmt.Println("  Try again with: qmax-code login")
 		os.Exit(1)
 	}
 
 	// Show success
-	AnimateMaxTransition(MoodThinking, MoodExcited, "")
+	tui.AnimateMaxTransition(tui.MoodThinking, tui.MoodExcited, "")
 	fmt.Printf("  Logged in as %s\n", auth.Email)
 	fmt.Println()
 
@@ -233,7 +234,7 @@ func RunInteractiveSetup() (*api.AuthConfig, int) {
 	}
 	if anthropicKey == "" {
 		fmt.Println()
-		AnimateMax(MoodThinking, "One more thing...")
+		tui.AnimateMax(tui.MoodThinking, "One more thing...")
 		fmt.Println()
 		fmt.Println("  I need an Anthropic API key to think (that's my brain!).")
 		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
@@ -257,7 +258,7 @@ func RunInteractiveSetup() (*api.AuthConfig, int) {
 
 	// All set!
 	fmt.Println()
-	AnimateMaxTransition(MoodNeutral, MoodHappy, "All set! Let's hunt some bugs.")
+	tui.AnimateMaxTransition(tui.MoodNeutral, tui.MoodHappy, "All set! Let's hunt some bugs.")
 	fmt.Println()
 	fmt.Println("  Examples:")
 	fmt.Println("    \"crawl staging.myapp.com and generate tests\"")
@@ -287,7 +288,7 @@ func loginWithKeyPrompt() (*api.AuthConfig, error) {
 			case <-done:
 				return
 			default:
-				fmt.Printf("\r  Validating %s", SpinnerFrames[i%len(SpinnerFrames)])
+				fmt.Printf("\r  Validating %s", tui.SpinnerFrames[i%len(tui.SpinnerFrames)])
 				i++
 				time.Sleep(100 * time.Millisecond)
 			}
@@ -361,7 +362,7 @@ func readSecret(prompt string) string {
 	fmt.Print(prompt)
 
 	// Switch terminal to raw mode to hide input
-	oldState, err := enableRawMode()
+	oldState, err := tui.EnableRawMode()
 	if err != nil {
 		// Fallback: plain read + mask after
 		reader := bufio.NewReader(os.Stdin)
@@ -384,7 +385,7 @@ func readSecret(prompt string) string {
 		ch := buf[0]
 		switch ch {
 		case '\n', '\r':
-			restoreTermMode(oldState)
+			tui.RestoreTermMode(oldState)
 			fmt.Println()
 			key := strings.TrimSpace(string(input))
 			if key != "" {
@@ -398,7 +399,7 @@ func readSecret(prompt string) string {
 				fmt.Print("\b \b")
 			}
 		case 3: // Ctrl+C
-			restoreTermMode(oldState)
+			tui.RestoreTermMode(oldState)
 			fmt.Println()
 			return ""
 		default:

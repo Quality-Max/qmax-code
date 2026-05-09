@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -30,13 +31,13 @@ var (
 	pickerRowNormal = lipgloss.NewStyle()
 
 	pickerIcon = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("69"))   // blue — Claude ✦
+			Foreground(lipgloss.Color("69")) // blue — Claude ✦
 
 	pickerIconCodex = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("107"))  // green — Codex ⊗
+			Foreground(lipgloss.Color("107")) // green — Codex ⊗
 
 	pickerIconAPI = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("242"))  // grey — Direct ○
+			Foreground(lipgloss.Color("242")) // grey — Direct ○
 
 	pickerIconOllama = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("71")) // green — Ollama ⬡
@@ -116,32 +117,32 @@ type pickerEntry struct {
 	label    string // display name
 	subLabel string // e.g. "1M ctx"
 	isNew    bool
-	isFav    bool    // ⭐ default model for this backend
-	external bool    // ↗ opens to external provider
-	shortcut byte    // '1'..'9','0'  (0 = no shortcut)
+	isFav    bool // ⭐ default model for this backend
+	external bool // ↗ opens to external provider
+	shortcut byte // '1'..'9','0'  (0 = no shortcut)
 }
 
 var ccModels = []pickerEntry{
-	{backend: "cc", modelID: "claude-opus-4-7",        label: "Opus 4.7",    subLabel: "1M ctx", isNew: true, shortcut: '1'},
-	{backend: "cc", modelID: "claude-opus-4-7",        label: "Opus 4.7",                        isNew: true, shortcut: '2'},
-	{backend: "cc", modelID: "claude-opus-4-6",        label: "Opus 4.6",    subLabel: "1M ctx",              shortcut: '3'},
-	{backend: "cc", modelID: "claude-sonnet-4-6",      label: "Sonnet 4.6",                       isFav: true, shortcut: '4'},
-	{backend: "cc", modelID: "claude-haiku-4-5-20251001", label: "Haiku 4.5",                     shortcut: '5'},
+	{backend: "cc", modelID: "claude-opus-4-7", label: "Opus 4.7", subLabel: "1M ctx", isNew: true, shortcut: '1'},
+	{backend: "cc", modelID: "claude-opus-4-7", label: "Opus 4.7", isNew: true, shortcut: '2'},
+	{backend: "cc", modelID: "claude-opus-4-6", label: "Opus 4.6", subLabel: "1M ctx", shortcut: '3'},
+	{backend: "cc", modelID: "claude-sonnet-4-6", label: "Sonnet 4.6", isFav: true, shortcut: '4'},
+	{backend: "cc", modelID: "claude-haiku-4-5-20251001", label: "Haiku 4.5", shortcut: '5'},
 }
 
 var codexModels = []pickerEntry{
-	{backend: "codex", modelID: "gpt-5.5",             label: "GPT-5.5",     isNew: true,  external: true, shortcut: '6'},
-	{backend: "codex", modelID: "o4-mini",             label: "o4-mini",                   external: true, isFav: true, shortcut: '7'},
-	{backend: "codex", modelID: "o3",                  label: "o3",                        external: true, shortcut: '8'},
-	{backend: "codex", modelID: "o3-mini",             label: "o3-mini",                   external: true, shortcut: '9'},
-	{backend: "codex", modelID: "gpt-4o",              label: "GPT-4o",                    external: true, shortcut: '0'},
+	{backend: "codex", modelID: "gpt-5.5", label: "GPT-5.5", isNew: true, external: true, shortcut: '6'},
+	{backend: "codex", modelID: "o4-mini", label: "o4-mini", external: true, isFav: true, shortcut: '7'},
+	{backend: "codex", modelID: "o3", label: "o3", external: true, shortcut: '8'},
+	{backend: "codex", modelID: "o3-mini", label: "o3-mini", external: true, shortcut: '9'},
+	{backend: "codex", modelID: "gpt-4o", label: "GPT-4o", external: true, shortcut: '0'},
 }
 
 var apiModels = []pickerEntry{
-	{backend: "", modelID: "auto",              label: "auto",     subLabel: "haiku→sonnet routing", isFav: true},
-	{backend: "", modelID: ModelSonnet,         label: "Sonnet 4.6"},
-	{backend: "", modelID: ModelOpus,           label: "Opus 4.6"},
-	{backend: "", modelID: ModelHaiku,          label: "Haiku 4.5"},
+	{backend: "", modelID: "auto", label: "auto", subLabel: "haiku→sonnet routing", isFav: true},
+	{backend: "", modelID: api.ModelSonnet, label: "Sonnet 4.6"},
+	{backend: "", modelID: api.ModelOpus, label: "Opus 4.6"},
+	{backend: "", modelID: api.ModelHaiku, label: "Haiku 4.5"},
 }
 
 var effortLevels = []string{"low", "medium", "high"}
@@ -179,14 +180,19 @@ type ModelPickerResult struct {
 
 type modelPickerModel struct {
 	// All rows in order: cc entries, codex entries, api entries, ollama entries.
-	allEntries []pickerEntry
-	cursor     int  // index into allEntries
-	effort     string // "low" | "medium" | "high"
+	allEntries  []pickerEntry
+	cursor      int    // index into allEntries
+	effort      string // "low" | "medium" | "high"
 	effortFocus bool   // Tab switches focus between list and effort bar
 
 	// Current selection (what was active when the picker opened)
 	currentBackend string
 	currentModelID string
+
+	// Backend availability (resolved by caller before constructing picker so
+	// the View doesn't shell out to LookPath on every frame).
+	ccInstalled    bool
+	codexInstalled bool
 
 	// Ollama metadata
 	ollamaURL       string
@@ -196,7 +202,7 @@ type modelPickerModel struct {
 	chosen    *pickerEntry
 }
 
-func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string) modelPickerModel {
+func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string, ccInstalled, codexInstalled bool) modelPickerModel {
 	entries := make([]pickerEntry, 0, len(ccModels)+len(codexModels)+len(apiModels)+1)
 	entries = append(entries, ccModels...)
 	entries = append(entries, codexModels...)
@@ -235,6 +241,8 @@ func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, olla
 		currentBackend: currentBackend,
 		currentModelID: currentModelID,
 		ollamaURL:      ollamaURL,
+		ccInstalled:    ccInstalled,
+		codexInstalled: codexInstalled,
 	}
 }
 
@@ -318,8 +326,8 @@ func (m modelPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m modelPickerModel) View() string {
-	ccInstalled := FindClaudeCode() != ""
-	codexInstalled := FindCodex() != ""
+	ccInstalled := m.ccInstalled
+	codexInstalled := m.codexInstalled
 
 	var b strings.Builder
 
@@ -675,8 +683,8 @@ func ShowThemePicker(currentTheme string) (string, bool) {
 // ollamaURL and ollamaModel are the currently configured Ollama endpoint/model;
 // pass empty strings to hide the Ollama section.
 // Returns the result; Confirmed=false means the user cancelled.
-func ShowModelPicker(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string) ModelPickerResult {
-	m := newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel)
+func ShowModelPicker(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string, ccInstalled, codexInstalled bool) ModelPickerResult {
+	m := newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel, ccInstalled, codexInstalled)
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {
@@ -696,15 +704,27 @@ func ShowModelPicker(currentBackend, currentModelID, effort, ollamaURL, ollamaMo
 
 // ─── Session picker ───────────────────────────────────────────────────────────
 
-type sessionPickerModel struct {
-	sessions    []SessionSummary
-	cursor      int
-	activeID    string
-	confirmed   bool
-	cancelled   bool
+// SessionPickerItem is the row data the picker needs to render. Defined here
+// (not as session.SessionSummary) so the TUI doesn't import the session
+// persistence package — caller maps from whatever real type they hold.
+type SessionPickerItem struct {
+	ID        string
+	UpdatedAt time.Time
+	Turns     int
+	Tokens    int
+	ProjectID int
+	Model     string
 }
 
-func newSessionPickerModel(sessions []SessionSummary, activeID string) sessionPickerModel {
+type sessionPickerModel struct {
+	sessions  []SessionPickerItem
+	cursor    int
+	activeID  string
+	confirmed bool
+	cancelled bool
+}
+
+func newSessionPickerModel(sessions []SessionPickerItem, activeID string) sessionPickerModel {
 	cursor := 0
 	for i, s := range sessions {
 		if s.ID == activeID {
@@ -850,7 +870,7 @@ func formatTokens(n int) string {
 
 // ShowSessionPicker opens the interactive session picker TUI.
 // Returns the selected session ID and whether the user confirmed.
-func ShowSessionPicker(sessions []SessionSummary, activeID string) (string, bool) {
+func ShowSessionPicker(sessions []SessionPickerItem, activeID string) (string, bool) {
 	if len(sessions) == 0 {
 		return "", false
 	}
@@ -1096,4 +1116,18 @@ func ShowLiveFeedPicker(current bool) (bool, bool) {
 		return false, false
 	}
 	return final.cursor == 0, true
+}
+
+// maskURL replaces user-info credentials in a URL with ****. Local copy of
+// the helper in main package's ollama.go — kept inline so this package
+// stays leaf-clean and we do not import back into main.
+func maskURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	if u.User != nil {
+		u.User = url.UserPassword(u.User.Username(), "****")
+	}
+	return u.String()
 }

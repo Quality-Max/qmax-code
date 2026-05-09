@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 func TestCodexRunRestoresMCPConfigBeforeExec(t *testing.T) {
@@ -16,12 +18,12 @@ func TestCodexRunRestoresMCPConfigBeforeExec(t *testing.T) {
 printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"codex ok"}}'
 `)
 
-	a := NewCodexAgent(codexBin, "", "high", "standard", false, &SessionContext{
+	a := NewCodexAgent(codexBin, "", "high", "standard", false, &api.SessionContext{
 		ProjectID: 88,
 		LiveFeed:  true,
 	})
 
-	got, err := a.Run("list projects", &Terminal{})
+	got, err := a.Run("list projects", &tui.Terminal{})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -56,7 +58,7 @@ func TestCCRunRestoresDeletedMCPConfigBeforeExec(t *testing.T) {
 printf '%s\n' '{"type":"result","result":"cc ok"}'
 `)
 
-	a := NewCCAgent(claudeBin, "", "high", "standard", false, &SessionContext{ProjectID: 42})
+	a := NewCCAgent(claudeBin, "", "high", "standard", false, &api.SessionContext{ProjectID: 42})
 	if err := a.writeMCPConfig(); err != nil {
 		t.Fatalf("initial writeMCPConfig: %v", err)
 	}
@@ -71,7 +73,7 @@ printf '%s\n' '{"type":"result","result":"cc ok"}'
 		t.Fatalf("remove initial MCP config: %v", err)
 	}
 
-	got, err := a.Run("list projects", &Terminal{})
+	got, err := a.Run("list projects", &tui.Terminal{})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}

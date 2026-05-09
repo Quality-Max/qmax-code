@@ -1,9 +1,11 @@
-package main
+package tui
 
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -11,19 +13,20 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/chzyer/readline"
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 // ANSI color codes (kept for prompt and readline which don't use lipgloss)
 const (
-	colorReset   = "\033[0m"
-	colorBold    = "\033[1m"
-	colorDim     = "\033[2m"
-	colorRed     = "\033[31m"
-	colorGreen   = "\033[32m"
-	colorYellow  = "\033[33m"
-	colorBlue    = "\033[34m"
-	colorMagenta = "\033[35m"
-	colorCyan    = "\033[36m"
+	ColorReset   = "\033[0m"
+	ColorBold    = "\033[1m"
+	ColorDim     = "\033[2m"
+	ColorRed     = "\033[31m"
+	ColorGreen   = "\033[32m"
+	ColorYellow  = "\033[33m"
+	ColorBlue    = "\033[34m"
+	ColorMagenta = "\033[35m"
+	ColorCyan    = "\033[36m"
 )
 
 // Lipgloss styles
@@ -137,7 +140,7 @@ func newSpinner() *spinner {
 				frame := spinnerFrames[i%len(spinnerFrames)]
 				i++
 				fmt.Printf("\r  %s%s %s...%s",
-					colorDim, frame, msg, colorReset)
+					ColorDim, frame, msg, ColorReset)
 			}
 		}
 	}()
@@ -161,10 +164,30 @@ type Terminal struct {
 	thinking      *spinner        // active thinking spinner, if any
 }
 
+// Stderr returns the writer used for diagnostic / debug log lines that the
+// readline instance steers around the prompt. Callers in other packages need
+// this to emit verbose messages without corrupting the readline buffer.
+func (t *Terminal) Stderr() io.Writer {
+	if t == nil || t.rl == nil {
+		return os.Stderr
+	}
+	return t.rl.Stderr()
+}
+
+// Prompt returns the current rendered prompt string. Callers (notably the
+// REPL using tui.ReadInput) need this to redraw the prompt after the
+// bubbletea input session takes over the terminal.
+func (t *Terminal) Prompt() string {
+	if t == nil {
+		return ""
+	}
+	return t.currentPrompt
+}
+
 // NewTerminal creates a new interactive terminal with markdown rendering.
 func NewTerminal() *Terminal {
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, themePromptName, colorReset, themePromptArrow, colorReset),
+		Prompt:          fmt.Sprintf("%s%sqmax%s %s>%s ", ColorBold, themePromptName, ColorReset, themePromptArrow, ColorReset),
 		HistoryFile:     "/tmp/qmax-code-history",
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
@@ -183,7 +206,7 @@ func NewTerminal() *Terminal {
 		renderer = nil
 	}
 
-	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", colorBold, themePromptName, colorReset, themePromptArrow, colorReset)
+	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", ColorBold, themePromptName, ColorReset, themePromptArrow, ColorReset)
 	return &Terminal{
 		rl:            rl,
 		renderer:      renderer,
@@ -194,9 +217,9 @@ func NewTerminal() *Terminal {
 // SetSessionPrompt updates the prompt to include the session ID.
 func (t *Terminal) SetSessionPrompt(sessionID string) {
 	t.currentPrompt = fmt.Sprintf("%s%sqmax%s %s[%s]%s %s>%s ",
-		colorBold, themePromptName, colorReset,
-		colorDim, sessionID, colorReset,
-		themePromptArrow, colorReset)
+		ColorBold, themePromptName, ColorReset,
+		ColorDim, sessionID, ColorReset,
+		themePromptArrow, ColorReset)
 	t.rl.SetPrompt(t.currentPrompt)
 }
 
@@ -242,7 +265,7 @@ func (t *Terminal) ReadConsent() (string, error) {
 }
 
 // PrintBanner shows the startup banner — fun, geeky, and cat-themed.
-func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
+func (t *Terminal) PrintBanner(version string, ctx *api.SessionContext) {
 	// Pick Max's mood based on context
 	mood := MoodNeutral
 	if ctx.API != nil || ctx.QMaxBin != "" {
@@ -272,13 +295,13 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
   %s%s ╚══▀▀═╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝%s   %s%s%s
   %s%s                code %s%s
 `,
-		colorBold, themeBannerColor, colorReset,
-		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[0], colorReset,
-		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[1], colorReset,
-		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[2], colorReset,
-		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[3], colorReset,
-		colorBold, themeBannerColor, colorReset, themeCatColor, catLines[4], colorReset,
-		colorBold, themePromptArrow, version, colorReset,
+		ColorBold, themeBannerColor, ColorReset,
+		ColorBold, themeBannerColor, ColorReset, themeCatColor, catLines[0], ColorReset,
+		ColorBold, themeBannerColor, ColorReset, themeCatColor, catLines[1], ColorReset,
+		ColorBold, themeBannerColor, ColorReset, themeCatColor, catLines[2], ColorReset,
+		ColorBold, themeBannerColor, ColorReset, themeCatColor, catLines[3], ColorReset,
+		ColorBold, themeBannerColor, ColorReset, themeCatColor, catLines[4], ColorReset,
+		ColorBold, themePromptArrow, version, ColorReset,
 	)
 	fmt.Print(banner)
 
@@ -298,46 +321,46 @@ func (t *Terminal) PrintBanner(version string, ctx *SessionContext) {
 		"Nine lives, zero regressions.",
 	}
 	idx := time.Now().YearDay() % len(subtitles)
-	fmt.Printf("  %s%s%s\n\n", colorDim, subtitles[idx], colorReset)
+	fmt.Printf("  %s%s%s\n\n", ColorDim, subtitles[idx], ColorReset)
 
 	// Show context info
 	if ctx.ProjectID > 0 {
-		fmt.Printf("  %s▸ Project #%d active%s\n", themeStatusColor, ctx.ProjectID, colorReset)
+		fmt.Printf("  %s▸ Project #%d active%s\n", themeStatusColor, ctx.ProjectID, ColorReset)
 	}
 
 	switch ctx.Backend {
 	case "cc":
-		fmt.Printf("  %s▸ Backend: Claude Code (CC subscription — no API tokens)%s\n", themeStatusColor, colorReset)
+		fmt.Printf("  %s▸ Backend: Claude Code (CC subscription — no API tokens)%s\n", themeStatusColor, ColorReset)
 		if ctx.Auth != nil && ctx.Auth.Email != "" {
-			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, colorReset)
+			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, ColorReset)
 		}
 	case "codex":
-		fmt.Printf("  %s▸ Backend: Codex CLI (OpenAI subscription — no API tokens)%s\n", themeStatusColor, colorReset)
+		fmt.Printf("  %s▸ Backend: Codex CLI (OpenAI subscription — no API tokens)%s\n", themeStatusColor, ColorReset)
 		if ctx.Auth != nil && ctx.Auth.Email != "" {
-			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, colorReset)
+			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, ColorReset)
 		}
 	default:
 		// API mode — show direct API or qmax CLI connection status.
 		if ctx.API != nil {
-			fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", themeStatusColor, colorReset)
+			fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", themeStatusColor, ColorReset)
 			if ctx.Auth != nil && ctx.Auth.Email != "" {
-				fmt.Printf("  %s▸ Logged in as: %s%s\n", themeStatusColor, ctx.Auth.Email, colorReset)
+				fmt.Printf("  %s▸ Logged in as: %s%s\n", themeStatusColor, ctx.Auth.Email, ColorReset)
 			}
-			fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.Auth.GetCloudURL(), colorReset)
+			fmt.Printf("  %s▸ API: %s%s\n", ColorDim, ctx.Auth.GetCloudURL(), ColorReset)
 		} else if ctx.QMaxBin != "" {
-			fmt.Printf("  %s▸ qmax CLI: %s%s\n", themeStatusColor, ctx.QMaxBin, colorReset)
+			fmt.Printf("  %s▸ qmax CLI: %s%s\n", themeStatusColor, ctx.QMaxBin, ColorReset)
 			if ctx.QMaxCfg.Email != "" {
-				fmt.Printf("  %s▸ Logged in as: %s%s\n", themeStatusColor, ctx.QMaxCfg.Email, colorReset)
+				fmt.Printf("  %s▸ Logged in as: %s%s\n", themeStatusColor, ctx.QMaxCfg.Email, ColorReset)
 			}
 			if ctx.QMaxCfg.CloudURL != "" {
-				fmt.Printf("  %s▸ API: %s%s\n", colorDim, ctx.QMaxCfg.CloudURL, colorReset)
+				fmt.Printf("  %s▸ API: %s%s\n", ColorDim, ctx.QMaxCfg.CloudURL, ColorReset)
 			}
 		} else {
-			fmt.Printf("  %s▸ Not connected%s — type %s/connect%s to log in\n", colorYellow, colorReset, colorBold, colorReset)
+			fmt.Printf("  %s▸ Not connected%s — type %s/connect%s to log in\n", ColorYellow, ColorReset, ColorBold, ColorReset)
 		}
 	}
 
-	fmt.Printf("  %sType /help for commands or just tell me what to test. 🐾%s\n\n", colorDim, colorReset)
+	fmt.Printf("  %sType /help for commands or just tell me what to test. 🐾%s\n\n", ColorDim, ColorReset)
 }
 
 // StreamText prints text as it arrives from the SSE stream (token-by-token).
@@ -432,7 +455,7 @@ func (t *Terminal) PrintToolStart(name string, input interface{}) {
 func (t *Terminal) PrintToolResult(name string, output string) {
 	defer t.StartThinking()
 	if strings.HasPrefix(output, "{\"error\"") {
-		fmt.Printf("  %s %s\n", styleError.Render("✗ Error"), styleDim.Render(truncateStr(output, 120)))
+		fmt.Printf("  %s %s\n", styleError.Render("✗ Error"), styleDim.Render(TruncateStr(output, 120)))
 		return
 	}
 
@@ -452,10 +475,10 @@ func (t *Terminal) PrintToolResult(name string, output string) {
 				fmt.Printf("    Status: %s\n", styleSystem.Render(status))
 			}
 			if msg, ok := data["message"].(string); ok && msg != "" {
-				fmt.Printf("    Message: %s\n", styleDim.Render(truncateStr(msg, 120)))
+				fmt.Printf("    Message: %s\n", styleDim.Render(TruncateStr(msg, 120)))
 			}
 			if errs, ok := data["test_errors"].(string); ok && errs != "" {
-				fmt.Printf("    Errors: %s\n", styleError.Render(truncateStr(errs, 300)))
+				fmt.Printf("    Errors: %s\n", styleError.Render(TruncateStr(errs, 300)))
 			}
 			// Extract errors from console_logs if test_errors is empty
 			if logs, ok := data["console_logs"].([]interface{}); ok && len(logs) > 0 {
@@ -471,7 +494,7 @@ func (t *Terminal) PrintToolResult(name string, output string) {
 				if len(errorLines) > 0 {
 					fmt.Printf("    Console errors:\n")
 					for _, line := range errorLines {
-						fmt.Printf("      %s\n", styleError.Render(truncateStr(line, 120)))
+						fmt.Printf("      %s\n", styleError.Render(TruncateStr(line, 120)))
 					}
 				}
 			}
@@ -498,7 +521,7 @@ func (t *Terminal) PrintToolResult(name string, output string) {
 
 	if lineCount <= 3 {
 		for _, line := range lines {
-			fmt.Printf("  %s\n", styleDim.Render(truncateStr(line, 140)))
+			fmt.Printf("  %s\n", styleDim.Render(TruncateStr(line, 140)))
 		}
 	} else {
 		fmt.Printf("  %s\n", styleSuccess.Render(fmt.Sprintf("✓ %d lines of output", lineCount)))
@@ -516,14 +539,14 @@ func (t *Terminal) PrintError(msg string) {
 }
 
 // PrintTokenUsage shows token usage in dim text after a response.
-func (t *Terminal) PrintTokenUsage(usage TokenUsage) {
+func (t *Terminal) PrintTokenUsage(usage api.TokenUsage) {
 	fmt.Printf("\n%s\n", styleUsage.Render(
 		fmt.Sprintf("  tokens: %d in / %d out (session: %d total, %d requests)",
 			usage.InputTokens, usage.OutputTokens, usage.TotalTokens(), usage.Requests)))
 }
 
 // PrintCostSummary shows detailed cost info for /cost command.
-func (t *Terminal) PrintCostSummary(usage TokenUsage, model string) {
+func (t *Terminal) PrintCostSummary(usage api.TokenUsage, model string) {
 	cost := usage.EstimatedCost(model)
 	fmt.Printf("\n")
 	fmt.Printf("  %s\n", styleSystem.Render("Session Token Usage"))
@@ -537,25 +560,25 @@ func (t *Terminal) PrintCostSummary(usage TokenUsage, model string) {
 }
 
 // PrintStatusInfo shows qmax status and session info for /status command.
-func (t *Terminal) PrintStatusInfo(ctx *SessionContext, usage TokenUsage, model string) {
+func (t *Terminal) PrintStatusInfo(ctx *api.SessionContext, usage api.TokenUsage, model string) {
 	fmt.Println()
 	fmt.Printf("  %s\n", styleSystem.Render("qmax-code Status"))
 
 	// Connection status (primary)
 	if ctx.API != nil && ctx.Auth != nil && ctx.Auth.IsAuthenticated() {
-		fmt.Printf("  %-20s %s%s Connected%s\n", "QualityMax:", themeStatusColor, "●", colorReset)
+		fmt.Printf("  %-20s %s%s Connected%s\n", "QualityMax:", themeStatusColor, "●", ColorReset)
 		fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.Auth.Email)
 		fmt.Printf("  %-20s %s\n", "API:", ctx.Auth.GetCloudURL())
 		fmt.Printf("  %-20s standalone (direct API)\n", "Mode:")
 	} else if ctx.QMaxBin != "" {
-		fmt.Printf("  %-20s %s%s Connected (via CLI)%s\n", "QualityMax:", themeStatusColor, "●", colorReset)
+		fmt.Printf("  %-20s %s%s Connected (via CLI)%s\n", "QualityMax:", themeStatusColor, "●", ColorReset)
 		if ctx.QMaxCfg.Email != "" {
 			fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.QMaxCfg.Email)
 		}
 		fmt.Printf("  %-20s %s\n", "CLI:", ctx.QMaxBin)
 	} else {
-		fmt.Printf("  %-20s %s%s Not connected%s\n", "QualityMax:", colorYellow, "●", colorReset)
-		fmt.Printf("  %-20s run %s/connect%s to log in\n", "", colorBold, colorReset)
+		fmt.Printf("  %-20s %s%s Not connected%s\n", "QualityMax:", ColorYellow, "●", ColorReset)
+		fmt.Printf("  %-20s run %s/connect%s to log in\n", "", ColorBold, ColorReset)
 	}
 
 	fmt.Println()
@@ -635,8 +658,8 @@ func (t *Terminal) PrintTestResults(results []TestResult) {
 	fmt.Println()
 }
 
-// truncateStr limits a string to maxLen characters.
-func truncateStr(s string, maxLen int) string {
+// TruncateStr limits a string to maxLen characters.
+func TruncateStr(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
