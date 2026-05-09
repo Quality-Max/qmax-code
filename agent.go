@@ -13,15 +13,7 @@ import (
 
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
-)
-
-// Anthropic defaults for smart routing and direct API calls.
-const (
-	AnthropicMessagesURL = "https://api.anthropic.com/v1/messages"
-	AnthropicVersion     = "2023-06-01"
-	ModelHaiku           = "claude-haiku-4-5-20251001"
-	ModelSonnet          = "claude-sonnet-4-20250514"
-	ModelOpus            = "claude-opus-4-20250514"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // AgentConfig holds configuration for the LLM agent.
@@ -31,7 +23,7 @@ type AgentConfig struct {
 	ChatModel     string // cheaper model for conversational responses
 	Verbose       bool
 	OutputVerbose bool // user-facing answer style; false = compact, true = detailed
-	Context       *SessionContext
+	Context       *api.SessionContext
 	AutoRoute     bool // true = haiku for chat, sonnet for tools
 	Professional  bool // disable cat personality, be direct
 }
@@ -63,7 +55,7 @@ type Agent struct {
 	history         []Message
 	tools           []ToolDef
 	client          *http.Client
-	usage           TokenUsage
+	usage           api.TokenUsage
 	cancel          context.CancelFunc // cancel the current streaming request
 	logger          *sysutil.Logger
 	ollama          *OllamaClient // optional self-hosted LLM
@@ -327,7 +319,7 @@ func estimateMessageChars(msg Message) int {
 
 // If images are provided, it builds a multi-block content array (text + images).
 // Otherwise, it returns the plain string (simpler, lower token usage).
-func BuildUserContent(text string, images []ImageAttachment) interface{} {
+func BuildUserContent(text string, images []tui.ImageAttachment) interface{} {
 	if len(images) == 0 {
 		return text
 	}
@@ -351,15 +343,8 @@ func BuildUserContent(text string, images []ImageAttachment) interface{} {
 	return blocks
 }
 
-// ImageAttachment holds a base64-encoded image to send with a message.
-type ImageAttachment struct {
-	MediaType string // "image/png", "image/jpeg", etc.
-	Data      string // base64-encoded
-	FileName  string // original filename (for display)
-}
-
 // RunStreamingWithImages is like RunStreaming but supports image attachments.
-func (a *Agent) RunStreamingWithImages(prompt string, images []ImageAttachment, term *Terminal) (string, error) {
+func (a *Agent) RunStreamingWithImages(prompt string, images []tui.ImageAttachment, term *tui.Terminal) (string, error) {
 	a.history = append(a.history, Message{
 		Role:    "user",
 		Content: BuildUserContent(prompt, images),
@@ -368,7 +353,7 @@ func (a *Agent) RunStreamingWithImages(prompt string, images []ImageAttachment, 
 	return a.runStreamingLoop(term)
 }
 
-func (a *Agent) RunStreaming(prompt string, term *Terminal) (string, error) {
+func (a *Agent) RunStreaming(prompt string, term *tui.Terminal) (string, error) {
 	a.history = append(a.history, Message{
 		Role:    "user",
 		Content: prompt,
@@ -377,14 +362,14 @@ func (a *Agent) RunStreaming(prompt string, term *Terminal) (string, error) {
 	return a.runStreamingLoop(term)
 }
 
-func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
+func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 	for iterations := 0; iterations < maxIterations; iterations++ {
 		// Sanitize + compress history before each API call
 		sanitizeSessionMessages(a.history)
 		a.compressHistory()
 		model := a.modelForIteration(iterations)
 		if a.config.Verbose {
-			fmt.Fprintf(term.rl.Stderr(), "[model] %s (iteration %d)\n", model, iterations)
+			fmt.Fprintf(term.Stderr(), "[model] %s (iteration %d)\n", model, iterations)
 		}
 
 		// Ollama routing based on mode:
@@ -394,18 +379,18 @@ func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 		if iterations == 0 && a.ollama != nil && a.ollama.Available() && a.ollamaMode != OllamaModeOff {
 			if a.ollamaMode == OllamaModeFull {
 				if a.config.Verbose {
-					fmt.Fprintf(term.rl.Stderr(), "[ollama-full] trying %s\n", a.ollama.agentModel)
+					fmt.Fprintf(term.Stderr(), "[ollama-full] trying %s\n", a.ollama.agentModel)
 				}
 				result, ok := a.RunOllamaAgent(term)
 				if ok && result != "" {
 					return result, nil
 				}
 				if a.config.Verbose {
-					fmt.Fprintf(term.rl.Stderr(), "[ollama-full] failed, falling back to Claude\n")
+					fmt.Fprintf(term.Stderr(), "[ollama-full] failed, falling back to Claude\n")
 				}
 			} else if a.ollamaMode == OllamaModeChat && !a.needsTools() {
 				if a.config.Verbose {
-					fmt.Fprintf(term.rl.Stderr(), "[ollama-chat] trying %s\n", a.ollama.model)
+					fmt.Fprintf(term.Stderr(), "[ollama-chat] trying %s\n", a.ollama.model)
 				}
 				ctx, cancel := context.WithCancel(context.Background())
 				a.cancel = cancel
@@ -421,7 +406,7 @@ func (a *Agent) runStreamingLoop(term *Terminal) (string, error) {
 					return ollamaText, nil
 				}
 				if a.config.Verbose && ollamaErr != nil {
-					fmt.Fprintf(term.rl.Stderr(), "[ollama-chat] failed, falling back to Claude: %v\n", ollamaErr)
+					fmt.Fprintf(term.Stderr(), "[ollama-chat] failed, falling back to Claude: %v\n", ollamaErr)
 				}
 			}
 		}
@@ -532,7 +517,7 @@ func (a *Agent) modelForIteration(iteration int) string {
 }
 
 // callStreamingAPI makes a streaming request to the Claude API and processes SSE events.
-func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, string, error) {
+func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]ContentBlock, string, error) {
 	systemPrompt := a.buildSystemPrompt()
 
 	// Sanitize messages — ensure Content is always a valid type for the API.
@@ -599,13 +584,13 @@ func (a *Agent) callStreamingAPI(term *Terminal, model string) ([]ContentBlock, 
 		cancel()
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", AnthropicMessagesURL, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.AnthropicMessagesURL, bytes.NewReader(data))
 	if err != nil {
 		return nil, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", a.config.AnthropicKey)
-	req.Header.Set("anthropic-version", AnthropicVersion)
+	req.Header.Set("anthropic-version", api.AnthropicVersion)
 
 	a.logger.Info("api", "request", map[string]interface{}{"model": model, "messages": len(a.history)})
 
@@ -804,13 +789,13 @@ func (a *Agent) callAPI() (*APIResponse, error) {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", AnthropicMessagesURL, bytes.NewReader(data))
+	req, err := http.NewRequest("POST", api.AnthropicMessagesURL, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", a.config.AnthropicKey)
-	req.Header.Set("anthropic-version", AnthropicVersion)
+	req.Header.Set("anthropic-version", api.AnthropicVersion)
 
 	if a.config.Verbose {
 		fmt.Printf("[API] Request: %d bytes, %d messages\n", len(data), len(a.history))
@@ -867,7 +852,7 @@ func (a *Agent) executeToolCalls(content []ContentBlock, ctx context.Context) []
 }
 
 // executeToolCallsWithUI runs tool calls with terminal feedback.
-func (a *Agent) executeToolCallsWithUI(toolCalls []ContentBlock, term *Terminal, ctx context.Context) []ContentBlock {
+func (a *Agent) executeToolCallsWithUI(toolCalls []ContentBlock, term *tui.Terminal, ctx context.Context) []ContentBlock {
 	var results []ContentBlock
 	for _, block := range toolCalls {
 		a.logger.Info("tool", block.Name, map[string]interface{}{"cost": ToolCost(block.Name)})

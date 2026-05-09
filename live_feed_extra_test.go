@@ -17,6 +17,7 @@ import (
 
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/qualitymax/qmax-code/internal/tui"
 	"github.com/qualitymax/qmax-code/internal/vnc"
 )
 
@@ -82,7 +83,7 @@ func TestAnnotateWithClientNoteEmptyNote(t *testing.T) {
 
 // Non-string live_browser_url (e.g. null from server) → treat as absent.
 func TestCaptureLiveURLNullValue(t *testing.T) {
-	sctx := &SessionContext{LastLiveURL: "old"}
+	sctx := &api.SessionContext{LastLiveURL: "old"}
 	captureLiveURL(sctx, `{"status":"running","live_browser_url":null}`)
 	if sctx.LastLiveURL != "old" {
 		t.Errorf("null URL should not overwrite; got %q", sctx.LastLiveURL)
@@ -91,7 +92,7 @@ func TestCaptureLiveURLNullValue(t *testing.T) {
 
 // Numeric live_browser_url (server bug) → treat as absent, no panic.
 func TestCaptureLiveURLNumericValue(t *testing.T) {
-	sctx := &SessionContext{}
+	sctx := &api.SessionContext{}
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("panicked on numeric live_browser_url: %v", r)
@@ -105,10 +106,10 @@ func TestCaptureLiveURLNumericValue(t *testing.T) {
 
 // LiveFeed=true + first status → sandboxModeLogged should be set.
 func TestCaptureLiveURLSetsSandboxModeLogged(t *testing.T) {
-	sctx := &SessionContext{LiveFeed: true}
+	sctx := &api.SessionContext{LiveFeed: true}
 	raw := `{"status":"running","progress":10,"is_e2b":true,"live_browser_url":"https://host/vnc.html"}`
 	captureLiveURL(sctx, raw)
-	if !sctx.sandboxModeLogged {
+	if !sctx.SandboxModeLogged {
 		t.Error("sandboxModeLogged should be true after first status with LiveFeed=true")
 	}
 	if sctx.LastLiveURL == "" {
@@ -118,17 +119,17 @@ func TestCaptureLiveURLSetsSandboxModeLogged(t *testing.T) {
 
 // LiveFeed=true + is_e2b=false → sandboxFallbackSeen should be set.
 func TestCaptureLiveURLDetectsFallback(t *testing.T) {
-	sctx := &SessionContext{LiveFeed: true}
+	sctx := &api.SessionContext{LiveFeed: true}
 	raw := `{"status":"running","progress":10,"is_e2b":false}`
 	captureLiveURL(sctx, raw)
-	if !sctx.sandboxFallbackSeen {
+	if !sctx.SandboxFallbackSeen {
 		t.Error("sandboxFallbackSeen should be true when is_e2b=false")
 	}
 }
 
 // Second call after sandboxModeLogged should not re-log (gate stays closed).
 func TestCaptureLiveURLOnlyLogsFirstStatus(t *testing.T) {
-	sctx := &SessionContext{LiveFeed: true, sandboxModeLogged: true}
+	sctx := &api.SessionContext{LiveFeed: true, SandboxModeLogged: true}
 	// If we log a second time, the test would need stderr capture. Instead,
 	// verify the gate field stays true and no URL is double-set.
 	url := "https://host/vnc.html"
@@ -235,8 +236,8 @@ func TestMaybeLaunchLiveFeedLiveFeedOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DialVNC: %v", err)
 	}
-	sctx := &SessionContext{LiveFeed: false, LastLiveURL: "https://host/vnc.html"}
-	term := &Terminal{}
+	sctx := &api.SessionContext{LiveFeed: false, LastLiveURL: "https://host/vnc.html"}
+	term := &tui.Terminal{}
 	maybeLaunchLiveFeed(sctx, term, stream, "")
 
 	// Stream should be closed (Close is idempotent, calling again should not panic).
@@ -250,8 +251,8 @@ func TestMaybeLaunchLiveFeedLiveFeedOff(t *testing.T) {
 
 // LiveFeed=true, no URL, sandboxModeLogged=false → no diagnostic, no launch.
 func TestMaybeLaunchLiveFeedNoURLNoLog(t *testing.T) {
-	sctx := &SessionContext{LiveFeed: true, sandboxModeLogged: false}
-	term := &Terminal{}
+	sctx := &api.SessionContext{LiveFeed: true, SandboxModeLogged: false}
+	term := &tui.Terminal{}
 	// Should be a pure no-op (no panic, no launch).
 	maybeLaunchLiveFeed(sctx, term, nil, "")
 }
@@ -263,7 +264,7 @@ func TestMaybeLaunchLiveFeedNilSctx(t *testing.T) {
 			t.Errorf("nil sctx panicked: %v", r)
 		}
 	}()
-	maybeLaunchLiveFeed(nil, &Terminal{}, nil, "")
+	maybeLaunchLiveFeed(nil, &tui.Terminal{}, nil, "")
 }
 
 // ─── runTestWithProgress early-return when LiveFeed + URL captured ────────────
@@ -417,10 +418,10 @@ func TestRunTestWithProgressLiveFeedFastReturn(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	api := &api.APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
-	sctx := &SessionContext{LiveFeed: true, API: api}
+	client := &api.APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
+	sctx := &api.SessionContext{LiveFeed: true, API: client}
 
-	result := runTestWithProgress(t.Context(), api, sctx, 42, true, "", "")
+	result := runTestWithProgress(t.Context(), client, sctx, 42, true, "", "")
 
 	// Must have returned early (contains client_note).
 	if !strings.Contains(result, "client_note") {

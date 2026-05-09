@@ -1,9 +1,13 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/qualitymax/qmax-code/internal/api"
+)
 
 func TestHandleMCPLineReturnsParseErrorForMalformedJSON(t *testing.T) {
-	resp, ok := handleMCPLine([]byte("Reading additional input from stdin..."), &SessionContext{})
+	resp, ok := handleMCPLine([]byte("Reading additional input from stdin..."), &api.SessionContext{})
 	if !ok {
 		t.Fatal("malformed request should produce a JSON-RPC error response")
 	}
@@ -16,14 +20,14 @@ func TestHandleMCPLineReturnsParseErrorForMalformedJSON(t *testing.T) {
 }
 
 func TestHandleMCPLineIgnoresNotifications(t *testing.T) {
-	_, ok := handleMCPLine([]byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`), &SessionContext{})
+	_, ok := handleMCPLine([]byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`), &api.SessionContext{})
 	if ok {
 		t.Fatal("notification should not produce a response")
 	}
 }
 
 func TestHandleMCPLineRejectsInvalidJSONRPCVersion(t *testing.T) {
-	resp, ok := handleMCPLine([]byte(`{"jsonrpc":"1.0","id":1,"method":"tools/list"}`), &SessionContext{})
+	resp, ok := handleMCPLine([]byte(`{"jsonrpc":"1.0","id":1,"method":"tools/list"}`), &api.SessionContext{})
 	if !ok {
 		t.Fatal("invalid request should produce a response")
 	}

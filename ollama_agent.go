@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // OllamaAgentMode provides a full Ollama-powered agent that handles both
@@ -45,7 +47,7 @@ Available actions:
 
 // RunOllamaAgent runs a full conversation turn using only Ollama.
 // Returns the final text response and whether it succeeded.
-func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
+func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 	if a.ollama == nil || !a.ollama.Available() {
 		return "", false
 	}
@@ -80,7 +82,7 @@ func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
 
 	// Phase 2: Execute the action via QualityMax API (fresh context)
 	if a.config.Verbose {
-		fmt.Fprintf(term.rl.Stderr(), "[ollama-agent] action=%s params=%v\n", action, params)
+		fmt.Fprintf(term.Stderr(), "[ollama-agent] action=%s params=%v\n", action, params)
 	}
 	term.PrintToolIcon(action)
 	term.PrintToolStart(action, params)
@@ -88,7 +90,7 @@ func (a *Agent) RunOllamaAgent(term *Terminal) (string, bool) {
 	apiCtx, apiCancel := context.WithCancel(context.Background())
 	defer apiCancel()
 	toolResult := a.executeOllamaAction(action, params, apiCtx)
-	term.PrintToolResult(action, truncateStr(toolResult, 200))
+	term.PrintToolResult(action, tui.TruncateStr(toolResult, 200))
 
 	// Phase 3: Feed results back to the local model for formatting.
 	a.history = append(a.history, Message{

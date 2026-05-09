@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/qualitymax/qmax-code/internal/api"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 func withTempHome(t *testing.T) string {
@@ -161,7 +163,7 @@ func TestSetConfigField_PersistsToDisk(t *testing.T) {
 func TestSetConfigField_ThemeHappyPath(t *testing.T) {
 	withTempHome(t)
 
-	for _, name := range ThemeNames() {
+	for _, name := range tui.ThemeNames() {
 		if err := setConfigField("theme", name); err != nil {
 			t.Errorf("setConfigField(\"theme\", %q) unexpected error: %v", name, err)
 		}
@@ -211,8 +213,8 @@ func TestConfigSaveTheme_PersistsLocalSelection(t *testing.T) {
 	tmp := withTempHome(t)
 	cfg := api.DefaultConfig()
 
-	if err := SaveTheme(cfg, "radiance"); err != nil {
-		t.Fatalf("SaveTheme(\"radiance\") unexpected error: %v", err)
+	if err := tui.SaveTheme(cfg, "radiance"); err != nil {
+		t.Fatalf("tui.SaveTheme(\"radiance\") unexpected error: %v", err)
 	}
 
 	loaded := api.LoadQMaxCodeConfig()
@@ -236,12 +238,12 @@ func TestConfigSaveTheme_PersistsLocalSelection(t *testing.T) {
 func TestConfigSaveTheme_RejectsInvalidWithoutOverwriting(t *testing.T) {
 	withTempHome(t)
 	cfg := api.DefaultConfig()
-	if err := SaveTheme(cfg, "ocean"); err != nil {
-		t.Fatalf("SaveTheme(\"ocean\") unexpected error: %v", err)
+	if err := tui.SaveTheme(cfg, "ocean"); err != nil {
+		t.Fatalf("tui.SaveTheme(\"ocean\") unexpected error: %v", err)
 	}
 
-	if err := SaveTheme(cfg, "../evil"); err == nil {
-		t.Fatal("SaveTheme(\"../evil\") expected error, got nil")
+	if err := tui.SaveTheme(cfg, "../evil"); err == nil {
+		t.Fatal("tui.SaveTheme(\"../evil\") expected error, got nil")
 	}
 
 	loaded := api.LoadQMaxCodeConfig()
@@ -256,11 +258,11 @@ func TestConfigSaveTheme_RejectsInvalidWithoutOverwriting(t *testing.T) {
 func TestConfigSaveTheme_EmptyClearsLocalSelection(t *testing.T) {
 	withTempHome(t)
 	cfg := api.DefaultConfig()
-	if err := SaveTheme(cfg, "neon"); err != nil {
-		t.Fatalf("SaveTheme(\"neon\") unexpected error: %v", err)
+	if err := tui.SaveTheme(cfg, "neon"); err != nil {
+		t.Fatalf("tui.SaveTheme(\"neon\") unexpected error: %v", err)
 	}
-	if err := SaveTheme(cfg, ""); err != nil {
-		t.Fatalf("SaveTheme(\"\") unexpected error: %v", err)
+	if err := tui.SaveTheme(cfg, ""); err != nil {
+		t.Fatalf("tui.SaveTheme(\"\") unexpected error: %v", err)
 	}
 
 	loaded := api.LoadQMaxCodeConfig()

@@ -105,7 +105,6 @@ func TestPromptQueue_PeekEmpty(t *testing.T) {
 	}
 }
 
-
 func TestPromptQueue_ConcurrentPush(t *testing.T) {
 	var q promptQueue
 	const goroutines = 50

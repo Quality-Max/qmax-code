@@ -19,6 +19,7 @@ import (
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/security"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // jsonError formats msg as a JSON-encoded error object after redaction.
@@ -661,7 +662,7 @@ func buildAllToolDefs() []ToolDef {
 // ExecuteTool executes a tool and returns the output string.
 // Uses the API client for QualityMax operations (no qmax CLI needed).
 // Falls back to qmax CLI if API client is not available.
-func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx context.Context) string {
+func ExecuteTool(name string, rawInput interface{}, sctx *api.SessionContext, ctx context.Context) string {
 	// Use API client if available (standalone mode)
 	if sctx.API != nil {
 		result := executeToolViaAPI(name, rawInput, sctx, ctx)
@@ -674,7 +675,7 @@ func ExecuteTool(name string, rawInput interface{}, sctx *SessionContext, ctx co
 }
 
 // executeToolViaAPI handles tool execution through the QualityMax REST API.
-func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, ctx context.Context) string {
+func executeToolViaAPI(name string, rawInput interface{}, sctx *api.SessionContext, ctx context.Context) string {
 	input := parseInput(rawInput)
 	client := sctx.API
 
@@ -872,7 +873,7 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *SessionContext, 
 // When sctx.LiveFeed is true the test runs in a QM Cloud Sandbox; status
 // responses are scanned for `live_browser_url` and the freshest one is
 // stored on sctx for the REPL to auto-launch /browserfeed against.
-func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *SessionContext, scriptID int, headless bool, browser, baseURL string) string {
+func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.SessionContext, scriptID int, headless bool, browser, baseURL string) string {
 	// Start the test
 	raw := client.RunTest(ctx, scriptID, headless, browser, baseURL, sctx != nil && sctx.LiveFeed)
 	if strings.HasPrefix(raw, `{"error"`) {
@@ -905,8 +906,8 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *Sessi
 
 	// Show browser animation + progress bar
 	fmt.Println()
-	ShowBrowserAnimation(0)
-	progress := NewProgressBar("Running test...", 30)
+	tui.ShowBrowserAnimation(0)
+	progress := tui.NewProgressBar("Running test...", 30)
 
 	// Poll until done. Bail out early if progress is stuck at the same value
 	// for stuckLimit consecutive polls (~60 s) — that pattern means the
@@ -936,7 +937,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *Sessi
 		}
 
 		// Animate browser
-		ShowBrowserAnimation(frame)
+		tui.ShowBrowserAnimation(frame)
 		frame++
 
 		// Update progress
@@ -948,7 +949,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *Sessi
 		}
 
 		if st == "passed" || st == "failed" || st == "completed" {
-			ClearBrowserAnimation()
+			tui.ClearBrowserAnimation()
 			progress.Finish(st == "passed", msg)
 			return statusRaw
 		}
@@ -958,7 +959,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *Sessi
 		// feed while the test is still running. The LLM must call
 		// check_test_status once the user closes the feed to get the result.
 		if sctx != nil && sctx.LiveFeed && sctx.LastLiveURL != "" {
-			ClearBrowserAnimation()
+			tui.ClearBrowserAnimation()
 			return annotateWithClientNote(statusRaw,
 				fmt.Sprintf("VNC feed is ready — returning early so the REPL opens the browser feed now. "+
 					"The test (execution_id: %s) is still running in the background. "+
@@ -971,7 +972,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *Sessi
 		if pct == lastPct {
 			stuckCount++
 			if stuckCount >= stuckLimit {
-				ClearBrowserAnimation()
+				tui.ClearBrowserAnimation()
 				progress.Finish(false, fmt.Sprintf("stuck at %d%% for %ds — sandbox may be hung", pct, stuckCount*2))
 				return annotateWithClientNote(statusRaw,
 					fmt.Sprintf("Polling stopped: progress stuck at %d%% for %d seconds. "+
@@ -984,7 +985,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *Sessi
 		}
 	}
 
-	ClearBrowserAnimation()
+	tui.ClearBrowserAnimation()
 	progress.Finish(false, "Timed out after 6 minutes")
 	final := client.CheckTestStatus(ctx, execID)
 	captureLiveURL(sctx, final)
@@ -1008,7 +1009,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *Sessi
 // it tells us whether `is_e2b` is even present and what other fields
 // the server is including, which directly maps to the relevant
 // fallback path on the server side.
-func captureLiveURL(sctx *SessionContext, raw string) {
+func captureLiveURL(sctx *api.SessionContext, raw string) {
 	if sctx == nil || raw == "" {
 		return
 	}
@@ -1017,7 +1018,7 @@ func captureLiveURL(sctx *SessionContext, raw string) {
 		return
 	}
 
-	if sctx.LiveFeed && !sctx.sandboxModeLogged {
+	if sctx.LiveFeed && !sctx.SandboxModeLogged {
 		// Wait for a response that looks like an actual status payload
 		// (has a `status` key) — earlier polls during enqueue can return
 		// empty or just `{success, execution_id}` and aren't useful here.
@@ -1026,7 +1027,7 @@ func captureLiveURL(sctx *SessionContext, raw string) {
 			if v, ok := m["is_e2b"]; ok {
 				isE2B = fmt.Sprint(v)
 				if b, isBool := v.(bool); isBool && !b {
-					sctx.sandboxFallbackSeen = true
+					sctx.SandboxFallbackSeen = true
 				}
 			}
 			liveURL := "absent"
@@ -1049,7 +1050,7 @@ func captureLiveURL(sctx *SessionContext, raw string) {
 			fmt.Fprintf(os.Stderr,
 				"%s[live]\033[0m first status: is_e2b=%s, live_browser_url=%s (keys: %s)\n",
 				color, isE2B, liveURL, strings.Join(keys, ","))
-			sctx.sandboxModeLogged = true
+			sctx.SandboxModeLogged = true
 		}
 	}
 
@@ -1064,9 +1065,9 @@ func captureLiveURL(sctx *SessionContext, raw string) {
 	// channel set up in writeMCPConfig (cc_agent / codex_agent). No-op
 	// when QMAX_LIVE_URL_FILE isn't set (standalone mode).
 	sysutil.PersistLiveURLForParent(url)
-	if sctx.LiveFeed && !sctx.liveURLLogged {
+	if sctx.LiveFeed && !sctx.LiveURLLogged {
 		fmt.Fprintln(os.Stderr, "\033[36m[live]\033[0m live_browser_url captured — auto-launch fires at end of turn")
-		sctx.liveURLLogged = true
+		sctx.LiveURLLogged = true
 	}
 }
 
@@ -1108,7 +1109,7 @@ func annotateWithClientNote(raw, note string) string {
 // The function name reads as "local" but for native toolchains it transparently
 // falls back to remote. This is intentional — the agent's tool-call surface
 // doesn't need to know which path runs; users get "tests ran" either way.
-func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseURL string) string {
+func runLocalTest(ctx context.Context, sctx *api.SessionContext, scriptID int, baseURL string) string {
 	if sctx.API == nil {
 		return jsonError("Not connected to QualityMax. Run /connect first.")
 	}
@@ -1261,7 +1262,7 @@ func runLocalTest(ctx context.Context, sctx *SessionContext, scriptID int, baseU
 }
 
 // executeToolViaQMax handles tool execution through the qmax CLI binary (legacy).
-func executeToolViaQMax(name string, rawInput interface{}, sctx *SessionContext, ctx context.Context) string {
+func executeToolViaQMax(name string, rawInput interface{}, sctx *api.SessionContext, ctx context.Context) string {
 	// Parse input
 	input := make(map[string]interface{})
 	switch v := rawInput.(type) {
@@ -1464,10 +1465,10 @@ func executeToolViaQMax(name string, rawInput interface{}, sctx *SessionContext,
 }
 
 // runQMax executes a qmax CLI command and returns stdout.
-func runQMax(sctx *SessionContext, ctx context.Context, args ...string) string {
+func runQMax(sctx *api.SessionContext, ctx context.Context, args ...string) string {
 	binary := sctx.QMaxBin
 	if binary == "" {
-		return fmt.Sprintf(`{"error": "qmax CLI not found. %s"}`, formatQMaxInstallHint())
+		return fmt.Sprintf(`{"error": "qmax CLI not found. %s"}`, api.FormatQMaxInstallHint())
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
 	stdout := newLimitWriter(512 * 1024) // 512 KB — qmax JSON responses are small
@@ -1883,7 +1884,7 @@ func summarizeExecution(output string) string {
 		sb.WriteString(fmt.Sprintf("  Error: %v\n", errMsg))
 	}
 	if errMsg, ok := data["test_errors"].(string); ok && errMsg != "" {
-		sb.WriteString(fmt.Sprintf("  Test errors: %s\n", truncateStr(errMsg, 1000)))
+		sb.WriteString(fmt.Sprintf("  Test errors: %s\n", tui.TruncateStr(errMsg, 1000)))
 	}
 
 	// test_output — extract Playwright error lines (locator failures, timeouts, assertion errors)
@@ -1901,7 +1902,7 @@ func summarizeExecution(output string) string {
 			if entry, ok := l.(map[string]interface{}); ok {
 				text, _ := entry["text"].(string)
 				if strings.Contains(text, "Error") || strings.Contains(text, "failed") || strings.Contains(text, "✗") {
-					sb.WriteString(fmt.Sprintf("  Console: %s\n", truncateStr(text, 200)))
+					sb.WriteString(fmt.Sprintf("  Console: %s\n", tui.TruncateStr(text, 200)))
 				}
 			}
 		}
@@ -2135,7 +2136,7 @@ func summarizeStartCrawl(output string) string {
 // =============================================================================
 
 // fetchScriptCode retrieves a script's full details via the QualityMax API.
-func fetchScriptCode(sctx *SessionContext, ctx context.Context, scriptID string) string {
+func fetchScriptCode(sctx *api.SessionContext, ctx context.Context, scriptID string) string {
 	token := sctx.QMaxCfg.Token
 	apiURL := sctx.QMaxCfg.CloudURL
 	if token == "" || apiURL == "" {
@@ -2164,7 +2165,7 @@ func fetchScriptCode(sctx *SessionContext, ctx context.Context, scriptID string)
 }
 
 // updateScriptCode updates a script's code via the QualityMax API.
-func updateScriptCode(sctx *SessionContext, ctx context.Context, scriptID, name, code string) string {
+func updateScriptCode(sctx *api.SessionContext, ctx context.Context, scriptID, name, code string) string {
 	token := sctx.QMaxCfg.Token
 	apiURL := sctx.QMaxCfg.CloudURL
 	if token == "" || apiURL == "" {
@@ -2299,7 +2300,7 @@ func saveScriptBackup(scriptID, content string) {
 }
 
 // rollbackScript restores a script to its most recent backup.
-func rollbackScript(sctx *SessionContext, ctx context.Context, scriptID string) string {
+func rollbackScript(sctx *api.SessionContext, ctx context.Context, scriptID string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return `{"error": "cannot determine home directory"}`
@@ -2407,7 +2408,7 @@ func obj(pp []propDef) map[string]interface{} {
 
 // analyzeScreenshot fetches the screenshot from a test execution and asks Claude Vision
 // to describe what's visible on the page.
-func analyzeScreenshot(ctx context.Context, client *api.APIClient, executionID string, sctx *SessionContext) string {
+func analyzeScreenshot(ctx context.Context, client *api.APIClient, executionID string, sctx *api.SessionContext) string {
 	if executionID == "" {
 		return jsonError("execution_id is required")
 	}
@@ -2429,7 +2430,7 @@ func analyzeScreenshot(ctx context.Context, client *api.APIClient, executionID s
 
 // getPageElements fetches the screenshot and asks Claude Vision to extract
 // interactive elements with suggested Playwright selectors.
-func getPageElements(ctx context.Context, client *api.APIClient, executionID string, sctx *SessionContext) string {
+func getPageElements(ctx context.Context, client *api.APIClient, executionID string, sctx *api.SessionContext) string {
 	if executionID == "" {
 		return jsonError("execution_id is required")
 	}
@@ -2450,7 +2451,7 @@ func getPageElements(ctx context.Context, client *api.APIClient, executionID str
 }
 
 // getScreenshotURL fetches the screenshot URL from a test execution result.
-func getScreenshotURL(client *api.APIClient, executionID string, sctx *SessionContext) (string, string) {
+func getScreenshotURL(client *api.APIClient, executionID string, sctx *api.SessionContext) (string, string) {
 	raw := client.CheckTestStatus(context.Background(), executionID)
 
 	var data map[string]interface{}
@@ -2481,7 +2482,7 @@ func getScreenshotURL(client *api.APIClient, executionID string, sctx *SessionCo
 }
 
 // callVisionAnalysis sends a screenshot URL to Claude Vision API for analysis.
-func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
+func callVisionAnalysis(sctx *api.SessionContext, imageURL, prompt string) string {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		// Fall back to QualityMax backend for vision analysis
@@ -2490,7 +2491,7 @@ func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
 
 	// Direct Claude Vision call
 	reqBody := map[string]interface{}{
-		"model":      ModelHaiku,
+		"model":      api.ModelHaiku,
 		"max_tokens": 2000,
 		"messages": []map[string]interface{}{
 			{
@@ -2513,13 +2514,13 @@ func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
 	}
 
 	data, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", AnthropicMessagesURL, bytes.NewReader(data))
+	req, err := http.NewRequest("POST", api.AnthropicMessagesURL, bytes.NewReader(data))
 	if err != nil {
 		return jsonError("Failed to create vision request: " + err.Error())
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", AnthropicVersion)
+	req.Header.Set("anthropic-version", api.AnthropicVersion)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -2551,7 +2552,7 @@ func callVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
 
 // callBackendVisionAnalysis falls back to QualityMax backend for vision analysis
 // when no local Anthropic key is available.
-func callBackendVisionAnalysis(sctx *SessionContext, imageURL, prompt string) string {
+func callBackendVisionAnalysis(sctx *api.SessionContext, imageURL, prompt string) string {
 	return fmt.Sprintf("Screenshot URL: %s\n\n"+
 		"[Vision analysis requires ANTHROPIC_API_KEY env var. "+
 		"Set it with: export ANTHROPIC_API_KEY=sk-ant-...]\n\n"+
@@ -2560,7 +2561,7 @@ func callBackendVisionAnalysis(sctx *SessionContext, imageURL, prompt string) st
 
 // chainSecurityAuditOnPR fires a security audit PR check after create_pr succeeds
 // and appends the findings to the PR creation result so the agent can self-correct.
-func chainSecurityAuditOnPR(ctx context.Context, client *api.APIClient, sctx *SessionContext, prResp string) string {
+func chainSecurityAuditOnPR(ctx context.Context, client *api.APIClient, sctx *api.SessionContext, prResp string) string {
 	// Parse pr_number from the create_pr response.
 	var prData map[string]interface{}
 	prNumber := 0

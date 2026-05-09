@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 func TestGenerateSessionID(t *testing.T) {
@@ -30,7 +32,7 @@ func TestSaveAndLoadSession(t *testing.T) {
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "hi there"},
 	}
-	usage := TokenUsage{InputTokens: 100, OutputTokens: 50, Requests: 1}
+	usage := api.TokenUsage{InputTokens: 100, OutputTokens: 50, Requests: 1}
 
 	err := SaveSession("test123", history, 42, usage, "sonnet")
 	if err != nil {
@@ -63,11 +65,11 @@ func TestListSessions(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	// Create 3 sessions
-	_ = SaveSession("aaa", []Message{{Role: "user", Content: "1"}}, 1, TokenUsage{}, "sonnet")
+	_ = SaveSession("aaa", []Message{{Role: "user", Content: "1"}}, 1, api.TokenUsage{}, "sonnet")
 	time.Sleep(10 * time.Millisecond)
-	_ = SaveSession("bbb", []Message{{Role: "user", Content: "2"}}, 2, TokenUsage{}, "sonnet")
+	_ = SaveSession("bbb", []Message{{Role: "user", Content: "2"}}, 2, api.TokenUsage{}, "sonnet")
 	time.Sleep(10 * time.Millisecond)
-	_ = SaveSession("ccc", []Message{{Role: "user", Content: "3"}}, 3, TokenUsage{}, "sonnet")
+	_ = SaveSession("ccc", []Message{{Role: "user", Content: "3"}}, 3, api.TokenUsage{}, "sonnet")
 
 	sessions, err := ListSessions(10)
 	if err != nil {
@@ -88,9 +90,9 @@ func TestListSessions_Limit(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	_ = SaveSession("a1", []Message{{Role: "user", Content: "1"}}, 0, TokenUsage{}, "")
-	_ = SaveSession("a2", []Message{{Role: "user", Content: "2"}}, 0, TokenUsage{}, "")
-	_ = SaveSession("a3", []Message{{Role: "user", Content: "3"}}, 0, TokenUsage{}, "")
+	_ = SaveSession("a1", []Message{{Role: "user", Content: "1"}}, 0, api.TokenUsage{}, "")
+	_ = SaveSession("a2", []Message{{Role: "user", Content: "2"}}, 0, api.TokenUsage{}, "")
+	_ = SaveSession("a3", []Message{{Role: "user", Content: "3"}}, 0, api.TokenUsage{}, "")
 
 	sessions, err := ListSessions(2)
 	if err != nil {
@@ -141,9 +143,9 @@ func TestLoadLastSession(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	_ = SaveSession("first", []Message{{Role: "user", Content: "old"}}, 1, TokenUsage{}, "")
+	_ = SaveSession("first", []Message{{Role: "user", Content: "old"}}, 1, api.TokenUsage{}, "")
 	time.Sleep(10 * time.Millisecond)
-	_ = SaveSession("second", []Message{{Role: "user", Content: "new"}}, 2, TokenUsage{}, "")
+	_ = SaveSession("second", []Message{{Role: "user", Content: "new"}}, 2, api.TokenUsage{}, "")
 
 	session, err := LoadLastSession()
 	if err != nil {
@@ -255,9 +257,9 @@ func TestSanitizeSessionMessages(t *testing.T) {
 			Role: "assistant",
 			Content: []interface{}{
 				map[string]interface{}{
-					"type":  "tool_use",
-					"id":    "abc",
-					"name":  "test",
+					"type": "tool_use",
+					"id":   "abc",
+					"name": "test",
 					// CORRUPTED: missing input field
 				},
 			},

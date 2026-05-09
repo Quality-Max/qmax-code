@@ -39,4 +39,3 @@ func (q *promptQueue) len() int {
 	defer q.mu.Unlock()
 	return len(q.items)
 }
-

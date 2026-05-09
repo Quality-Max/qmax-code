@@ -15,6 +15,7 @@ import (
 
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/qualitymax/qmax-code/internal/tui"
 	"github.com/qualitymax/qmax-code/internal/vnc"
 )
 
@@ -87,15 +88,15 @@ func main() {
 			cfg, err = api.LoginWithAPIKey(args[0])
 		} else {
 			// Browser-based login (Railway-style)
-			AnimateMax(MoodWaving, "Let's get you logged in!")
+			tui.AnimateMax(tui.MoodWaving, "Let's get you logged in!")
 			cfg, err = LoginViaBrowser()
 		}
 		if err != nil {
-			AnimateMax(MoodSad, "Login failed: "+err.Error())
+			tui.AnimateMax(tui.MoodSad, "Login failed: "+err.Error())
 			fmt.Fprintf(os.Stderr, "\n  Try: qmax-code login --api-key qm-YOUR-API-KEY\n")
 			os.Exit(1)
 		}
-		AnimateMax(MoodHappy, fmt.Sprintf("Logged in as %s", cfg.Email))
+		tui.AnimateMax(tui.MoodHappy, fmt.Sprintf("Logged in as %s", cfg.Email))
 		return
 	}
 
@@ -117,7 +118,7 @@ func main() {
 	appConfig := api.LoadQMaxCodeConfig()
 
 	// Apply color theme before constructing any UI components.
-	ApplyTheme(ThemeByName(appConfig.Theme))
+	tui.ApplyTheme(tui.ThemeByName(appConfig.Theme))
 
 	// Apply --professional flag (CLI flag overrides saved config)
 	if *professional {
@@ -162,13 +163,13 @@ func main() {
 	auth := api.LoadAuth()
 
 	// Load qmax config for cloud URL and auth token (legacy)
-	qmaxCfg := loadQMaxConfig()
+	qmaxCfg := api.LoadQMaxConfig()
 	if *cloudURL != "" {
 		qmaxCfg.CloudURL = *cloudURL
 	}
 
 	// Discover qmax binary (optional in standalone mode)
-	qmaxBin := discoverQMaxBinary()
+	qmaxBin := api.DiscoverQMaxBinary()
 
 	// Initialize API client if authenticated (standalone mode)
 	var apiClient *api.APIClient
@@ -263,19 +264,19 @@ func main() {
 	detectedProjectID := *projectID
 	var projectFile string
 	if detectedProjectID == 0 {
-		detectedProjectID, projectFile = detectProjectFromCwd()
+		detectedProjectID, projectFile = api.DetectProjectFromCwd()
 	}
 	if detectedProjectID == 0 && appConfig.DefaultProject > 0 {
 		detectedProjectID = appConfig.DefaultProject
 	}
 
 	// Build session context
-	ctx := &SessionContext{
+	ctx := &api.SessionContext{
 		ProjectID:   detectedProjectID,
 		QMaxCfg:     qmaxCfg,
 		QMaxBin:     qmaxBin,
-		QMaxInfo:    probeQMaxStatus(qmaxBin),
-		GitInfo:     detectGitInfo(),
+		QMaxInfo:    api.ProbeQMaxStatus(qmaxBin),
+		GitInfo:     api.DetectGitInfo(),
 		ProjectFile: projectFile,
 		API:         apiClient,
 		Auth:        auth,
@@ -287,8 +288,8 @@ func main() {
 	autoRoute := effectiveModel == "auto"
 	var baseModel, chatModel string
 	if autoRoute {
-		baseModel = ModelSonnet
-		chatModel = ModelHaiku
+		baseModel = api.ModelSonnet
+		chatModel = api.ModelHaiku
 	} else {
 		baseModel = resolveModel(effectiveModel)
 		chatModel = baseModel
@@ -394,18 +395,18 @@ func main() {
 func resolveModel(m string) string {
 	switch strings.ToLower(m) {
 	case "sonnet":
-		return ModelSonnet
+		return api.ModelSonnet
 	case "opus":
-		return ModelOpus
+		return api.ModelOpus
 	case "haiku":
-		return ModelHaiku
+		return api.ModelHaiku
 	default:
 		return m
 	}
 }
 
 func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
-	term := NewTerminal()
+	term := tui.NewTerminal()
 	defer term.Close()
 	if cliAgent != nil {
 		defer cliAgent.Cleanup()
@@ -500,14 +501,14 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	// Welcome
 	if !quietMode {
 		term.PrintBanner(Version, agent.config.Context)
-		fmt.Printf("  %sSession: %s%s\n", colorDim, sessionID, colorReset)
+		fmt.Printf("  %sSession: %s%s\n", tui.ColorDim, sessionID, tui.ColorReset)
 
 		// Hint about recent session if one exists
 		if recent, err := ListSessions(1); err == nil && len(recent) > 0 {
 			age := time.Since(recent[0].UpdatedAt)
 			if age < 24*time.Hour {
 				fmt.Printf("  %sRecent session: %s (%d turns, %s ago) — type /resume to continue%s\n",
-					colorDim, recent[0].ID, recent[0].Turns, formatDuration(age), colorReset)
+					tui.ColorDim, recent[0].ID, recent[0].Turns, formatDuration(age), tui.ColorReset)
 			}
 		}
 		fmt.Println()
@@ -538,7 +539,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			fmt.Println()
 			inputHistory = append(inputHistory, input)
 		} else {
-			result := ReadInput(term.currentPrompt, inputHistory, agent.config.OutputVerbose)
+			result := tui.ReadInput(term.Prompt(), inputHistory, agent.config.OutputVerbose)
 
 			if result.OutputToggle {
 				toggleOutputVerbose(agent, cliAgent, term)
@@ -638,7 +639,11 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				term.PrintSystem("No saved sessions.")
 				continue
 			}
-			chosenID, ok := ShowSessionPicker(sessions, sessionID)
+			items := make([]tui.SessionPickerItem, len(sessions))
+			for i, s := range sessions {
+				items[i] = tui.SessionPickerItem{ID: s.ID, UpdatedAt: s.UpdatedAt, Turns: s.Turns, Tokens: s.Tokens, ProjectID: s.ProjectID, Model: s.Model}
+			}
+			chosenID, ok := tui.ShowSessionPicker(items, sessionID)
 			if !ok {
 				continue
 			}
@@ -684,7 +689,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 					if len(truncated) > 80 {
 						truncated = truncated[:77] + "..."
 					}
-					fmt.Printf("  %s[%d]%s %s\n", colorDim, i+1, colorReset, truncated)
+					fmt.Printf("  %s[%d]%s %s\n", tui.ColorDim, i+1, tui.ColorReset, truncated)
 				}
 			}
 			continue
@@ -709,7 +714,15 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if agent.ollamaMode == OllamaModeFull {
 				currentBackend = "ollama"
 			}
-			result := ShowModelPicker(currentBackend, cfg.ModelOverride, cfg.Effort, cfg.OllamaURL, cfg.OllamaModel)
+			result := tui.ShowModelPicker(tui.ModelPickerOpts{
+				CurrentBackend: currentBackend,
+				CurrentModelID: cfg.ModelOverride,
+				Effort:         cfg.Effort,
+				OllamaURL:      cfg.OllamaURL,
+				OllamaModel:    cfg.OllamaModel,
+				CCInstalled:    FindClaudeCode() != "",
+				CodexInstalled: FindCodex() != "",
+			})
 			if !result.Confirmed {
 				continue
 			}
@@ -733,7 +746,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				cfg.Backend = ""
 				agent.config.Context.Backend = ""
 				_ = cfg.Save()
-				term.PrintSystem(fmt.Sprintf("Backend: Ollama  model: %s  endpoint: %s", cfg.OllamaModel, maskURL(cfg.OllamaURL)))
+				term.PrintSystem(fmt.Sprintf("Backend: Ollama  model: %s  endpoint: %s", cfg.OllamaModel, sysutil.MaskURL(cfg.OllamaURL)))
 				continue
 			}
 
@@ -803,14 +816,14 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				term.PrintError("api.Config not loaded.")
 				continue
 			}
-			chosen, ok := ShowThemePicker(cfg.Theme)
+			chosen, ok := tui.ShowThemePicker(cfg.Theme)
 			if !ok {
 				continue
 			}
-			if err := SaveTheme(cfg, chosen); err != nil {
+			if err := tui.SaveTheme(cfg, chosen); err != nil {
 				term.PrintError(fmt.Sprintf("Failed to save config: %v", err))
 			} else {
-				ApplyTheme(ThemeByName(chosen))
+				tui.ApplyTheme(tui.ThemeByName(chosen))
 				term.PrintSystem(fmt.Sprintf("Theme set to: %s", chosen))
 			}
 			continue
@@ -821,7 +834,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				term.PrintError("api.Config not loaded.")
 				continue
 			}
-			enabled, ok := ShowCloudSyncPicker(cfg.CloudSync)
+			enabled, ok := tui.ShowCloudSyncPicker(cfg.CloudSync)
 			if !ok {
 				continue
 			}
@@ -998,7 +1011,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			case "":
 				// No argument → open the TUI picker. Matches the /cloudsync
 				// pattern so toggles feel consistent across the app.
-				next, ok := ShowLiveFeedPicker(cfg.LiveFeed)
+				next, ok := tui.ShowLiveFeedPicker(cfg.LiveFeed)
 				if !ok {
 					continue // user cancelled; leave current value alone
 				}
@@ -1041,13 +1054,13 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			}
 			continue
 		case input == "/screenshot":
-			img, err := CaptureScreenshot()
+			img, err := tui.CaptureScreenshot()
 			if err != nil {
 				term.PrintError(err.Error())
 				continue
 			}
 			term.PrintSystem(fmt.Sprintf("Screenshot captured (%s)", img.FileName))
-			llmResult, err := agent.RunStreamingWithImages("Analyze this screenshot.", []ImageAttachment{*img}, term)
+			llmResult, err := agent.RunStreamingWithImages("Analyze this screenshot.", []tui.ImageAttachment{*img}, term)
 			if err != nil {
 				term.PrintError(err.Error())
 			}
@@ -1058,10 +1071,10 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			continue
 		case input == "/paste":
 			// Try image first, then text
-			img, imgErr := PasteImageFromClipboard()
+			img, imgErr := tui.PasteImageFromClipboard()
 			if imgErr == nil {
 				term.PrintSystem(fmt.Sprintf("Pasted image from clipboard (%s)", img.FileName))
-				llmResult, err := agent.RunStreamingWithImages("Analyze this pasted image.", []ImageAttachment{*img}, term)
+				llmResult, err := agent.RunStreamingWithImages("Analyze this pasted image.", []tui.ImageAttachment{*img}, term)
 				if err != nil {
 					term.PrintError(err.Error())
 				}
@@ -1072,7 +1085,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				continue
 			}
 			// Fall back to text paste
-			text, textErr := PasteTextFromClipboard()
+			text, textErr := tui.PasteTextFromClipboard()
 			if textErr != nil || text == "" {
 				term.PrintError("Nothing in clipboard")
 				continue
@@ -1082,21 +1095,21 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			inputWasPasted = true
 		}
 
-		if isLargePastedText(input, inputWasPasted) {
-			path, err := savePastedTextFile(input)
+		if tui.IsLargePastedText(input, inputWasPasted) {
+			path, err := tui.SavePastedTextFile(input)
 			if err != nil {
 				term.PrintError(fmt.Sprintf("Could not save pasted_file: %v", err))
 				continue
 			}
 			term.PrintSystem(fmt.Sprintf("Large paste saved as pasted_file: %s (%d bytes)", path, len(input)))
-			input = pastedFilePrompt(path, len(input))
+			input = tui.PastedFilePrompt(path, len(input))
 			if len(inputHistory) > 0 {
 				inputHistory[len(inputHistory)-1] = input
 			}
 		}
 
 		// Detect image file paths dragged/pasted into input
-		cleanInput, images := DetectAndLoadImages(input)
+		cleanInput, images := tui.DetectAndLoadImages(input)
 
 		// Ensure a cloud session exists for this conversation (no-op after first call).
 		startCloudSession()
@@ -1105,15 +1118,15 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		// we log "live URL captured" / "fell back to pooled runner" once
 		// per turn rather than once per poll.
 		if c := agent.config.Context; c != nil {
-			c.liveURLLogged = false
-			c.sandboxModeLogged = false
-			c.sandboxFallbackSeen = false
+			c.LiveURLLogged = false
+			c.SandboxModeLogged = false
+			c.SandboxFallbackSeen = false
 		}
 
 		// Run through the LLM agent with streaming.
 		// Start the queue reader so the user can type the next prompt while
 		// the agent is working.  It is stopped (and fully drained) before
-		// the next ReadInput call so stdin is never shared between readers.
+		// the next tui.ReadInput call so stdin is never shared between readers.
 		stopQueueReader := startQueueReader(pq, term)
 
 		// CC mode: delegate entirely to Claude Code subprocess (uses CC subscription).
@@ -1208,7 +1221,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		}
 
 		// Stop queue reader and wait for the goroutine to exit before we
-		// touch stdin again (either via the queue loop or ReadInput).
+		// touch stdin again (either via the queue loop or tui.ReadInput).
 		stopQueueReader()
 
 		// If prompts were queued during this run, surface them.
@@ -1257,10 +1270,10 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		if cliAgent != nil {
 			if preConn.url != "" {
 				agent.config.Context.LastLiveURL = preConn.url
-				agent.config.Context.sandboxModeLogged = true
+				agent.config.Context.SandboxModeLogged = true
 			} else if url := sysutil.DrainLiveURLFromChild(); url != "" {
 				agent.config.Context.LastLiveURL = url
-				agent.config.Context.sandboxModeLogged = true
+				agent.config.Context.SandboxModeLogged = true
 			}
 		}
 
@@ -1286,7 +1299,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 //
 // Idempotent: no-op when LiveFeed is off. Clears LastLiveURL on success so
 // a stale URL from a previous run doesn't auto-launch on the next turn.
-func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal, preStream *vnc.VNCStream, pendingExecID string) {
+func maybeLaunchLiveFeed(sctx *api.SessionContext, term *tui.Terminal, preStream *vnc.VNCStream, pendingExecID string) {
 	if sctx == nil || !sctx.LiveFeed {
 		if preStream != nil {
 			preStream.Close()
@@ -1311,14 +1324,14 @@ func maybeLaunchLiveFeed(sctx *SessionContext, term *Terminal, preStream *vnc.VN
 		// Only diagnose if the agent actually ran a tool this turn that
 		// reported sandbox mode (i.e. a run/crawl actually happened).
 		// Otherwise the user just chatted and we shouldn't nag.
-		if !sctx.sandboxModeLogged && pendingExecID == "" {
+		if !sctx.SandboxModeLogged && pendingExecID == "" {
 			return
 		}
 		if pendingExecID != "" {
 			term.PrintSystem("Live feed: sandbox did not expose a live_browser_url within 5 minutes.")
 		} else {
 			term.PrintSystem("Live feed was on, but no live_browser_url came back this turn.")
-			if sctx.sandboxFallbackSeen {
+			if sctx.SandboxFallbackSeen {
 				term.PrintSystem("  Server reported is_e2b=false. Most common reason:")
 				term.PrintSystem("   • Script has agent_id set → server silently rejects the use_e2b combo")
 			} else {
@@ -1401,7 +1414,7 @@ func waitForLiveFeedURL(api *api.APIClient, execID string, timeout time.Duration
 }
 
 // handleConnect runs the browser-based auth flow from within the REPL.
-func handleConnect(agent *Agent, term *Terminal) {
+func handleConnect(agent *Agent, term *tui.Terminal) {
 	ctx := agent.config.Context
 
 	// Already connected?
@@ -1411,12 +1424,12 @@ func handleConnect(agent *Agent, term *Terminal) {
 		return
 	}
 
-	AnimateMax(MoodWaving, "Let's connect you to QualityMax!")
+	tui.AnimateMax(tui.MoodWaving, "Let's connect you to QualityMax!")
 	fmt.Println()
 
 	auth, err := LoginViaBrowser()
 	if err != nil {
-		AnimateMax(MoodSad, "Connection failed: "+err.Error())
+		tui.AnimateMax(tui.MoodSad, "Connection failed: "+err.Error())
 		fmt.Println()
 		term.PrintSystem("You can also paste an API key:")
 		term.PrintSystem("  /set apikey qm-YOUR-API-KEY")
@@ -1427,12 +1440,12 @@ func handleConnect(agent *Agent, term *Terminal) {
 	ctx.Auth = auth
 	ctx.API = api.NewAPIClient(auth)
 
-	AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
+	tui.AnimateMax(tui.MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 	fmt.Println()
 }
 
 // handleDisconnect removes auth and API client from the session.
-func handleDisconnect(agent *Agent, term *Terminal) {
+func handleDisconnect(agent *Agent, term *tui.Terminal) {
 	ctx := agent.config.Context
 
 	if ctx.Auth == nil || !ctx.Auth.IsAuthenticated() {
@@ -1462,12 +1475,12 @@ func handleDisconnect(agent *Agent, term *Terminal) {
 		}
 	}
 
-	AnimateMax(MoodNeutral, fmt.Sprintf("Disconnected from %s", email))
+	tui.AnimateMax(tui.MoodNeutral, fmt.Sprintf("Disconnected from %s", email))
 	fmt.Println()
 	term.PrintSystem("Run /connect to log in again.")
 }
 
-func toggleOutputVerbose(agent *Agent, cliAgent CLIAgent, term *Terminal) {
+func toggleOutputVerbose(agent *Agent, cliAgent CLIAgent, term *tui.Terminal) {
 	if agent == nil {
 		return
 	}
@@ -1494,7 +1507,7 @@ func toggleOutputVerbose(agent *Agent, cliAgent CLIAgent, term *Terminal) {
 }
 
 // handleKeys provides an interactive TUI for managing API keys.
-func handleKeys(agent *Agent, term *Terminal) {
+func handleKeys(agent *Agent, term *tui.Terminal) {
 	fmt.Println()
 
 	// Show current key status
@@ -1542,7 +1555,7 @@ func handleKeys(agent *Agent, term *Terminal) {
 		if err := api.SaveAnthropicKey(key); err != nil {
 			term.PrintSystem(fmt.Sprintf("Key set for this session (keychain unavailable: %s)", err))
 		} else {
-			AnimateMax(MoodHappy, "Key saved to OS keychain!")
+			tui.AnimateMax(tui.MoodHappy, "Key saved to OS keychain!")
 			fmt.Println()
 		}
 	case 1: // QualityMax connect
@@ -1629,7 +1642,7 @@ Examples:
   "create a PR with the generated tests"`)
 }
 
-func reconnectMCPTransport(cliAgent CLIAgent, term *Terminal) {
+func reconnectMCPTransport(cliAgent CLIAgent, term *tui.Terminal) {
 	switch a := cliAgent.(type) {
 	case *CCAgent:
 		if err := a.writeMCPConfig(); err != nil {
@@ -1648,7 +1661,7 @@ func reconnectMCPTransport(cliAgent CLIAgent, term *Terminal) {
 	}
 }
 
-func printConfigInfo(cfg *api.Config, term *Terminal) {
+func printConfigInfo(cfg *api.Config, term *tui.Terminal) {
 	if cfg == nil {
 		term.PrintSystem("No config loaded (using defaults).")
 		return
@@ -1680,7 +1693,7 @@ func printConfigInfo(cfg *api.Config, term *Terminal) {
 	fmt.Printf("  %-20s %s\n", "Live feed:", liveFeedVal)
 	fmt.Printf("  %-20s %d\n", "Token budget:", cfg.MaxTokenBudget)
 	if cfg.OllamaURL != "" {
-		fmt.Printf("  %-20s %s\n", "Ollama URL:", maskURL(cfg.OllamaURL))
+		fmt.Printf("  %-20s %s\n", "Ollama URL:", sysutil.MaskURL(cfg.OllamaURL))
 		fmt.Printf("  %-20s %s\n", "Ollama model:", cfg.OllamaModel)
 	} else {
 		fmt.Printf("  %-20s %s\n", "Ollama:", "(not configured)")
@@ -1688,7 +1701,7 @@ func printConfigInfo(cfg *api.Config, term *Terminal) {
 	fmt.Println()
 }
 
-func handleSetCommand(input string, agent *Agent, term *Terminal) {
+func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 	parts := strings.Fields(input)
 	if len(parts) < 3 {
 		term.PrintError("Usage: /set <key> <value>")
@@ -1814,7 +1827,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		}
 		agent.config.Context.Auth = auth
 		agent.config.Context.API = api.NewAPIClient(auth)
-		AnimateMax(MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
+		tui.AnimateMax(tui.MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 		fmt.Println()
 		return // auth.json handles persistence
 
@@ -1828,7 +1841,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 				return
 			}
 			agent.ollama = NewOllamaClient(cfg)
-			term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", maskURL(cfg.OllamaURL), cfg.OllamaModel))
+			term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", sysutil.MaskURL(cfg.OllamaURL), cfg.OllamaModel))
 		case "false", "0", "no", "off", "disabled":
 			agent.ollama = nil
 			term.PrintSystem("Ollama disabled. Using Claude for all calls.")
@@ -1867,7 +1880,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 		}
 
 	case "theme":
-		valid := ThemeNames()
+		valid := tui.ThemeNames()
 		found := false
 		for _, n := range valid {
 			if n == strings.ToLower(value) {
@@ -1880,7 +1893,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 			return
 		}
 		cfg.Theme = strings.ToLower(value)
-		ApplyTheme(ThemeByName(cfg.Theme))
+		tui.ApplyTheme(tui.ThemeByName(cfg.Theme))
 		term.PrintSystem(fmt.Sprintf("Theme set to: %s (takes full effect on restart)", cfg.Theme))
 
 	case "anthropic-key", "anthropic_key":
@@ -1908,7 +1921,7 @@ func handleSetCommand(input string, agent *Agent, term *Terminal) {
 	}
 }
 
-func printContext(ctx *SessionContext, term *Terminal) {
+func printContext(ctx *api.SessionContext, term *tui.Terminal) {
 	term.PrintSystem(fmt.Sprintf("Project: #%d", ctx.ProjectID))
 	if ctx.ProjectFile != "" {
 		term.PrintSystem(fmt.Sprintf("Detected from: %s", ctx.ProjectFile))

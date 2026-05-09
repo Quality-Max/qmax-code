@@ -10,18 +10,20 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
 )
 
 // Session represents a saved conversation session.
 type Session struct {
-	ID        string     `json:"id"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	ProjectID int        `json:"project_id,omitempty"`
-	Model     string     `json:"model,omitempty"`
-	Messages  []Message  `json:"messages"`
-	Usage     TokenUsage `json:"usage"`
-	Turns     int        `json:"turns"`
+	ID        string         `json:"id"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	ProjectID int            `json:"project_id,omitempty"`
+	Model     string         `json:"model,omitempty"`
+	Messages  []Message      `json:"messages"`
+	Usage     api.TokenUsage `json:"usage"`
+	Turns     int            `json:"turns"`
 }
 
 const sessionsSubDir = "sessions"
@@ -54,7 +56,7 @@ func sessionFilePath(id string) string {
 
 // SaveSession persists the current conversation to disk.
 // Called after every message exchange for crash safety.
-func SaveSession(sessionID string, history []Message, projectID int, usage TokenUsage, model string) error {
+func SaveSession(sessionID string, history []Message, projectID int, usage api.TokenUsage, model string) error {
 	dir := sessionDirPath()
 	if dir == "" {
 		return fmt.Errorf("cannot determine home directory")

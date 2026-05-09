@@ -6,13 +6,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/qualitymax/qmax-code/internal/api"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 // Ollama integration — use a self-hosted local model for chat and,
@@ -57,7 +59,7 @@ func NewOllamaClient(cfg *api.Config) *OllamaClient {
 }
 
 // ChatStreamingWithModel is like ChatStreaming but uses a specific model.
-func (o *OllamaClient) ChatStreamingWithModel(ctx context.Context, model, system string, history []Message, term *Terminal) (string, error) {
+func (o *OllamaClient) ChatStreamingWithModel(ctx context.Context, model, system string, history []Message, term *tui.Terminal) (string, error) {
 	savedModel := o.model
 	o.model = model
 	defer func() { o.model = savedModel }()
@@ -119,7 +121,7 @@ type ollamaChatChunk struct {
 
 // ChatStreaming sends a chat request to Ollama and streams the response.
 // Returns the full text, or an error (caller should fall back to Claude).
-func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history []Message, term *Terminal) (string, error) {
+func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history []Message, term *tui.Terminal) (string, error) {
 	// Convert Anthropic-style messages to OpenAI-style
 	messages := make([]ollamaChatMessage, 0, len(history)+1)
 	if system != "" {
@@ -238,16 +240,4 @@ func extractPlainText(content interface{}) string {
 		return strings.Join(parts, "\n")
 	}
 	return ""
-}
-
-// maskURL hides credentials in a URL for display.
-func maskURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
-	}
-	if u.User != nil {
-		u.User = url.UserPassword(u.User.Username(), "****")
-	}
-	return u.String()
 }

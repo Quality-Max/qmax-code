@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"encoding/base64"
@@ -108,9 +108,9 @@ func renderHalfBlock(img image.Image, maxWidth int) error {
 func RenderScreenshotCompact(label string, url string) {
 	border := strings.Repeat("─", 44)
 	fmt.Printf("  ┌%s┐\n", border)
-	fmt.Printf("  │ 📸 %-42s│\n", truncateStr(label, 42))
+	fmt.Printf("  │ 📸 %-42s│\n", TruncateStr(label, 42))
 	if url != "" {
-		short := truncateStr(url, 42)
+		short := TruncateStr(url, 42)
 		fmt.Printf("  │ %-44s│\n", short)
 	}
 	fmt.Printf("  └%s┘\n", border)

@@ -102,15 +102,15 @@ type streamClosedMsg struct{}
 // blockLayout records the geometry of the most recent render so mouse
 // events can be mapped back to source-image coordinates.
 type blockLayout struct {
-	srcW, srcH       int
-	dstW, dstH       int     // size of the rendered region in source-pixel units
-	leftPadCells     int     // cells of left padding before image starts
-	topPadCells      int     // cells of top padding before image starts
-	cellSrcWidth     float64 // source pixels covered by one cell horizontally
-	cellSrcHeight    float64 // source pixels covered by one cell vertically
-	pixelsPerCellX   int     // 1 for half-block, 2 for quarter-block
-	pixelsPerCellY   int     // 2 for both modes
-	buttonMask       byte    // current pressed buttons (RFB encoding)
+	srcW, srcH     int
+	dstW, dstH     int     // size of the rendered region in source-pixel units
+	leftPadCells   int     // cells of left padding before image starts
+	topPadCells    int     // cells of top padding before image starts
+	cellSrcWidth   float64 // source pixels covered by one cell horizontally
+	cellSrcHeight  float64 // source pixels covered by one cell vertically
+	pixelsPerCellX int     // 1 for half-block, 2 for quarter-block
+	pixelsPerCellY int     // 2 for both modes
+	buttonMask     byte    // current pressed buttons (RFB encoding)
 }
 
 // bfSmallFraction is the fraction of the terminal used in small (default) mode.
@@ -120,10 +120,10 @@ type browserFeedModel struct {
 	stream *vnc.VNCStream
 
 	frame      *vnc.VNCFrame
-	termCols   int // actual terminal width
-	termRows   int // actual terminal height
-	cols       int // effective render width (capped in small mode)
-	rows       int // effective render height
+	termCols   int  // actual terminal width
+	termRows   int  // actual terminal height
+	cols       int  // effective render width (capped in small mode)
+	rows       int  // effective render height
 	fullscreen bool // false = small (bfSmallFraction of terminal), true = fill
 	mode       blockMode
 	frames     int // counter for status line

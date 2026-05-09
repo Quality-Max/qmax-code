@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"fmt"
@@ -80,7 +80,7 @@ func (p *ProgressBar) Update(percent int, message string) {
 	}
 
 	// Overwrite current line
-	fmt.Printf("\r  %s %s %s %3d%% %s", spinner, bar, styleDim.Render(fmt.Sprintf("[%s]", elapsed)), percent, truncateStr(status, 30))
+	fmt.Printf("\r  %s %s %s %3d%% %s", spinner, bar, styleDim.Render(fmt.Sprintf("[%s]", elapsed)), percent, TruncateStr(status, 30))
 }
 
 // Finish marks the progress bar as complete.
