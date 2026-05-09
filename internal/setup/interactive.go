@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"bufio"
@@ -25,7 +25,7 @@ func LoginInteractive() (*api.AuthConfig, error) {
 	fmt.Println("  Get your API key from:")
 	fmt.Println("  https://app.qualitymax.io/settings → API Keys")
 	fmt.Println()
-	key := readSecret("  Paste your API key (qm-...): ")
+	key := ReadSecret("  Paste your API key (qm-...): ")
 
 	if key == "" {
 		return nil, fmt.Errorf("no API key provided")
@@ -146,7 +146,7 @@ func LoginViaBrowser() (*api.AuthConfig, error) {
 
 // RunInteractiveSetup guides a first-time user through login and project selection.
 // Returns the api.AuthConfig and selected project ID.
-func RunInteractiveSetup() (*api.AuthConfig, int) {
+func RunInteractive() (*api.AuthConfig, int) {
 	fmt.Println()
 	tui.AnimateMax(tui.MoodWaving, tui.GetMaxGreeting())
 	fmt.Println()
@@ -155,7 +155,7 @@ func RunInteractiveSetup() (*api.AuthConfig, int) {
 	fmt.Println()
 
 	// Step 1: Account check
-	choice := promptChoice("  Do you have a QualityMax account?", []string{
+	choice := PromptChoice("  Do you have a QualityMax account?", []string{
 		"Yes, log me in (opens browser)",
 		"No, create one (free)",
 		"I have an API key already",
@@ -205,7 +205,7 @@ func RunInteractiveSetup() (*api.AuthConfig, int) {
 	if detected != "" {
 		fmt.Println()
 		fmt.Printf("  Detected a %s project in this directory.\n", prettyFrameworkName(detected))
-		confirm := promptChoice(
+		confirm := PromptChoice(
 			fmt.Sprintf("  Save %s as the default framework for future test generation?", detected),
 			[]string{"Yes, save it", "No, I'll pick per-call"},
 		)
@@ -239,7 +239,7 @@ func RunInteractiveSetup() (*api.AuthConfig, int) {
 		fmt.Println("  I need an Anthropic API key to think (that's my brain!).")
 		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
 		fmt.Println()
-		key := readSecret("  Paste your Anthropic key (sk-ant-...): ")
+		key := ReadSecret("  Paste your Anthropic key (sk-ant-...): ")
 		if key != "" {
 			os.Setenv("ANTHROPIC_API_KEY", key)
 			// Save to OS keychain
@@ -271,7 +271,7 @@ func RunInteractiveSetup() (*api.AuthConfig, int) {
 
 // loginWithKeyPrompt asks the user to paste their API key.
 func loginWithKeyPrompt() (*api.AuthConfig, error) {
-	key := readSecret("  Paste your API key (qm-...): ")
+	key := ReadSecret("  Paste your API key (qm-...): ")
 
 	if key == "" {
 		return nil, fmt.Errorf("no API key provided")
@@ -339,7 +339,7 @@ func selectProject(auth *api.AuthConfig) int {
 	}
 	options = append(options, "Skip — I'll choose later")
 
-	choice := promptChoice("  Which project do you want to work with?", options)
+	choice := PromptChoice("  Which project do you want to work with?", options)
 
 	if choice >= len(projects) {
 		return 0
@@ -356,9 +356,9 @@ func selectProject(auth *api.AuthConfig) int {
 	return id
 }
 
-// readSecret reads a line of input with characters hidden (replaced with dots).
+// ReadSecret reads a line of input with characters hidden (replaced with dots).
 // Shows a masked preview after completion.
-func readSecret(prompt string) string {
+func ReadSecret(prompt string) string {
 	fmt.Print(prompt)
 
 	// Switch terminal to raw mode to hide input
@@ -420,8 +420,8 @@ func maskKey(key string) string {
 
 // --- UI helpers ---
 
-// promptChoice shows an interactive menu and returns the selected index.
-func promptChoice(prompt string, options []string) int {
+// PromptChoice shows an interactive menu and returns the selected index.
+func PromptChoice(prompt string, options []string) int {
 	fmt.Println(prompt)
 	for i, opt := range options {
 		if i == 0 {

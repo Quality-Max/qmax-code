@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"os"
@@ -7,16 +7,23 @@ import (
 	"testing"
 )
 
-// Tests for the main-package wrappers around internal/agent's TOML-merging
-// primitives. The primitives themselves are tested in
-// internal/agent/setup_orch_test.go.
+// withTempHome points $HOME at a fresh temp dir for the test and restores it
+// in cleanup. Local copy of the helper used by other test files in the repo.
+func withTempHome(t *testing.T) string {
+	t.Helper()
+	orig := os.Getenv("HOME")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	t.Cleanup(func() { os.Setenv("HOME", orig) })
+	return tmp
+}
 
-func TestSetupCodexIntegrationWritesConfigTOML(t *testing.T) {
+func TestInstallCodexWritesConfigTOML(t *testing.T) {
 	home := withTempHome(t)
 
-	res, err := SetupCodexIntegration()
+	res, err := InstallCodex()
 	if err != nil {
-		t.Fatalf("SetupCodexIntegration: %v", err)
+		t.Fatalf("InstallCodex: %v", err)
 	}
 	if res.MCPPath != filepath.Join(home, ".codex", "config.toml") {
 		t.Fatalf("MCPPath = %q, want config.toml under temp home", res.MCPPath)
@@ -33,8 +40,8 @@ func TestSetupCodexIntegrationWritesConfigTOML(t *testing.T) {
 	if !strings.Contains(text, "[mcp_servers.qmax]") {
 		t.Fatalf("missing qmax table:\n%s", text)
 	}
-	if !IsOrchSetupDone("codex") {
-		t.Fatal("IsOrchSetupDone(codex) should detect config.toml qmax entry")
+	if !IsOrchInstalled("codex") {
+		t.Fatal("IsOrchInstalled(codex) should detect config.toml qmax entry")
 	}
 }
 
