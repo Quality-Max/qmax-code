@@ -1,4 +1,4 @@
-package main
+package mcp
 
 import (
 	"bufio"
@@ -11,14 +11,16 @@ import (
 	"github.com/qualitymax/qmax-code/internal/api"
 )
 
-// RunMCPServer starts an MCP (Model Context Protocol) server over stdin/stdout.
+// RunServer starts an MCP (Model Context Protocol) server over stdin/stdout.
 // CC spawns this as a subprocess when qmax-code is configured as an MCP server:
 //
 //	qmax-code serve --mcp
 //
 // The server exposes all qmax tools to Claude Code so CC can call them via
 // its native tool-use mechanism — no Anthropic API tokens consumed.
-func RunMCPServer() {
+//
+// version is the qmax-code build version, surfaced in the initialize handshake.
+func RunServer(version string) {
 	auth := api.LoadAuth()
 	var apiClient *api.APIClient
 	if auth != nil && auth.IsAuthenticated() {
@@ -56,83 +58,83 @@ func RunMCPServer() {
 			continue
 		}
 
-		if resp, ok := handleMCPLine(line, sctx); ok {
+		if resp, ok := handleLine(line, sctx, version); ok {
 			_ = encoder.Encode(resp)
 		}
 	}
 }
 
-func handleMCPLine(line []byte, sctx *api.SessionContext) (mcpResponse, bool) {
-	var req mcpRequest
+func handleLine(line []byte, sctx *api.SessionContext, version string) (response, bool) {
+	var req request
 	if err := json.Unmarshal(line, &req); err != nil {
-		return mcpErr(nil, -32700, "parse error"), true
+		return errResp(nil, -32700, "parse error"), true
 	}
 
 	// JSON-RPC notifications have no id and require no response.
 	if req.ID == nil {
-		return mcpResponse{}, false
+		return response{}, false
 	}
 
 	if req.JSONRPC != "2.0" {
-		return mcpErr(req.ID, -32600, "invalid request: jsonrpc must be 2.0"), true
+		return errResp(req.ID, -32600, "invalid request: jsonrpc must be 2.0"), true
 	}
 	if req.Method == "" {
-		return mcpErr(req.ID, -32600, "invalid request: method is required"), true
+		return errResp(req.ID, -32600, "invalid request: method is required"), true
 	}
 
-	return dispatchMCPRequest(req, sctx), true
+	return dispatch(req, sctx, version), true
 }
 
 // --- JSON-RPC / MCP types ---
 
-type mcpRequest struct {
+type request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      interface{}     `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
-type mcpResponse struct {
+type response struct {
 	JSONRPC string      `json:"jsonrpc"`
 	ID      interface{} `json:"id"`
 	Result  interface{} `json:"result,omitempty"`
-	Error   *mcpRPCErr  `json:"error,omitempty"`
+	Error   *rpcErr     `json:"error,omitempty"`
 }
 
-type mcpRPCErr struct {
+type rpcErr struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
-type mcpToolDef struct {
+type toolDef struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	InputSchema map[string]interface{} `json:"inputSchema"`
 }
 
-type mcpCallParams struct {
+type callParams struct {
 	Name      string                 `json:"name"`
 	Arguments map[string]interface{} `json:"arguments"`
 }
 
 // --- Request dispatcher ---
 
-func dispatchMCPRequest(req mcpRequest, sctx *api.SessionContext) mcpResponse {
+func dispatch(req request, sctx *api.SessionContext, version string) response {
 	switch req.Method {
 	case "initialize":
-		return mcpOK(req.ID, map[string]interface{}{
+		return okResp(req.ID, map[string]interface{}{
 			"protocolVersion": "2024-11-05",
 			"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
-			"serverInfo":      map[string]interface{}{"name": "qmax-code", "version": Version},
+			"serverInfo":      map[string]interface{}{"name": "qmax-code", "version": version},
 		})
 
 	case "tools/list":
-		return mcpOK(req.ID, map[string]interface{}{"tools": buildMCPToolList()})
+		return okResp(req.ID, map[string]interface{}{"tools": buildToolList()})
 
 	case "tools/call":
-		var params mcpCallParams
+		var params callParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
-			return mcpErr(req.ID, -32602, "invalid params: "+err.Error())
+			return errResp(req.ID, -32602, "invalid params: "+err.Error())
 		}
 		// Refresh LiveFeed from on-disk config every call so the
 		// parent REPL's `/live on|off` toggle takes effect without
@@ -146,31 +148,31 @@ func dispatchMCPRequest(req mcpRequest, sctx *api.SessionContext) mcpResponse {
 			}
 		}
 		result := agent.ExecuteTool(params.Name, params.Arguments, sctx, context.Background())
-		return mcpOK(req.ID, map[string]interface{}{
+		return okResp(req.ID, map[string]interface{}{
 			"content": []map[string]interface{}{{"type": "text", "text": result}},
 			"isError": false,
 		})
 
 	default:
-		return mcpErr(req.ID, -32601, "method not found: "+req.Method)
+		return errResp(req.ID, -32601, "method not found: "+req.Method)
 	}
 }
 
-func mcpOK(id interface{}, result interface{}) mcpResponse {
-	return mcpResponse{JSONRPC: "2.0", ID: id, Result: result}
+func okResp(id interface{}, result interface{}) response {
+	return response{JSONRPC: "2.0", ID: id, Result: result}
 }
 
-func mcpErr(id interface{}, code int, msg string) mcpResponse {
-	return mcpResponse{JSONRPC: "2.0", ID: id, Error: &mcpRPCErr{Code: code, Message: msg}}
+func errResp(id interface{}, code int, msg string) response {
+	return response{JSONRPC: "2.0", ID: id, Error: &rpcErr{Code: code, Message: msg}}
 }
 
-// buildMCPToolList converts qmax ToolDefs to MCP format.
+// buildToolList converts qmax ToolDefs to MCP format.
 // The only structural difference is camelCase inputSchema vs Anthropic's input_schema.
-func buildMCPToolList() []mcpToolDef {
+func buildToolList() []toolDef {
 	defs := agent.BuildToolDefs()
-	out := make([]mcpToolDef, len(defs))
+	out := make([]toolDef, len(defs))
 	for i, d := range defs {
-		out[i] = mcpToolDef(d)
+		out[i] = toolDef(d)
 	}
 	return out
 }
