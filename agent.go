@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/session"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
@@ -52,8 +53,8 @@ func (m OllamaMode) String() string {
 type Agent struct {
 	config          AgentConfig
 	appConfig       *api.Config // persistent user preferences
-	history         []Message
-	tools           []ToolDef
+	history         []api.Message
+	tools           []api.ToolDef
 	client          *http.Client
 	usage           api.TokenUsage
 	cancel          context.CancelFunc // cancel the current streaming request
@@ -64,72 +65,21 @@ type Agent struct {
 	sessionsFetched bool          // true once loadPriorSessions has run
 }
 
-// Message represents a conversation message.
-type Message struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"` // string or []ContentBlock
-}
-
-// ContentBlock is a typed content block in a message.
-type ContentBlock struct {
-	Type      string       `json:"type"`
-	Text      string       `json:"text,omitempty"`
-	ID        string       `json:"id,omitempty"`
-	Name      string       `json:"name,omitempty"`
-	Input     interface{}  `json:"input,omitempty"`
-	ToolUseID string       `json:"tool_use_id,omitempty"`
-	Content   string       `json:"content,omitempty"`
-	Source    *ImageSource `json:"source,omitempty"` // for type="image"
-}
-
-// ImageSource is the source data for an image content block.
-type ImageSource struct {
-	Type      string `json:"type"`       // "base64"
-	MediaType string `json:"media_type"` // "image/png", "image/jpeg", "image/gif", "image/webp"
-	Data      string `json:"data"`       // base64-encoded image data
-}
-
-// APIRequest is the Claude API request body.
-type APIRequest struct {
-	Model     string    `json:"model"`
-	MaxTokens int       `json:"max_tokens"`
-	System    string    `json:"system"`
-	Messages  []Message `json:"messages"`
-	Tools     []ToolDef `json:"tools"`
-	Stream    bool      `json:"stream"`
-}
-
-// APIResponse is the Claude API response (non-streaming).
-type APIResponse struct {
-	ID         string         `json:"id"`
-	Type       string         `json:"type"`
-	Role       string         `json:"role"`
-	Content    []ContentBlock `json:"content"`
-	StopReason string         `json:"stop_reason"`
-	Usage      APIUsage       `json:"usage"`
-}
-
-// APIUsage tracks token usage.
-type APIUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-}
-
 // SSE event types from Anthropic streaming API
 type sseMessageStart struct {
 	Type    string `json:"type"`
 	Message struct {
-		ID         string   `json:"id"`
-		Role       string   `json:"role"`
-		StopReason *string  `json:"stop_reason"`
-		Usage      APIUsage `json:"usage"`
+		ID         string       `json:"id"`
+		Role       string       `json:"role"`
+		StopReason *string      `json:"stop_reason"`
+		Usage      api.APIUsage `json:"usage"`
 	} `json:"message"`
 }
 
 type sseContentBlockStart struct {
-	Type         string       `json:"type"`
-	Index        int          `json:"index"`
-	ContentBlock ContentBlock `json:"content_block"`
+	Type         string           `json:"type"`
+	Index        int              `json:"index"`
+	ContentBlock api.ContentBlock `json:"content_block"`
 }
 
 type sseContentBlockDelta struct {
@@ -156,7 +106,7 @@ type sseMessageDelta struct {
 func NewAgent(cfg AgentConfig) *Agent {
 	return &Agent{
 		config:  cfg,
-		history: []Message{},
+		history: []api.Message{},
 		tools:   BuildToolDefs(),
 		client:  &http.Client{Timeout: 300 * time.Second},
 	}
@@ -164,7 +114,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 
 // ClearHistory resets conversation history.
 func (a *Agent) ClearHistory() {
-	a.history = []Message{}
+	a.history = []api.Message{}
 }
 
 // CancelCurrent cancels the current streaming request if one is in progress.
@@ -177,7 +127,7 @@ func (a *Agent) CancelCurrent() {
 // Run executes a prompt through the agent loop and returns the final text response.
 // Used for non-interactive (one-shot) mode.
 func (a *Agent) Run(prompt string) (string, error) {
-	a.history = append(a.history, Message{
+	a.history = append(a.history, api.Message{
 		Role:    "user",
 		Content: prompt,
 	})
@@ -188,14 +138,14 @@ func (a *Agent) Run(prompt string) (string, error) {
 			return "", fmt.Errorf("API call failed: %w", err)
 		}
 
-		a.history = append(a.history, Message{
+		a.history = append(a.history, api.Message{
 			Role:    "assistant",
 			Content: resp.Content,
 		})
 
 		if resp.StopReason == "tool_use" {
 			toolResults := a.executeToolCalls(resp.Content, context.Background())
-			a.history = append(a.history, Message{
+			a.history = append(a.history, api.Message{
 				Role:    "user",
 				Content: toolResults,
 			})
@@ -245,7 +195,7 @@ func (a *Agent) compressHistory() {
 			} else {
 				summary.WriteString(fmt.Sprintf("%s: %s\n", role, v))
 			}
-		case []ContentBlock:
+		case []api.ContentBlock:
 			for _, block := range v {
 				if block.Type == "text" && block.Text != "" {
 					text := block.Text
@@ -267,17 +217,17 @@ func (a *Agent) compressHistory() {
 	}
 
 	// Replace history with summary + recent messages.
-	// Use []ContentBlock for assistant to avoid API validation issues.
-	compressed := []Message{
+	// Use []api.ContentBlock for assistant to avoid API validation issues.
+	compressed := []api.Message{
 		{Role: "user", Content: summary.String()},
-		{Role: "assistant", Content: []ContentBlock{{Type: "text", Text: "Got it, I have the context from our earlier conversation."}}},
+		{Role: "assistant", Content: []api.ContentBlock{{Type: "text", Text: "Got it, I have the context from our earlier conversation."}}},
 	}
 	// Keep last 6 messages, but ensure tool_result messages stay paired with their tool_use
 	keep := a.history[len(a.history)-6:]
 	// If the first kept message is a user tool_result without a preceding assistant tool_use,
 	// skip it to avoid orphaned tool_results
 	if len(keep) > 0 && keep[0].Role == "user" {
-		if blocks, ok := keep[0].Content.([]ContentBlock); ok && len(blocks) > 0 && blocks[0].Type == "tool_result" {
+		if blocks, ok := keep[0].Content.([]api.ContentBlock); ok && len(blocks) > 0 && blocks[0].Type == "tool_result" {
 			keep = keep[1:] // skip orphaned tool_result
 		}
 	}
@@ -288,12 +238,12 @@ func (a *Agent) compressHistory() {
 // RunStreaming executes a prompt with real-time SSE streaming to the terminal.
 // BuildUserContent creates a content payload for a user message.
 // estimateMessageChars estimates the character count of a message's content,
-// handling both typed []ContentBlock and deserialized []interface{} from JSON.
-func estimateMessageChars(msg Message) int {
+// handling both typed []api.ContentBlock and deserialized []interface{} from JSON.
+func estimateMessageChars(msg api.Message) int {
 	switch v := msg.Content.(type) {
 	case string:
 		return len(v)
-	case []ContentBlock:
+	case []api.ContentBlock:
 		n := 0
 		for _, block := range v {
 			n += len(block.Text) + len(block.Content)
@@ -323,11 +273,11 @@ func BuildUserContent(text string, images []tui.ImageAttachment) interface{} {
 	if len(images) == 0 {
 		return text
 	}
-	blocks := make([]ContentBlock, 0, len(images)+1)
+	blocks := make([]api.ContentBlock, 0, len(images)+1)
 	for _, img := range images {
-		blocks = append(blocks, ContentBlock{
+		blocks = append(blocks, api.ContentBlock{
 			Type: "image",
-			Source: &ImageSource{
+			Source: &api.ImageSource{
 				Type:      "base64",
 				MediaType: img.MediaType,
 				Data:      img.Data,
@@ -335,7 +285,7 @@ func BuildUserContent(text string, images []tui.ImageAttachment) interface{} {
 		})
 	}
 	if text != "" {
-		blocks = append(blocks, ContentBlock{
+		blocks = append(blocks, api.ContentBlock{
 			Type: "text",
 			Text: text,
 		})
@@ -345,7 +295,7 @@ func BuildUserContent(text string, images []tui.ImageAttachment) interface{} {
 
 // RunStreamingWithImages is like RunStreaming but supports image attachments.
 func (a *Agent) RunStreamingWithImages(prompt string, images []tui.ImageAttachment, term *tui.Terminal) (string, error) {
-	a.history = append(a.history, Message{
+	a.history = append(a.history, api.Message{
 		Role:    "user",
 		Content: BuildUserContent(prompt, images),
 	})
@@ -354,7 +304,7 @@ func (a *Agent) RunStreamingWithImages(prompt string, images []tui.ImageAttachme
 }
 
 func (a *Agent) RunStreaming(prompt string, term *tui.Terminal) (string, error) {
-	a.history = append(a.history, Message{
+	a.history = append(a.history, api.Message{
 		Role:    "user",
 		Content: prompt,
 	})
@@ -365,7 +315,7 @@ func (a *Agent) RunStreaming(prompt string, term *tui.Terminal) (string, error) 
 func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 	for iterations := 0; iterations < maxIterations; iterations++ {
 		// Sanitize + compress history before each API call
-		sanitizeSessionMessages(a.history)
+		session.SanitizeSessionMessages(a.history)
 		a.compressHistory()
 		model := a.modelForIteration(iterations)
 		if a.config.Verbose {
@@ -398,9 +348,9 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 				a.cancel = nil
 				cancel()
 				if ollamaErr == nil && ollamaText != "" {
-					a.history = append(a.history, Message{
+					a.history = append(a.history, api.Message{
 						Role:    "assistant",
-						Content: []ContentBlock{{Type: "text", Text: ollamaText}},
+						Content: []api.ContentBlock{{Type: "text", Text: ollamaText}},
 					})
 					term.FinishMarkdown(ollamaText)
 					return ollamaText, nil
@@ -420,14 +370,14 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 		}
 
 		// Add assistant response to history
-		a.history = append(a.history, Message{
+		a.history = append(a.history, api.Message{
 			Role:    "assistant",
 			Content: content,
 		})
 
 		// If stop reason is tool_use, execute tools and loop
 		if stopReason == "tool_use" {
-			var toolCalls []ContentBlock
+			var toolCalls []api.ContentBlock
 			for _, block := range content {
 				if block.Type == "tool_use" {
 					toolCalls = append(toolCalls, block)
@@ -440,7 +390,7 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 			a.cancel = nil
 			cancel()
 
-			a.history = append(a.history, Message{
+			a.history = append(a.history, api.Message{
 				Role:    "user",
 				Content: toolResults,
 			})
@@ -517,14 +467,14 @@ func (a *Agent) modelForIteration(iteration int) string {
 }
 
 // callStreamingAPI makes a streaming request to the Claude API and processes SSE events.
-func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]ContentBlock, string, error) {
+func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.ContentBlock, string, error) {
 	systemPrompt := a.buildSystemPrompt()
 
 	// Sanitize messages — ensure Content is always a valid type for the API.
 	// Claude API accepts: string OR array of content blocks.
-	// After JSON round-trips, []ContentBlock can become []interface{} — that's still valid
+	// After JSON round-trips, []api.ContentBlock can become []interface{} — that's still valid
 	// as json.Marshal will serialize it correctly. Only fix nil/unexpected scalars.
-	sanitized := make([]Message, len(a.history))
+	sanitized := make([]api.Message, len(a.history))
 	for i, msg := range a.history {
 		sanitized[i] = msg
 		switch v := sanitized[i].Content.(type) {
@@ -534,12 +484,12 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]ContentBlo
 			// a bare string causes "Input should be a valid list" errors.
 			// Wrap it in a content block array.
 			if msg.Role == "user" && strings.Contains(v, "tool_result") {
-				sanitized[i].Content = []ContentBlock{{Type: "text", Text: v}}
+				sanitized[i].Content = []api.ContentBlock{{Type: "text", Text: v}}
 			}
-		case []ContentBlock:
+		case []api.ContentBlock:
 			// valid — structured content blocks
 		case []interface{}:
-			// valid — this is []ContentBlock after JSON deserialization via interface{}
+			// valid — this is []api.ContentBlock after JSON deserialization via interface{}
 			// json.Marshal will serialize it correctly as an array
 		case nil:
 			sanitized[i].Content = ""
@@ -547,7 +497,7 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]ContentBlo
 			// Unknown type — wrap in a content block array to satisfy the API
 			_ = v
 			data, _ := json.Marshal(sanitized[i].Content)
-			sanitized[i].Content = []ContentBlock{{Type: "text", Text: string(data)}}
+			sanitized[i].Content = []api.ContentBlock{{Type: "text", Text: string(data)}}
 		}
 	}
 
@@ -563,7 +513,7 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]ContentBlo
 	// text blocks.
 	sanitized = stripOrphanedToolUse(sanitized)
 
-	reqBody := APIRequest{
+	reqBody := api.APIRequest{
 		Model:     model,
 		MaxTokens: 8192,
 		System:    systemPrompt,
@@ -624,7 +574,7 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]ContentBlo
 
 	// Parse SSE stream
 	var (
-		content      []ContentBlock
+		content      []api.ContentBlock
 		currentIndex = -1
 		currentText  strings.Builder
 		currentJSON  strings.Builder
@@ -692,7 +642,7 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]ContentBlo
 				case "tool_use":
 					currentJSON.Reset()
 					// Add placeholder block — will fill Input after accumulating JSON
-					content = append(content, ContentBlock{
+					content = append(content, api.ContentBlock{
 						Type: "tool_use",
 						ID:   ev.ContentBlock.ID,
 						Name: ev.ContentBlock.Name,
@@ -764,18 +714,18 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]ContentBlo
 }
 
 // finalizeTextBlock adds a completed text block to content.
-func (a *Agent) finalizeTextBlock(content []ContentBlock, index int, text string) []ContentBlock {
-	return append(content, ContentBlock{
+func (a *Agent) finalizeTextBlock(content []api.ContentBlock, index int, text string) []api.ContentBlock {
+	return append(content, api.ContentBlock{
 		Type: "text",
 		Text: text,
 	})
 }
 
 // callAPI makes a non-streaming request to the Claude API (used for one-shot mode).
-func (a *Agent) callAPI() (*APIResponse, error) {
+func (a *Agent) callAPI() (*api.APIResponse, error) {
 	systemPrompt := a.buildSystemPrompt()
 
-	reqBody := APIRequest{
+	reqBody := api.APIRequest{
 		Model:     a.config.Model,
 		MaxTokens: 8192,
 		System:    systemPrompt,
@@ -816,7 +766,7 @@ func (a *Agent) callAPI() (*APIResponse, error) {
 		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
 	}
 
-	var apiResp APIResponse
+	var apiResp api.APIResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
@@ -835,14 +785,14 @@ func (a *Agent) callAPI() (*APIResponse, error) {
 }
 
 // executeToolCalls runs tool calls and returns results (non-interactive mode).
-func (a *Agent) executeToolCalls(content []ContentBlock, ctx context.Context) []ContentBlock {
-	var results []ContentBlock
+func (a *Agent) executeToolCalls(content []api.ContentBlock, ctx context.Context) []api.ContentBlock {
+	var results []api.ContentBlock
 	for _, block := range content {
 		if block.Type != "tool_use" {
 			continue
 		}
 		output := ExecuteTool(block.Name, block.Input, a.config.Context, ctx)
-		results = append(results, ContentBlock{
+		results = append(results, api.ContentBlock{
 			Type:      "tool_result",
 			ToolUseID: block.ID,
 			Content:   output,
@@ -852,15 +802,15 @@ func (a *Agent) executeToolCalls(content []ContentBlock, ctx context.Context) []
 }
 
 // executeToolCallsWithUI runs tool calls with terminal feedback.
-func (a *Agent) executeToolCallsWithUI(toolCalls []ContentBlock, term *tui.Terminal, ctx context.Context) []ContentBlock {
-	var results []ContentBlock
+func (a *Agent) executeToolCallsWithUI(toolCalls []api.ContentBlock, term *tui.Terminal, ctx context.Context) []api.ContentBlock {
+	var results []api.ContentBlock
 	for _, block := range toolCalls {
 		a.logger.Info("tool", block.Name, map[string]interface{}{"cost": ToolCost(block.Name)})
 		output := ExecuteTool(block.Name, block.Input, a.config.Context, ctx)
 		summarized := SummarizeToolResult(block.Name, output)
 		term.PrintToolResult(block.Name, summarized)
 
-		results = append(results, ContentBlock{
+		results = append(results, api.ContentBlock{
 			Type:      "tool_result",
 			ToolUseID: block.ID,
 			Content:   summarized,
@@ -871,7 +821,7 @@ func (a *Agent) executeToolCallsWithUI(toolCalls []ContentBlock, term *tui.Termi
 
 // extractText pulls text content from response blocks.
 func (a *Agent) extractText(content interface{}) string {
-	blocks, ok := content.([]ContentBlock)
+	blocks, ok := content.([]api.ContentBlock)
 	if !ok {
 		// Try to extract from interface
 		if s, ok := content.(string); ok {
@@ -1090,7 +1040,7 @@ You MUST call list_projects first to get the slug. Never guess it.
 
 	// Add session context
 	if a.config.Context.ProjectID > 0 {
-		prompt += fmt.Sprintf("\n## Active Session\n- Project ID: %d\n", a.config.Context.ProjectID)
+		prompt += fmt.Sprintf("\n## Active session.Session\n- Project ID: %d\n", a.config.Context.ProjectID)
 	}
 	if cloudURL != "" {
 		prompt += fmt.Sprintf("- QualityMax API: %s\n", cloudURL)
@@ -1108,7 +1058,7 @@ You MUST call list_projects first to get the slug. Never guess it.
 		budgetThreshold = a.appConfig.MaxTokenBudget * 40 / 100 // warn at 40% of budget
 	}
 	if a.usage.TotalTokens() > budgetThreshold {
-		prompt += fmt.Sprintf("\n⚠️ HIGH TOKEN USAGE: Session has used %d tokens. Be extra concise.\n", a.usage.TotalTokens())
+		prompt += fmt.Sprintf("\n⚠️ HIGH TOKEN USAGE: session.Session has used %d tokens. Be extra concise.\n", a.usage.TotalTokens())
 	}
 
 	prompt += outputStyleDirective(a.config.OutputVerbose)
@@ -1146,13 +1096,13 @@ You MUST call list_projects first to get the slug. Never guess it.
 // tool_use blocks from the assistant message (keeping text). Edge case:
 // if this leaves the assistant message empty, insert a placeholder text
 // block so the API doesn't reject the message for being empty.
-func stripOrphanedToolUse(messages []Message) []Message {
+func stripOrphanedToolUse(messages []api.Message) []api.Message {
 	// Helper: extract block types + tool_use_ids from a Content value.
-	// Handles both []ContentBlock (typed) and []interface{} (post-JSON).
+	// Handles both []api.ContentBlock (typed) and []interface{} (post-JSON).
 	collectIDs := func(content interface{}, blockType string) []string {
 		var ids []string
 		switch v := content.(type) {
-		case []ContentBlock:
+		case []api.ContentBlock:
 			for _, b := range v {
 				if b.Type == blockType {
 					switch blockType {
@@ -1190,8 +1140,8 @@ func stripOrphanedToolUse(messages []Message) []Message {
 	// value. Preserves block type (typed vs interface list).
 	pruneToolUse := func(content interface{}) interface{} {
 		switch v := content.(type) {
-		case []ContentBlock:
-			kept := make([]ContentBlock, 0, len(v))
+		case []api.ContentBlock:
+			kept := make([]api.ContentBlock, 0, len(v))
 			for _, b := range v {
 				if b.Type == "tool_use" {
 					continue
@@ -1261,8 +1211,8 @@ func stripOrphanedToolUse(messages []Message) []Message {
 // placeholders emitted by pruneToolUse stay in sync.
 const orphanPlaceholderText = "[tool call dropped — no matching result]"
 
-func orphanPlaceholderTyped() ContentBlock {
-	return ContentBlock{Type: "text", Text: orphanPlaceholderText}
+func orphanPlaceholderTyped() api.ContentBlock {
+	return api.ContentBlock{Type: "text", Text: orphanPlaceholderText}
 }
 
 func orphanPlaceholderMap() map[string]interface{} {

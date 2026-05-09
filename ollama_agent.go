@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
@@ -72,9 +73,9 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 	action, params, remaining := parseActionBlock(ollamaText)
 	if action == "" {
 		// Pure chat response — no tool needed
-		a.history = append(a.history, Message{
+		a.history = append(a.history, api.Message{
 			Role:    "assistant",
-			Content: []ContentBlock{{Type: "text", Text: ollamaText}},
+			Content: []api.ContentBlock{{Type: "text", Text: ollamaText}},
 		})
 		term.FinishMarkdown(ollamaText)
 		return ollamaText, true
@@ -93,11 +94,11 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 	term.PrintToolResult(action, tui.TruncateStr(toolResult, 200))
 
 	// Phase 3: Feed results back to the local model for formatting.
-	a.history = append(a.history, Message{
+	a.history = append(a.history, api.Message{
 		Role:    "assistant",
-		Content: []ContentBlock{{Type: "text", Text: remaining}},
+		Content: []api.ContentBlock{{Type: "text", Text: remaining}},
 	})
-	a.history = append(a.history, Message{
+	a.history = append(a.history, api.Message{
 		Role:    "user",
 		Content: fmt.Sprintf("[Tool result for %s]:\n%s\n\nSummarize these results for the user concisely.", action, truncateToolResult(toolResult)),
 	})
@@ -113,9 +114,9 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 		summary = toolResult
 	}
 
-	a.history = append(a.history, Message{
+	a.history = append(a.history, api.Message{
 		Role:    "assistant",
-		Content: []ContentBlock{{Type: "text", Text: summary}},
+		Content: []api.ContentBlock{{Type: "text", Text: summary}},
 	})
 	term.FinishMarkdown(summary)
 	return summary, true

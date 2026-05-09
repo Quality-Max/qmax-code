@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/session"
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
@@ -47,14 +48,14 @@ func (m *mockCLIAgent) SetOutputVerbose(bool) {}
 // historyAfterCLITurns simulates the fixed main-loop path for N turns:
 // calls mockCLIAgent.Run() and mirrors each successful turn into history.
 // This is the exact logic added to main.go in the fix.
-func historyAfterCLITurns(agent *mockCLIAgent, turns []string) []Message {
-	var history []Message
+func historyAfterCLITurns(agent *mockCLIAgent, turns []string) []api.Message {
+	var history []api.Message
 	for _, userMsg := range turns {
 		result, err := agent.Run(userMsg, nil)
 		if err == nil {
 			history = append(history,
-				Message{Role: "user", Content: userMsg},
-				Message{Role: "assistant", Content: result},
+				api.Message{Role: "user", Content: userMsg},
+				api.Message{Role: "assistant", Content: result},
 			)
 		}
 	}
@@ -109,19 +110,19 @@ func TestCLIAgentSessionSavedWithCorrectTurns(t *testing.T) {
 	if len(history) == 0 {
 		t.Fatal("history is empty — mirroring fix not applied, autoSave would no-op")
 	}
-	if err := SaveSession(sessionID, history, 0, api.TokenUsage{}, "cc"); err != nil {
+	if err := session.SaveSession(sessionID, history, 0, api.TokenUsage{}, "cc"); err != nil {
 		t.Fatalf("SaveSession: %v", err)
 	}
 
-	session, err := LoadSession(sessionID)
+	sess, err := session.LoadSession(sessionID)
 	if err != nil {
 		t.Fatalf("LoadSession: %v", err)
 	}
-	if session.Turns != 2 {
-		t.Errorf("Turns: got %d, want 2", session.Turns)
+	if sess.Turns != 2 {
+		t.Errorf("Turns: got %d, want 2", sess.Turns)
 	}
-	if len(session.Messages) != 4 {
-		t.Errorf("Messages: got %d, want 4", len(session.Messages))
+	if len(sess.Messages) != 4 {
+		t.Errorf("Messages: got %d, want 4", len(sess.Messages))
 	}
 }
 
@@ -147,26 +148,26 @@ func TestCLIAgentMultiTurnSessionAccumulates(t *testing.T) {
 	agent := &mockCLIAgent{responses: []string{"r1", "r2", "r3", "r4", "r5"}}
 	sessionID := "multi-turn-cli"
 
-	var history []Message
+	var history []api.Message
 	for i, msg := range []string{"t1", "t2", "t3", "t4", "t5"} {
 		result, err := agent.Run(msg, nil)
 		if err == nil {
 			history = append(history,
-				Message{Role: "user", Content: msg},
-				Message{Role: "assistant", Content: result},
+				api.Message{Role: "user", Content: msg},
+				api.Message{Role: "assistant", Content: result},
 			)
 		}
-		if err := SaveSession(sessionID, history, 0, api.TokenUsage{}, "cc"); err != nil {
+		if err := session.SaveSession(sessionID, history, 0, api.TokenUsage{}, "cc"); err != nil {
 			t.Fatalf("turn %d: SaveSession: %v", i+1, err)
 		}
 
-		session, err := LoadSession(sessionID)
+		sess, err := session.LoadSession(sessionID)
 		if err != nil {
 			t.Fatalf("turn %d: LoadSession: %v", i+1, err)
 		}
 		want := i + 1
-		if session.Turns != want {
-			t.Errorf("after turn %d: Turns = %d, want %d", i+1, session.Turns, want)
+		if sess.Turns != want {
+			t.Errorf("after turn %d: Turns = %d, want %d", i+1, sess.Turns, want)
 		}
 	}
 }

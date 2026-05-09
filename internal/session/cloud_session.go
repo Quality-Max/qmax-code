@@ -1,4 +1,4 @@
-package main
+package session
 
 import (
 	"context"
@@ -9,13 +9,13 @@ import (
 	"github.com/qualitymax/qmax-code/internal/api"
 )
 
-// promptCloudSyncConsent asks the user once whether they want sessions synced
+// PromptCloudSyncConsent asks the user once whether they want sessions synced
 // to the QualityMax cloud. The answer is persisted in cfg so the prompt never
 // appears again. Returns true if the user opted in.
 //
 // readLine must use the active readline instance (e.g. term.ReadConsent) so
 // that it works correctly when readline already owns the terminal in raw mode.
-func promptCloudSyncConsent(cfg *api.Config, readLine func() (string, error)) bool {
+func PromptCloudSyncConsent(cfg *api.Config, readLine func() (string, error)) bool {
 	fmt.Println()
 	fmt.Println("  ┌─ Cloud session sync ──────────────────────────────────────────┐")
 	fmt.Println("  │  qmax-code can sync your sessions to the QualityMax cloud so  │")
@@ -28,7 +28,7 @@ func promptCloudSyncConsent(cfg *api.Config, readLine func() (string, error)) bo
 
 	line, _ := readLine()
 
-	enabled := applyCloudSyncChoice(cfg, line)
+	enabled := ApplyCloudSyncChoice(cfg, line)
 	if enabled {
 		fmt.Println("  Cloud session sync enabled.")
 	} else {
@@ -38,10 +38,10 @@ func promptCloudSyncConsent(cfg *api.Config, readLine func() (string, error)) bo
 	return enabled
 }
 
-// applyCloudSyncChoice parses a raw answer line, updates cfg.CloudSync, and
-// persists it. Extracted from promptCloudSyncConsent so it can be unit-tested
+// ApplyCloudSyncChoice parses a raw answer line, updates cfg.CloudSync, and
+// persists it. Extracted from PromptCloudSyncConsent so it can be unit-tested
 // without touching stdin/stdout.
-func applyCloudSyncChoice(cfg *api.Config, line string) bool {
+func ApplyCloudSyncChoice(cfg *api.Config, line string) bool {
 	ans := strings.ToLower(strings.TrimSpace(line))
 	enabled := ans == "" || ans == "y" || ans == "yes"
 	v := enabled
@@ -50,15 +50,15 @@ func applyCloudSyncChoice(cfg *api.Config, line string) bool {
 	return enabled
 }
 
-// cloudSessionTracker manages the lifecycle of a cloud-tracked agent session.
+// CloudSessionTracker manages the lifecycle of a cloud-tracked agent session.
 // Zero value is ready to use — no initialisation needed.
-type cloudSessionTracker struct {
+type CloudSessionTracker struct {
 	cloudID string
 }
 
 // Start opens a cloud session the first time it is called with a valid API
 // client and non-zero project ID. Subsequent calls are no-ops (idempotent).
-func (t *cloudSessionTracker) Start(client *api.APIClient, projectID int, model string) {
+func (t *CloudSessionTracker) Start(client *api.APIClient, projectID int, model string) {
 	if client == nil || projectID == 0 || t.cloudID != "" {
 		return
 	}
@@ -70,7 +70,7 @@ func (t *cloudSessionTracker) Start(client *api.APIClient, projectID int, model 
 // Complete patches the cloud session as finished and uploads the full message
 // history. No-op if Start was never called successfully (cloudID is empty) or
 // client is nil.
-func (t *cloudSessionTracker) Complete(client *api.APIClient, totalTokens int, summary string, messages []Message) {
+func (t *CloudSessionTracker) Complete(client *api.APIClient, totalTokens int, summary string, messages []api.Message) {
 	if client == nil || t.cloudID == "" {
 		return
 	}

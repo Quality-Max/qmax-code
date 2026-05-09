@@ -59,7 +59,7 @@ func NewOllamaClient(cfg *api.Config) *OllamaClient {
 }
 
 // ChatStreamingWithModel is like ChatStreaming but uses a specific model.
-func (o *OllamaClient) ChatStreamingWithModel(ctx context.Context, model, system string, history []Message, term *tui.Terminal) (string, error) {
+func (o *OllamaClient) ChatStreamingWithModel(ctx context.Context, model, system string, history []api.Message, term *tui.Terminal) (string, error) {
 	savedModel := o.model
 	o.model = model
 	defer func() { o.model = savedModel }()
@@ -121,7 +121,7 @@ type ollamaChatChunk struct {
 
 // ChatStreaming sends a chat request to Ollama and streams the response.
 // Returns the full text, or an error (caller should fall back to Claude).
-func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history []Message, term *tui.Terminal) (string, error) {
+func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history []api.Message, term *tui.Terminal) (string, error) {
 	// Convert Anthropic-style messages to OpenAI-style
 	messages := make([]ollamaChatMessage, 0, len(history)+1)
 	if system != "" {
@@ -213,12 +213,12 @@ func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history
 	return result, nil
 }
 
-// extractPlainText pulls text from a message Content (string or []ContentBlock).
+// extractPlainText pulls text from a message Content (string or []api.ContentBlock).
 func extractPlainText(content interface{}) string {
 	switch v := content.(type) {
 	case string:
 		return v
-	case []ContentBlock:
+	case []api.ContentBlock:
 		var parts []string
 		for _, b := range v {
 			if b.Type == "text" && b.Text != "" {

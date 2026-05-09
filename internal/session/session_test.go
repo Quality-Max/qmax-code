@@ -1,4 +1,4 @@
-package main
+package session
 
 import (
 	"os"
@@ -11,8 +11,8 @@ import (
 )
 
 func TestGenerateSessionID(t *testing.T) {
-	id1 := generateSessionID()
-	id2 := generateSessionID()
+	id1 := GenerateSessionID()
+	id2 := GenerateSessionID()
 	if id1 == id2 {
 		t.Error("Session IDs should be unique")
 	}
@@ -28,7 +28,7 @@ func TestSaveAndLoadSession(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	history := []Message{
+	history := []api.Message{
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "hi there"},
 	}
@@ -65,11 +65,11 @@ func TestListSessions(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	// Create 3 sessions
-	_ = SaveSession("aaa", []Message{{Role: "user", Content: "1"}}, 1, api.TokenUsage{}, "sonnet")
+	_ = SaveSession("aaa", []api.Message{{Role: "user", Content: "1"}}, 1, api.TokenUsage{}, "sonnet")
 	time.Sleep(10 * time.Millisecond)
-	_ = SaveSession("bbb", []Message{{Role: "user", Content: "2"}}, 2, api.TokenUsage{}, "sonnet")
+	_ = SaveSession("bbb", []api.Message{{Role: "user", Content: "2"}}, 2, api.TokenUsage{}, "sonnet")
 	time.Sleep(10 * time.Millisecond)
-	_ = SaveSession("ccc", []Message{{Role: "user", Content: "3"}}, 3, api.TokenUsage{}, "sonnet")
+	_ = SaveSession("ccc", []api.Message{{Role: "user", Content: "3"}}, 3, api.TokenUsage{}, "sonnet")
 
 	sessions, err := ListSessions(10)
 	if err != nil {
@@ -90,9 +90,9 @@ func TestListSessions_Limit(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	_ = SaveSession("a1", []Message{{Role: "user", Content: "1"}}, 0, api.TokenUsage{}, "")
-	_ = SaveSession("a2", []Message{{Role: "user", Content: "2"}}, 0, api.TokenUsage{}, "")
-	_ = SaveSession("a3", []Message{{Role: "user", Content: "3"}}, 0, api.TokenUsage{}, "")
+	_ = SaveSession("a1", []api.Message{{Role: "user", Content: "1"}}, 0, api.TokenUsage{}, "")
+	_ = SaveSession("a2", []api.Message{{Role: "user", Content: "2"}}, 0, api.TokenUsage{}, "")
+	_ = SaveSession("a3", []api.Message{{Role: "user", Content: "3"}}, 0, api.TokenUsage{}, "")
 
 	sessions, err := ListSessions(2)
 	if err != nil {
@@ -143,9 +143,9 @@ func TestLoadLastSession(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	_ = SaveSession("first", []Message{{Role: "user", Content: "old"}}, 1, api.TokenUsage{}, "")
+	_ = SaveSession("first", []api.Message{{Role: "user", Content: "old"}}, 1, api.TokenUsage{}, "")
 	time.Sleep(10 * time.Millisecond)
-	_ = SaveSession("second", []Message{{Role: "user", Content: "new"}}, 2, api.TokenUsage{}, "")
+	_ = SaveSession("second", []api.Message{{Role: "user", Content: "new"}}, 2, api.TokenUsage{}, "")
 
 	session, err := LoadLastSession()
 	if err != nil {
@@ -159,45 +159,45 @@ func TestLoadLastSession(t *testing.T) {
 // ---- sessionSummary ----
 
 func TestSessionSummary_EmptyHistory(t *testing.T) {
-	if got := sessionSummary(nil); got != "" {
+	if got := SummaryFor(nil); got != "" {
 		t.Errorf("expected empty string for nil history, got %q", got)
 	}
-	if got := sessionSummary([]Message{}); got != "" {
+	if got := SummaryFor([]api.Message{}); got != "" {
 		t.Errorf("expected empty string for empty history, got %q", got)
 	}
 }
 
 func TestSessionSummary_StringContent(t *testing.T) {
-	history := []Message{
+	history := []api.Message{
 		{Role: "user", Content: "hello world"},
 	}
-	got := sessionSummary(history)
+	got := SummaryFor(history)
 	if got != "hello world  [1 turns]" {
 		t.Errorf("got %q, want %q", got, "hello world  [1 turns]")
 	}
 }
 
 func TestSessionSummary_BlockContent(t *testing.T) {
-	history := []Message{
+	history := []api.Message{
 		{Role: "user", Content: []interface{}{
 			map[string]interface{}{"type": "text", "text": "fix the bug"},
 		}},
 	}
-	got := sessionSummary(history)
+	got := SummaryFor(history)
 	if got != "fix the bug  [1 turns]" {
 		t.Errorf("got %q, want %q", got, "fix the bug  [1 turns]")
 	}
 }
 
 func TestSessionSummary_MultiTurn(t *testing.T) {
-	history := []Message{
+	history := []api.Message{
 		{Role: "user", Content: "first"},
 		{Role: "assistant", Content: "reply1"},
 		{Role: "user", Content: "second"},
 		{Role: "assistant", Content: "reply2"},
 		{Role: "user", Content: "third"},
 	}
-	got := sessionSummary(history)
+	got := SummaryFor(history)
 	if got != "first  [3 turns]" {
 		t.Errorf("got %q, want %q", got, "first  [3 turns]")
 	}
@@ -205,8 +205,8 @@ func TestSessionSummary_MultiTurn(t *testing.T) {
 
 func TestSessionSummary_TruncatesLongMessage(t *testing.T) {
 	long := strings.Repeat("a", 250)
-	history := []Message{{Role: "user", Content: long}}
-	got := sessionSummary(history)
+	history := []api.Message{{Role: "user", Content: long}}
+	got := SummaryFor(history)
 	// Should be 200 bytes of 'a' + "…" + "  [1 turns]"
 	if !strings.HasPrefix(got, strings.Repeat("a", 200)+"…") {
 		t.Errorf("expected truncation at 200 chars + ellipsis, got %q", got[:min(len(got), 30)])
@@ -217,24 +217,24 @@ func TestSessionSummary_TruncatesLongMessage(t *testing.T) {
 }
 
 func TestSessionSummary_NoUserMessages(t *testing.T) {
-	history := []Message{
+	history := []api.Message{
 		{Role: "assistant", Content: "hi"},
 		{Role: "assistant", Content: "bye"},
 	}
-	got := sessionSummary(history)
+	got := SummaryFor(history)
 	if got != "0 turns" {
 		t.Errorf("got %q, want %q", got, "0 turns")
 	}
 }
 
 func TestSessionSummary_BlockContent_SkipsNonTextBlocks(t *testing.T) {
-	history := []Message{
+	history := []api.Message{
 		{Role: "user", Content: []interface{}{
 			map[string]interface{}{"type": "image", "source": "..."},
 			map[string]interface{}{"type": "text", "text": "look at this"},
 		}},
 	}
-	got := sessionSummary(history)
+	got := SummaryFor(history)
 	if got != "look at this  [1 turns]" {
 		t.Errorf("got %q, want %q", got, "look at this  [1 turns]")
 	}
@@ -242,7 +242,7 @@ func TestSessionSummary_BlockContent_SkipsNonTextBlocks(t *testing.T) {
 
 func TestSanitizeSessionMessages(t *testing.T) {
 	// Simulate corrupted messages as they come from JSON deserialization
-	messages := []Message{
+	messages := []api.Message{
 		{
 			Role: "assistant",
 			Content: []interface{}{
@@ -266,7 +266,7 @@ func TestSanitizeSessionMessages(t *testing.T) {
 		},
 	}
 
-	sanitizeSessionMessages(messages)
+	SanitizeSessionMessages(messages)
 
 	// Check text block — input should be removed
 	blocks0 := messages[0].Content.([]interface{})

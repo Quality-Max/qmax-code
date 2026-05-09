@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package main
+package session
 
 import (
 	"fmt"
@@ -13,13 +13,13 @@ import (
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
-// startQueueReader starts a background goroutine that reads lines from stdin
+// StartQueueReader starts a background goroutine that reads lines from stdin
 // (using OS canonical mode — full-line buffering with echo) while the agent
 // is processing.  Each non-empty line is pushed onto pq.
 //
 // Returns a stop function that must be called before the next tui.ReadInput so
 // that no stdin data is consumed by two readers simultaneously.
-func startQueueReader(pq *promptQueue, term *tui.Terminal) func() {
+func StartQueueReader(pq *PromptQueue, term *tui.Terminal) func() {
 	done := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -69,8 +69,8 @@ func startQueueReader(pq *promptQueue, term *tui.Terminal) func() {
 				if line == "" {
 					continue
 				}
-				pq.push(line)
-				pos := pq.len()
+				pq.Push(line)
+				pos := pq.Len()
 				// Print confirmation on its own line so it doesn't corrupt
 				// mid-stream token output.
 				fmt.Printf("\n  %s✓ queued [%d]:%s %s\n",
