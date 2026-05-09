@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/qualitymax/qmax-code/internal/agent"
 	"github.com/qualitymax/qmax-code/internal/api"
 )
 
@@ -34,7 +35,7 @@ func RunMCPServer() {
 		LiveFeed:  appConfig.LiveFeed,
 	}
 
-	// Project ID override: CCAgent writes the active project into the MCP env.
+	// Project ID override: agent.CCAgent writes the active project into the MCP env.
 	if pid, err := strconv.Atoi(os.Getenv("QMAX_PROJECT_ID")); err == nil && pid > 0 {
 		sctx.ProjectID = pid
 	}
@@ -144,7 +145,7 @@ func dispatchMCPRequest(req mcpRequest, sctx *api.SessionContext) mcpResponse {
 				sctx.LiveFeed = true
 			}
 		}
-		result := ExecuteTool(params.Name, params.Arguments, sctx, context.Background())
+		result := agent.ExecuteTool(params.Name, params.Arguments, sctx, context.Background())
 		return mcpOK(req.ID, map[string]interface{}{
 			"content": []map[string]interface{}{{"type": "text", "text": result}},
 			"isError": false,
@@ -166,7 +167,7 @@ func mcpErr(id interface{}, code int, msg string) mcpResponse {
 // buildMCPToolList converts qmax ToolDefs to MCP format.
 // The only structural difference is camelCase inputSchema vs Anthropic's input_schema.
 func buildMCPToolList() []mcpToolDef {
-	defs := BuildToolDefs()
+	defs := agent.BuildToolDefs()
 	out := make([]mcpToolDef, len(defs))
 	for i, d := range defs {
 		out[i] = mcpToolDef(d)

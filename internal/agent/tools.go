@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"bytes"
@@ -1055,7 +1055,7 @@ func captureLiveURL(sctx *api.SessionContext, raw string) {
 	// In CC/Codex mode this captureLiveURL runs in a `qmax-code serve --mcp`
 	// subprocess; sctx.LastLiveURL is local to that process and the parent
 	// REPL's auto-launcher would never see it. Persist via the side
-	// channel set up in writeMCPConfig (cc_agent / codex_agent). No-op
+	// channel set up in WriteMCPConfig (cc_agent / codex_agent). No-op
 	// when QMAX_LIVE_URL_FILE isn't set (standalone mode).
 	sysutil.PersistLiveURLForParent(url)
 	if sctx.LiveFeed && !sctx.LiveURLLogged {

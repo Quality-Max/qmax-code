@@ -1,4 +1,4 @@
-package main
+package agent
 
 // Regression tests for session persistence in CLI agent mode (CC/Codex backends).
 //

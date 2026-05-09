@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"bufio"
@@ -182,9 +182,9 @@ func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose
 	}
 }
 
-// writeMCPConfig writes a temp JSON file that tells CC where to find our MCP server.
+// WriteMCPConfig writes a temp JSON file that tells CC where to find our MCP server.
 // The file is written once per qmax session and reused for all turns.
-func (a *CCAgent) writeMCPConfig() error {
+func (a *CCAgent) WriteMCPConfig() error {
 	self, err := os.Executable()
 	if err != nil {
 		self = "qmax-code"
@@ -242,7 +242,7 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	a.mu.Lock()
 	if a.mcpConfigPath == "" || fileMissing(a.mcpConfigPath) {
 		a.mu.Unlock()
-		if err := a.writeMCPConfig(); err != nil {
+		if err := a.WriteMCPConfig(); err != nil {
 			return "", fmt.Errorf("MCP config: %w", err)
 		}
 		a.mu.Lock()
@@ -326,10 +326,10 @@ func (a *CCAgent) Cleanup() {
 	}
 }
 
-// cleanupStaleMCPConfigs removes qmax-mcp-<pid>.json files left in the OS
+// CleanupStaleMCPConfigs removes qmax-mcp-<pid>.json files left in the OS
 // temp dir by previous qmax-code instances that crashed before their Cleanup()
 // could run. Safe to call on every startup — skips files whose PID is alive.
-func cleanupStaleMCPConfigs() {
+func CleanupStaleMCPConfigs() {
 	pattern := filepath.Join(os.TempDir(), "qmax-mcp-*.json")
 	matches, err := filepath.Glob(pattern)
 	if err != nil || len(matches) == 0 {

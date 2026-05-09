@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/qualitymax/qmax-code/internal/agent"
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/tui"
@@ -120,13 +121,13 @@ func printConfig() {
 	fmt.Printf("    backend           = %q", backend)
 	switch backend {
 	case "cc":
-		if bin := FindClaudeCode(); bin != "" {
+		if bin := agent.FindClaudeCode(); bin != "" {
 			fmt.Printf("  (claude found: %s)", bin)
 		} else {
 			fmt.Print("  (WARNING: claude binary not found in PATH)")
 		}
 	case "codex":
-		if bin := FindCodex(); bin != "" {
+		if bin := agent.FindCodex(); bin != "" {
 			fmt.Printf("  (codex found: %s)", bin)
 		} else {
 			fmt.Print("  (WARNING: codex binary not found in PATH)")

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/qualitymax/qmax-code/internal/agent"
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/session"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
@@ -193,11 +194,11 @@ func main() {
 	// Neither an Anthropic API key nor an OpenAI key is required — the user's
 	// subscription (CC or OpenAI/Codex) covers inference.
 	// qmax tools are served to the CLI via the embedded MCP server.
-	var cliAgent CLIAgent
+	var cliAgent agent.CLIAgent
 	cliBackend := appConfig.Backend // "cc" | "codex" | "" (API)
 
 	if cliBackend == "cc" {
-		claudeBin := FindClaudeCode()
+		claudeBin := agent.FindClaudeCode()
 		if claudeBin == "" {
 			fmt.Fprintln(os.Stderr, "\nError: backend=cc but 'claude' CLI was not found.")
 			fmt.Fprintln(os.Stderr, "  Install Claude Code: https://claude.ai/download")
@@ -216,7 +217,7 @@ func main() {
 			anthropicKey = "__cc_mode__" // skip Anthropic key gate below
 		}
 	} else if cliBackend == "codex" {
-		codexBin := FindCodex()
+		codexBin := agent.FindCodex()
 		if codexBin == "" {
 			fmt.Fprintln(os.Stderr, "\nError: backend=codex but 'codex' CLI was not found.")
 			fmt.Fprintln(os.Stderr, "  Install Codex CLI: npm install -g @openai/codex")
@@ -296,7 +297,7 @@ func main() {
 		chatModel = baseModel
 	}
 
-	agent := NewAgent(AgentConfig{
+	ag := agent.NewAgent(agent.AgentConfig{
 		AnthropicKey:  anthropicKey,
 		Model:         baseModel,
 		ChatModel:     chatModel,
@@ -306,10 +307,10 @@ func main() {
 		AutoRoute:     autoRoute,
 		Professional:  appConfig.Professional,
 	})
-	agent.appConfig = appConfig
-	agent.ollama = NewOllamaClient(appConfig)
-	if agent.ollama != nil {
-		agent.ollamaMode = OllamaModeFull // default to full when configured
+	ag.AppConfig = appConfig
+	ag.Ollama = agent.NewOllamaClient(appConfig)
+	if ag.Ollama != nil {
+		ag.Mode = agent.OllamaModeFull // default to full when configured
 	}
 
 	// Build the CLI agent if a CLI backend was selected and consented to above.
@@ -322,15 +323,15 @@ func main() {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
 			}
 		}
-		cliAgent = NewCCAgent(FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
+		cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
 	case "codex":
 		if appConfig.OrchGlobalInstall && !IsOrchSetupDone("codex") {
 			if res, err := SetupCodexIntegration(); err == nil && !res.AlreadyHadMCP {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
 			}
 		}
-		ca := NewCodexAgent(FindCodex(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
-		if err := ca.writeMCPConfig(); err != nil {
+		ca := agent.NewCodexAgent(agent.FindCodex(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
+		if err := ca.WriteMCPConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not write Codex MCP config: %v\n", err)
 		}
 		cliAgent = ca
@@ -338,7 +339,7 @@ func main() {
 
 	// One-shot mode
 	if *oneShot != "" {
-		result, err := agent.Run(*oneShot)
+		result, err := ag.Run(*oneShot)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -350,7 +351,7 @@ func main() {
 	// Also handle positional args as a prompt: qmax-code "test the login flow"
 	if remaining := flag.Args(); len(remaining) > 0 {
 		prompt := strings.Join(remaining, " ")
-		result, err := agent.Run(prompt)
+		result, err := ag.Run(prompt)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -372,10 +373,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Cannot resume session %q: %v\n", *resumeID, loadErr)
 			os.Exit(1)
 		}
-		agent.history = sess.Messages
-		agent.usage = sess.Usage
+		ag.History = sess.Messages
+		ag.Usage = sess.Usage
 		if sess.ProjectID > 0 {
-			agent.config.Context.ProjectID = sess.ProjectID
+			ag.Cfg.Context.ProjectID = sess.ProjectID
 		}
 		fmt.Printf("Resumed session %s (%d turns)\n", sess.ID, sess.Turns)
 	}
@@ -386,10 +387,10 @@ func main() {
 	}
 
 	// Sweep orphaned MCP config files left by crashed previous instances.
-	cleanupStaleMCPConfigs()
+	agent.CleanupStaleMCPConfigs()
 
 	// Interactive REPL
-	runREPL(agent, cliAgent, *quiet)
+	runREPL(ag, cliAgent, *quiet)
 }
 
 // resolveModel expands shorthand model names to full model IDs.
@@ -406,7 +407,7 @@ func resolveModel(m string) string {
 	}
 }
 
-func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
+func runREPL(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool) {
 	term := tui.NewTerminal()
 	defer term.Close()
 	if cliAgent != nil {
@@ -420,18 +421,18 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	sessionID := session.GenerateSessionID()
 
 	// Initialize structured logger
-	agent.logger = sysutil.NewLogger(sessionID)
-	defer agent.logger.Close()
+	ag.Logger = sysutil.NewLogger(sessionID)
+	defer ag.Logger.Close()
 
 	// Cloud session tracking — created once when projectID is known.
 	var tracker session.CloudSessionTracker
 	startCloudSession := func() {
-		api := agent.config.Context.API
-		projectID := agent.config.Context.ProjectID
+		api := ag.Cfg.Context.API
+		projectID := ag.Cfg.Context.ProjectID
 		if api == nil || projectID == 0 {
 			return
 		}
-		cfg := agent.appConfig
+		cfg := ag.AppConfig
 		// First eligible session: ask the user once and persist their choice.
 		if cfg != nil && cfg.CloudSync == nil {
 			session.PromptCloudSyncConsent(cfg, term.ReadConsent)
@@ -439,14 +440,14 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
 			return
 		}
-		tracker.Start(api, projectID, agent.config.Model)
+		tracker.Start(api, projectID, ag.Cfg.Model)
 	}
 	completeCloudSession := func() {
-		cfg := agent.appConfig
+		cfg := ag.AppConfig
 		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
 			return
 		}
-		tracker.Complete(agent.config.Context.API, agent.usage.TotalTokens(), session.SummaryFor(agent.history), agent.history)
+		tracker.Complete(ag.Cfg.Context.API, ag.Usage.TotalTokens(), session.SummaryFor(ag.History), ag.History)
 	}
 
 	// Graceful interrupt handling
@@ -456,13 +457,13 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 	)
 
 	autoSave := func() {
-		if len(agent.history) > 0 && (agent.appConfig == nil || agent.appConfig.AutoSave) {
-			_ = session.SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
+		if len(ag.History) > 0 && (ag.AppConfig == nil || ag.AppConfig.AutoSave) {
+			_ = session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model)
 		}
 	}
 
 	saveAndExit := func() {
-		_ = session.SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model)
+		_ = session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model)
 		completeCloudSession()
 		fmt.Fprintf(os.Stderr, "session.Session %s saved.\n", sessionID)
 	}
@@ -476,7 +477,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			now := time.Now()
 			if sig == syscall.SIGINT {
 				// If agent is streaming or executing tools, cancel it
-				agent.CancelCurrent()
+				ag.CancelCurrent()
 
 				// Double Ctrl+C within 1 second: exit
 				if now.Sub(lastSigTime) < time.Second {
@@ -501,7 +502,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 	// Welcome
 	if !quietMode {
-		term.PrintBanner(Version, agent.config.Context)
+		term.PrintBanner(Version, ag.Cfg.Context)
 		fmt.Printf("  %sSession: %s%s\n", tui.ColorDim, sessionID, tui.ColorReset)
 
 		// Hint about recent session if one exists
@@ -540,10 +541,10 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			fmt.Println()
 			inputHistory = append(inputHistory, input)
 		} else {
-			result := tui.ReadInput(term.Prompt(), inputHistory, agent.config.OutputVerbose)
+			result := tui.ReadInput(term.Prompt(), inputHistory, ag.Cfg.OutputVerbose)
 
 			if result.OutputToggle {
-				toggleOutputVerbose(agent, cliAgent, term)
+				toggleOutputVerbose(ag, cliAgent, term)
 				continue
 			}
 
@@ -577,36 +578,36 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			printREPLHelp()
 			continue
 		case input == "/clear":
-			agent.ClearHistory()
+			ag.ClearHistory()
 			term.PrintSystem("Conversation cleared.")
 			continue
 		case strings.HasPrefix(input, "/project "):
 			id := strings.TrimPrefix(input, "/project ")
 			var pid int
 			if _, err := fmt.Sscanf(id, "%d", &pid); err == nil {
-				agent.config.Context.ProjectID = pid
+				ag.Cfg.Context.ProjectID = pid
 				term.PrintSystem(fmt.Sprintf("Project set to #%d", pid))
 			} else {
 				term.PrintError("Invalid project ID")
 			}
 			continue
 		case input == "/context":
-			printContext(agent.config.Context, term)
+			printContext(ag.Cfg.Context, term)
 			continue
 		case input == "/connect":
-			handleConnect(agent, term)
+			handleConnect(ag, term)
 			continue
 		case input == "/disconnect":
-			handleDisconnect(agent, term)
+			handleDisconnect(ag, term)
 			continue
 		case input == "/reconnect":
 			reconnectMCPTransport(cliAgent, term)
 			continue
 		case input == "/status":
-			term.PrintStatusInfo(agent.config.Context, agent.usage, agent.config.Model)
+			term.PrintStatusInfo(ag.Cfg.Context, ag.Usage, ag.Cfg.Model)
 			continue
 		case input == "/cost":
-			term.PrintCostSummary(agent.usage, agent.config.Model)
+			term.PrintCostSummary(ag.Usage, ag.Cfg.Model)
 			continue
 		case input == "/resume" || strings.HasPrefix(input, "/resume "):
 			resumeTarget := strings.TrimPrefix(input, "/resume ")
@@ -623,11 +624,11 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				term.PrintSystem("Use /sessions to see available sessions")
 			} else {
 				session.SanitizeSessionMessages(sess.Messages)
-				agent.history = sess.Messages
-				agent.usage = sess.Usage
+				ag.History = sess.Messages
+				ag.Usage = sess.Usage
 				sessionID = sess.ID
 				if sess.ProjectID > 0 {
-					agent.config.Context.ProjectID = sess.ProjectID
+					ag.Cfg.Context.ProjectID = sess.ProjectID
 				}
 				term.SetSessionPrompt(sessionID)
 				term.PrintSystem(fmt.Sprintf("Resumed session %s (%d turns, project #%d)",
@@ -653,11 +654,11 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				term.PrintError(fmt.Sprintf("Cannot resume: %v", loadErr))
 			} else {
 				session.SanitizeSessionMessages(sess.Messages)
-				agent.history = sess.Messages
-				agent.usage = sess.Usage
+				ag.History = sess.Messages
+				ag.Usage = sess.Usage
 				sessionID = sess.ID
 				if sess.ProjectID > 0 {
-					agent.config.Context.ProjectID = sess.ProjectID
+					ag.Cfg.Context.ProjectID = sess.ProjectID
 				}
 				term.SetSessionPrompt(sessionID)
 				term.PrintSystem(fmt.Sprintf("Resumed session %s (%d turns, project #%d)",
@@ -665,17 +666,17 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			}
 			continue
 		case input == "/save":
-			if err := session.SaveSession(sessionID, agent.history, agent.config.Context.ProjectID, agent.usage, agent.config.Model); err != nil {
+			if err := session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model); err != nil {
 				term.PrintError(fmt.Sprintf("Failed to save: %v", err))
 			} else {
 				term.PrintSystem(fmt.Sprintf("Session %s saved.", sessionID))
 			}
 			continue
 		case input == "/config":
-			printConfigInfo(agent.appConfig, term)
+			printConfigInfo(ag.AppConfig, term)
 			continue
 		case input == "/set":
-			handleSetCommand(input, agent, term)
+			handleSetCommand(input, ag, term)
 			startCloudSession()
 			continue
 
@@ -704,7 +705,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			continue
 		case input == "/orch":
 			// Show the unified model + effort TUI picker and apply the selection instantly.
-			cfg := agent.appConfig
+			cfg := ag.AppConfig
 			if cfg == nil {
 				term.PrintError("api.Config not loaded.")
 				continue
@@ -712,7 +713,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 			// Determine the picker's "currentBackend" — include ollama as a backend value.
 			currentBackend := cfg.Backend
-			if agent.ollamaMode == OllamaModeFull {
+			if ag.Mode == agent.OllamaModeFull {
 				currentBackend = "ollama"
 			}
 			result := tui.ShowModelPicker(tui.ModelPickerOpts{
@@ -721,8 +722,8 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				Effort:         cfg.Effort,
 				OllamaURL:      cfg.OllamaURL,
 				OllamaModel:    cfg.OllamaModel,
-				CCInstalled:    FindClaudeCode() != "",
-				CodexInstalled: FindCodex() != "",
+				CCInstalled:    agent.FindClaudeCode() != "",
+				CodexInstalled: agent.FindCodex() != "",
 			})
 			if !result.Confirmed {
 				continue
@@ -736,16 +737,16 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 					term.PrintSystem("  qmax-code config set ollama_model llama3.2:3b")
 					continue
 				}
-				if agent.ollama == nil {
-					agent.ollama = NewOllamaClient(cfg)
+				if ag.Ollama == nil {
+					ag.Ollama = agent.NewOllamaClient(cfg)
 				}
 				if cliAgent != nil {
 					cliAgent.Cleanup()
 					cliAgent = nil
 				}
-				agent.ollamaMode = OllamaModeFull
+				ag.Mode = agent.OllamaModeFull
 				cfg.Backend = ""
-				agent.config.Context.Backend = ""
+				ag.Cfg.Context.Backend = ""
 				_ = cfg.Save()
 				term.PrintSystem(fmt.Sprintf("Backend: Ollama  model: %s  endpoint: %s", cfg.OllamaModel, sysutil.MaskURL(cfg.OllamaURL)))
 				continue
@@ -754,13 +755,13 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			// ── Validate the chosen CLI is actually installed ─────────────────
 			switch result.Backend {
 			case "cc":
-				if FindClaudeCode() == "" {
+				if agent.FindClaudeCode() == "" {
 					term.PrintError("Claude Code ('claude') not found. Install it first.")
 					term.PrintSystem("  https://claude.ai/download")
 					continue
 				}
 			case "codex":
-				if FindCodex() == "" {
+				if agent.FindCodex() == "" {
 					term.PrintError("Codex CLI ('codex') not found.")
 					term.PrintSystem("  npm install -g @openai/codex")
 					continue
@@ -786,16 +787,16 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				cliAgent.Cleanup()
 				cliAgent = nil
 			}
-			agent.ollamaMode = OllamaModeOff
+			ag.Mode = agent.OllamaModeOff
 
 			// Spin up the new agent with selected model + effort.
 			switch result.Backend {
 			case "cc":
-				cliAgent = NewCCAgent(FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, agent.config.Context)
+				cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
 				term.PrintSystem(fmt.Sprintf("Backend: Claude Code  model: %s  effort: %s", result.ModelID, result.Effort))
 			case "codex":
-				ca := NewCodexAgent(FindCodex(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, agent.config.Context)
-				if err := ca.writeMCPConfig(); err != nil {
+				ca := agent.NewCodexAgent(agent.FindCodex(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				if err := ca.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: Codex MCP config: %v", err))
 				}
 				cliAgent = ca
@@ -807,12 +808,12 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			cfg.Backend = result.Backend
 			cfg.ModelOverride = result.ModelID
 			cfg.Effort = result.Effort
-			agent.config.Context.Backend = result.Backend
+			ag.Cfg.Context.Backend = result.Backend
 			_ = cfg.Save()
 			continue
 
 		case input == "/theme":
-			cfg := agent.appConfig
+			cfg := ag.AppConfig
 			if cfg == nil {
 				term.PrintError("api.Config not loaded.")
 				continue
@@ -830,7 +831,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			continue
 
 		case input == "/cloudsync":
-			cfg := agent.appConfig
+			cfg := ag.AppConfig
 			if cfg == nil {
 				term.PrintError("api.Config not loaded.")
 				continue
@@ -856,7 +857,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 		case input == "/cc", input == "/codex", input == "/api":
 			// Instant backend switching — no restart needed.
-			cfg := agent.appConfig
+			cfg := ag.AppConfig
 			if cfg == nil {
 				term.PrintError("api.Config not loaded.")
 				continue
@@ -885,7 +886,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 
 			switch wantBackend {
 			case "cc":
-				bin := FindClaudeCode()
+				bin := agent.FindClaudeCode()
 				if bin == "" {
 					term.PrintError("'claude' CLI not found. Install Claude Code first.")
 					term.PrintSystem("  https://claude.ai/download")
@@ -901,13 +902,13 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				if consent.GlobalInstall && !IsOrchSetupDone("cc") {
 					RunOrchSetup("cc", term)
 				}
-				cliAgent = NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, agent.config.Context)
+				cliAgent = agent.NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
 				cfg.Backend = "cc"
 				_ = cfg.Save()
 				term.PrintSystem(fmt.Sprintf("Backend → Claude Code (%s) · %s mode", bin, cfg.OrchPermissionMode))
 
 			case "codex":
-				bin := FindCodex()
+				bin := agent.FindCodex()
 				if bin == "" {
 					term.PrintError("'codex' CLI not found.")
 					term.PrintSystem("  npm install -g @openai/codex")
@@ -923,8 +924,8 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				if consent.GlobalInstall && !IsOrchSetupDone("codex") {
 					RunOrchSetup("codex", term)
 				}
-				ca := NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, agent.config.Context)
-				if err := ca.writeMCPConfig(); err != nil {
+				ca := agent.NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				if err := ca.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
 				}
 				cliAgent = ca
@@ -937,39 +938,39 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				_ = cfg.Save()
 				term.PrintSystem("Backend → Anthropic API (direct)")
 			}
-			agent.config.Context.Backend = cfg.Backend
+			ag.Cfg.Context.Backend = cfg.Backend
 			continue
 
 		case input == "/ollama":
 			// Cycle through modes: off → chat → full → off
-			cfg := agent.appConfig
+			cfg := ag.AppConfig
 			if cfg == nil || cfg.OllamaURL == "" {
 				term.PrintError("Ollama not configured. Set it first:")
 				term.PrintSystem("  qmax-code config set ollama_url https://user:pass@llm.example.com")
 				term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
 				continue
 			}
-			if agent.ollama == nil {
-				agent.ollama = NewOllamaClient(cfg)
+			if ag.Ollama == nil {
+				ag.Ollama = agent.NewOllamaClient(cfg)
 			}
-			switch agent.ollamaMode {
-			case OllamaModeOff:
-				agent.ollamaMode = OllamaModeChat
-				term.PrintSystem(fmt.Sprintf("Ollama: CHAT mode (%s) — chat via local model, tools via Claude", agent.ollama.model))
-			case OllamaModeChat:
-				agent.ollamaMode = OllamaModeFull
-				term.PrintSystem(fmt.Sprintf("Ollama: FULL mode (%s) — everything via local model (no Claude)", agent.ollama.agentModel))
-			case OllamaModeFull:
-				agent.ollamaMode = OllamaModeOff
+			switch ag.Mode {
+			case agent.OllamaModeOff:
+				ag.Mode = agent.OllamaModeChat
+				term.PrintSystem(fmt.Sprintf("Ollama: CHAT mode (%s) — chat via local model, tools via Claude", ag.Ollama.Model))
+			case agent.OllamaModeChat:
+				ag.Mode = agent.OllamaModeFull
+				term.PrintSystem(fmt.Sprintf("Ollama: FULL mode (%s) — everything via local model (no Claude)", ag.Ollama.AgentModel))
+			case agent.OllamaModeFull:
+				ag.Mode = agent.OllamaModeOff
 				term.PrintSystem("Ollama: OFF — all calls via Claude")
 			}
 			continue
 		case strings.HasPrefix(input, "/set "):
-			handleSetCommand(input, agent, term)
+			handleSetCommand(input, ag, term)
 			startCloudSession()
 			continue
 		case input == "/keys":
-			handleKeys(agent, term)
+			handleKeys(ag, term)
 			continue
 		case input == "/browserfeed" || strings.HasPrefix(input, "/browserfeed "):
 			arg := strings.TrimSpace(strings.TrimPrefix(input, "/browserfeed"))
@@ -990,14 +991,14 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			continue
 		case input == "/live" || strings.HasPrefix(input, "/live "):
 			arg := strings.TrimSpace(strings.TrimPrefix(input, "/live"))
-			cfg := agent.appConfig
+			cfg := ag.AppConfig
 			if cfg == nil {
 				term.PrintError("api.Config not loaded.")
 				continue
 			}
 			applyLiveFeed := func(next bool) {
 				cfg.LiveFeed = next
-				agent.config.Context.LiveFeed = next
+				ag.Cfg.Context.LiveFeed = next
 				if err := cfg.Save(); err != nil {
 					term.PrintError(fmt.Sprintf("Failed to save config: %v", err))
 					return
@@ -1040,10 +1041,10 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			}
 			continue
 		case input == "/feed":
-			url := agent.config.Context.LastLiveURL
+			url := ag.Cfg.Context.LastLiveURL
 			if url == "" {
 				term.PrintSystem("No live feed URL captured yet.")
-				if !agent.config.Context.LiveFeed {
+				if !ag.Cfg.Context.LiveFeed {
 					term.PrintSystem("  Enable with: /live on  (then run a test or crawl)")
 				} else {
 					term.PrintSystem("  Run a test or crawl, then try /feed again.")
@@ -1061,7 +1062,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 				continue
 			}
 			term.PrintSystem(fmt.Sprintf("Screenshot captured (%s)", img.FileName))
-			llmResult, err := agent.RunStreamingWithImages("Analyze this screenshot.", []tui.ImageAttachment{*img}, term)
+			llmResult, err := ag.RunStreamingWithImages("Analyze this screenshot.", []tui.ImageAttachment{*img}, term)
 			if err != nil {
 				term.PrintError(err.Error())
 			}
@@ -1075,7 +1076,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			img, imgErr := tui.PasteImageFromClipboard()
 			if imgErr == nil {
 				term.PrintSystem(fmt.Sprintf("Pasted image from clipboard (%s)", img.FileName))
-				llmResult, err := agent.RunStreamingWithImages("Analyze this pasted image.", []tui.ImageAttachment{*img}, term)
+				llmResult, err := ag.RunStreamingWithImages("Analyze this pasted image.", []tui.ImageAttachment{*img}, term)
 				if err != nil {
 					term.PrintError(err.Error())
 				}
@@ -1118,7 +1119,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		// Reset turn-scoped diagnostic flags. captureLiveURL uses these so
 		// we log "live URL captured" / "fell back to pooled runner" once
 		// per turn rather than once per poll.
-		if c := agent.config.Context; c != nil {
+		if c := ag.Cfg.Context; c != nil {
 			c.LiveURLLogged = false
 			c.SandboxModeLogged = false
 			c.SandboxFallbackSeen = false
@@ -1199,10 +1200,10 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			llmResult, err = cliAgent.Run(cleanInput, term)
 			term.StopThinking()
 			if err == nil {
-				// Mirror the turn into agent.history so autoSave records it.
-				// CCAgent/CodexAgent manage their own subprocess state; qmax's
+				// Mirror the turn into ag.History so autoSave records it.
+				// agent.CCAgent/agent.CodexAgent manage their own subprocess state; qmax's
 				// history would otherwise stay empty and autoSave would no-op.
-				agent.history = append(agent.history,
+				ag.History = append(ag.History,
 					api.Message{Role: "user", Content: cleanInput},
 					api.Message{Role: "assistant", Content: llmResult},
 				)
@@ -1216,9 +1217,9 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			if cleanInput == "" {
 				cleanInput = "Analyze these images."
 			}
-			llmResult, err = agent.RunStreamingWithImages(cleanInput, images, term)
+			llmResult, err = ag.RunStreamingWithImages(cleanInput, images, term)
 		} else {
-			llmResult, err = agent.RunStreaming(input, term)
+			llmResult, err = ag.RunStreaming(input, term)
 		}
 
 		// Stop queue reader and wait for the goroutine to exit before we
@@ -1237,7 +1238,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 			// what the user was working on.
 			backendTag := "api"
 			if cliAgent != nil {
-				backendTag = agent.config.Context.Backend
+				backendTag = ag.Cfg.Context.Backend
 			}
 			sysutil.CaptureError(err, map[string]interface{}{
 				"backend":     backendTag,
@@ -1270,11 +1271,11 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		// already drained; fall back to a final drain for non-cliAgent runs.
 		if cliAgent != nil {
 			if preConn.url != "" {
-				agent.config.Context.LastLiveURL = preConn.url
-				agent.config.Context.SandboxModeLogged = true
+				ag.Cfg.Context.LastLiveURL = preConn.url
+				ag.Cfg.Context.SandboxModeLogged = true
 			} else if url := sysutil.DrainLiveURLFromChild(); url != "" {
-				agent.config.Context.LastLiveURL = url
-				agent.config.Context.SandboxModeLogged = true
+				ag.Cfg.Context.LastLiveURL = url
+				ag.Cfg.Context.SandboxModeLogged = true
 			}
 		}
 
@@ -1287,7 +1288,7 @@ func runREPL(agent *Agent, cliAgent CLIAgent, quietMode bool) {
 		// /live on), open the feed now — the agent has finished talking
 		// so taking over the alt screen is safe. /feed remains as a
 		// manual replay if the user dismisses it.
-		maybeLaunchLiveFeed(agent.config.Context, term, preConn.stream, pendingExecID)
+		maybeLaunchLiveFeed(ag.Cfg.Context, term, preConn.stream, pendingExecID)
 	}
 }
 
@@ -1415,8 +1416,8 @@ func waitForLiveFeedURL(api *api.APIClient, execID string, timeout time.Duration
 }
 
 // handleConnect runs the browser-based auth flow from within the REPL.
-func handleConnect(agent *Agent, term *tui.Terminal) {
-	ctx := agent.config.Context
+func handleConnect(ag *agent.Agent, term *tui.Terminal) {
+	ctx := ag.Cfg.Context
 
 	// Already connected?
 	if ctx.Auth != nil && ctx.Auth.IsAuthenticated() {
@@ -1446,8 +1447,8 @@ func handleConnect(agent *Agent, term *tui.Terminal) {
 }
 
 // handleDisconnect removes auth and API client from the session.
-func handleDisconnect(agent *Agent, term *tui.Terminal) {
-	ctx := agent.config.Context
+func handleDisconnect(ag *agent.Agent, term *tui.Terminal) {
+	ctx := ag.Cfg.Context
 
 	if ctx.Auth == nil || !ctx.Auth.IsAuthenticated() {
 		term.PrintSystem("Not connected.")
@@ -1481,17 +1482,17 @@ func handleDisconnect(agent *Agent, term *tui.Terminal) {
 	term.PrintSystem("Run /connect to log in again.")
 }
 
-func toggleOutputVerbose(agent *Agent, cliAgent CLIAgent, term *tui.Terminal) {
-	if agent == nil {
+func toggleOutputVerbose(ag *agent.Agent, cliAgent agent.CLIAgent, term *tui.Terminal) {
+	if ag == nil {
 		return
 	}
-	cfg := agent.appConfig
+	cfg := ag.AppConfig
 	if cfg == nil {
 		cfg = api.DefaultConfig()
-		agent.appConfig = cfg
+		ag.AppConfig = cfg
 	}
 	cfg.OutputVerbose = !cfg.OutputVerbose
-	agent.config.OutputVerbose = cfg.OutputVerbose
+	ag.Cfg.OutputVerbose = cfg.OutputVerbose
 	if cliAgent != nil {
 		cliAgent.SetOutputVerbose(cfg.OutputVerbose)
 	}
@@ -1508,15 +1509,15 @@ func toggleOutputVerbose(agent *Agent, cliAgent CLIAgent, term *tui.Terminal) {
 }
 
 // handleKeys provides an interactive TUI for managing API keys.
-func handleKeys(agent *Agent, term *tui.Terminal) {
+func handleKeys(ag *agent.Agent, term *tui.Terminal) {
 	fmt.Println()
 
 	// Show current key status
-	anthropicKey := agent.config.AnthropicKey
+	anthropicKey := ag.Cfg.AnthropicKey
 	if anthropicKey == "" {
 		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
-	qmaxConnected := agent.config.Context.Auth != nil && agent.config.Context.Auth.IsAuthenticated()
+	qmaxConnected := ag.Cfg.Context.Auth != nil && ag.Cfg.Context.Auth.IsAuthenticated()
 
 	fmt.Printf("  %s API Keys %s\n\n", "\033[1m", "\033[0m")
 
@@ -1528,7 +1529,7 @@ func handleKeys(agent *Agent, term *tui.Terminal) {
 	}
 
 	if qmaxConnected {
-		fmt.Printf("  QualityMax:  %s● Connected%s (%s)\n", "\033[32m", "\033[0m", agent.config.Context.Auth.Email)
+		fmt.Printf("  QualityMax:  %s● Connected%s (%s)\n", "\033[32m", "\033[0m", ag.Cfg.Context.Auth.Email)
 	} else {
 		fmt.Printf("  QualityMax:  %s● Not connected%s\n", "\033[33m", "\033[0m")
 	}
@@ -1552,7 +1553,7 @@ func handleKeys(agent *Agent, term *tui.Terminal) {
 			return
 		}
 		os.Setenv("ANTHROPIC_API_KEY", key)
-		agent.config.AnthropicKey = key
+		ag.Cfg.AnthropicKey = key
 		if err := api.SaveAnthropicKey(key); err != nil {
 			term.PrintSystem(fmt.Sprintf("Key set for this session (keychain unavailable: %s)", err))
 		} else {
@@ -1560,9 +1561,9 @@ func handleKeys(agent *Agent, term *tui.Terminal) {
 			fmt.Println()
 		}
 	case 1: // QualityMax connect
-		handleConnect(agent, term)
+		handleConnect(ag, term)
 	case 2: // Disconnect
-		handleDisconnect(agent, term)
+		handleDisconnect(ag, term)
 	case 3: // Cancel
 		return
 	}
@@ -1643,16 +1644,16 @@ Examples:
   "create a PR with the generated tests"`)
 }
 
-func reconnectMCPTransport(cliAgent CLIAgent, term *tui.Terminal) {
+func reconnectMCPTransport(cliAgent agent.CLIAgent, term *tui.Terminal) {
 	switch a := cliAgent.(type) {
-	case *CCAgent:
-		if err := a.writeMCPConfig(); err != nil {
+	case *agent.CCAgent:
+		if err := a.WriteMCPConfig(); err != nil {
 			term.PrintError(fmt.Sprintf("Could not restore Claude Code MCP transport: %v", err))
 			return
 		}
 		term.PrintSystem("QMax MCP transport restored for Claude Code.")
-	case *CodexAgent:
-		if err := a.writeMCPConfig(); err != nil {
+	case *agent.CodexAgent:
+		if err := a.WriteMCPConfig(); err != nil {
 			term.PrintError(fmt.Sprintf("Could not restore Codex MCP transport: %v", err))
 			return
 		}
@@ -1702,7 +1703,7 @@ func printConfigInfo(cfg *api.Config, term *tui.Terminal) {
 	fmt.Println()
 }
 
-func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
+func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 	parts := strings.Fields(input)
 	if len(parts) < 3 {
 		term.PrintError("Usage: /set <key> <value>")
@@ -1711,10 +1712,10 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 	}
 	key := strings.ToLower(parts[1])
 	value := parts[2]
-	cfg := agent.appConfig
+	cfg := ag.AppConfig
 	if cfg == nil {
 		cfg = api.DefaultConfig()
-		agent.appConfig = cfg
+		ag.AppConfig = cfg
 	}
 
 	switch key {
@@ -1734,18 +1735,18 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 			return
 		}
 		cfg.DefaultProject = pid
-		agent.config.Context.ProjectID = pid
+		ag.Cfg.Context.ProjectID = pid
 		term.PrintSystem(fmt.Sprintf("Default project set to: #%d", pid))
 
 	case "professional":
 		switch strings.ToLower(value) {
 		case "true", "1", "yes", "on":
 			cfg.Professional = true
-			agent.config.Professional = true
+			ag.Cfg.Professional = true
 			term.PrintSystem("Professional mode enabled. Cat personality disabled.")
 		case "false", "0", "no", "off":
 			cfg.Professional = false
-			agent.config.Professional = false
+			ag.Cfg.Professional = false
 			term.PrintSystem("Professional mode disabled. Cat personality restored.")
 		default:
 			term.PrintError("Value must be true or false.")
@@ -1769,11 +1770,11 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 		switch strings.ToLower(value) {
 		case "true", "1", "yes", "on", "verbose":
 			cfg.OutputVerbose = true
-			agent.config.OutputVerbose = true
+			ag.Cfg.OutputVerbose = true
 			term.PrintSystem("Output mode set to verbose.")
 		case "false", "0", "no", "off", "compact":
 			cfg.OutputVerbose = false
-			agent.config.OutputVerbose = false
+			ag.Cfg.OutputVerbose = false
 			term.PrintSystem("Output mode set to compact.")
 		default:
 			term.PrintError("Value must be compact/verbose or true/false.")
@@ -1799,11 +1800,11 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 		switch strings.ToLower(value) {
 		case "true", "1", "yes", "on":
 			cfg.LiveFeed = true
-			agent.config.Context.LiveFeed = true
+			ag.Cfg.Context.LiveFeed = true
 			term.PrintSystem("Live feed enabled — test runs and AI crawls will stream in QM Cloud Sandbox.")
 		case "false", "0", "no", "off":
 			cfg.LiveFeed = false
-			agent.config.Context.LiveFeed = false
+			ag.Cfg.Context.LiveFeed = false
 			term.PrintSystem("Live feed disabled.")
 		default:
 			term.PrintError("Value must be true or false.")
@@ -1826,8 +1827,8 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 			term.PrintError(fmt.Sprintf("Invalid API key: %v", err))
 			return
 		}
-		agent.config.Context.Auth = auth
-		agent.config.Context.API = api.NewAPIClient(auth)
+		ag.Cfg.Context.Auth = auth
+		ag.Cfg.Context.API = api.NewAPIClient(auth)
 		tui.AnimateMax(tui.MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 		fmt.Println()
 		return // auth.json handles persistence
@@ -1841,10 +1842,10 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 				term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
 				return
 			}
-			agent.ollama = NewOllamaClient(cfg)
+			ag.Ollama = agent.NewOllamaClient(cfg)
 			term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", sysutil.MaskURL(cfg.OllamaURL), cfg.OllamaModel))
 		case "false", "0", "no", "off", "disabled":
-			agent.ollama = nil
+			ag.Ollama = nil
 			term.PrintSystem("Ollama disabled. Using Claude for all calls.")
 		default:
 			term.PrintError("Value must be true/false (or enabled/disabled).")
@@ -1857,7 +1858,7 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 		// For live switching use /cc, /codex, or /api instead.
 		switch strings.ToLower(value) {
 		case "cc":
-			if bin := FindClaudeCode(); bin == "" {
+			if bin := agent.FindClaudeCode(); bin == "" {
 				term.PrintError("'claude' CLI not found. Install Claude Code first.")
 				term.PrintSystem("  https://claude.ai/download")
 				return
@@ -1865,7 +1866,7 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 			cfg.Backend = "cc"
 			term.PrintSystem("Backend set to CC. Use /cc to switch live, or restart to apply.")
 		case "codex":
-			if bin := FindCodex(); bin == "" {
+			if bin := agent.FindCodex(); bin == "" {
 				term.PrintError("'codex' CLI not found.")
 				term.PrintSystem("  npm install -g @openai/codex")
 				return
@@ -1900,7 +1901,7 @@ func handleSetCommand(input string, agent *Agent, term *tui.Terminal) {
 	case "anthropic-key", "anthropic_key":
 		// Save Anthropic API key to OS keychain
 		os.Setenv("ANTHROPIC_API_KEY", value)
-		agent.config.AnthropicKey = value
+		ag.Cfg.AnthropicKey = value
 		if err := api.SaveAnthropicKey(value); err != nil {
 			term.PrintSystem(fmt.Sprintf("Key set for this session (keychain: %s)", err))
 		} else {

@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"bufio"
@@ -50,19 +50,26 @@ func (m OllamaMode) String() string {
 }
 
 // Agent is the LLM-powered QA orchestration engine.
+//
+// Several fields are exported because the REPL (cmd/qmax) drives session
+// state from the outside — appending to History on resume, reading Usage
+// to print cost, wiring an Ollama client after construction, etc. The
+// unexported fields (tools, client, cancel, priorSessions, sessionsFetched)
+// are pure internals.
 type Agent struct {
-	config          AgentConfig
-	appConfig       *api.Config // persistent user preferences
-	history         []api.Message
+	Cfg       AgentConfig
+	AppConfig *api.Config // persistent user preferences
+	History   []api.Message
+	Usage     api.TokenUsage
+	Logger    *sysutil.Logger
+	Ollama    *OllamaClient // optional self-hosted LLM
+	Mode      OllamaMode    // off, chat, or full
+
 	tools           []api.ToolDef
 	client          *http.Client
-	usage           api.TokenUsage
 	cancel          context.CancelFunc // cancel the current streaming request
-	logger          *sysutil.Logger
-	ollama          *OllamaClient // optional self-hosted LLM
-	ollamaMode      OllamaMode    // off, chat, or full
-	priorSessions   string        // cached prior-session summaries from backend
-	sessionsFetched bool          // true once loadPriorSessions has run
+	priorSessions   string             // cached prior-session summaries from backend
+	sessionsFetched bool               // true once loadPriorSessions has run
 }
 
 // SSE event types from Anthropic streaming API
@@ -105,8 +112,8 @@ type sseMessageDelta struct {
 // NewAgent creates a new LLM agent.
 func NewAgent(cfg AgentConfig) *Agent {
 	return &Agent{
-		config:  cfg,
-		history: []api.Message{},
+		Cfg:     cfg,
+		History: []api.Message{},
 		tools:   BuildToolDefs(),
 		client:  &http.Client{Timeout: 300 * time.Second},
 	}
@@ -114,7 +121,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 
 // ClearHistory resets conversation history.
 func (a *Agent) ClearHistory() {
-	a.history = []api.Message{}
+	a.History = []api.Message{}
 }
 
 // CancelCurrent cancels the current streaming request if one is in progress.
@@ -127,7 +134,7 @@ func (a *Agent) CancelCurrent() {
 // Run executes a prompt through the agent loop and returns the final text response.
 // Used for non-interactive (one-shot) mode.
 func (a *Agent) Run(prompt string) (string, error) {
-	a.history = append(a.history, api.Message{
+	a.History = append(a.History, api.Message{
 		Role:    "user",
 		Content: prompt,
 	})
@@ -138,14 +145,14 @@ func (a *Agent) Run(prompt string) (string, error) {
 			return "", fmt.Errorf("API call failed: %w", err)
 		}
 
-		a.history = append(a.history, api.Message{
+		a.History = append(a.History, api.Message{
 			Role:    "assistant",
 			Content: resp.Content,
 		})
 
 		if resp.StopReason == "tool_use" {
 			toolResults := a.executeToolCalls(resp.Content, context.Background())
-			a.history = append(a.history, api.Message{
+			a.History = append(a.History, api.Message{
 				Role:    "user",
 				Content: toolResults,
 			})
@@ -168,24 +175,24 @@ const (
 func (a *Agent) compressHistory() {
 	// Rough token estimate: 4 chars ≈ 1 token
 	totalChars := 0
-	for _, msg := range a.history {
+	for _, msg := range a.History {
 		totalChars += estimateMessageChars(msg)
 	}
 
 	estimatedTokens := totalChars / 4
-	if estimatedTokens < maxHistoryTokens && len(a.history) < maxSessionMessages {
+	if estimatedTokens < maxHistoryTokens && len(a.History) < maxSessionMessages {
 		return // within budget
 	}
 
 	// Keep the last 6 messages (3 user + 3 assistant turns) and summarize the rest
-	if len(a.history) <= 6 {
+	if len(a.History) <= 6 {
 		return
 	}
 
 	// Build a summary of older messages
 	var summary strings.Builder
 	summary.WriteString("[Previous conversation summary]\n")
-	oldMessages := a.history[:len(a.history)-6]
+	oldMessages := a.History[:len(a.History)-6]
 	for _, msg := range oldMessages {
 		role := msg.Role
 		switch v := msg.Content.(type) {
@@ -223,7 +230,7 @@ func (a *Agent) compressHistory() {
 		{Role: "assistant", Content: []api.ContentBlock{{Type: "text", Text: "Got it, I have the context from our earlier conversation."}}},
 	}
 	// Keep last 6 messages, but ensure tool_result messages stay paired with their tool_use
-	keep := a.history[len(a.history)-6:]
+	keep := a.History[len(a.History)-6:]
 	// If the first kept message is a user tool_result without a preceding assistant tool_use,
 	// skip it to avoid orphaned tool_results
 	if len(keep) > 0 && keep[0].Role == "user" {
@@ -232,7 +239,7 @@ func (a *Agent) compressHistory() {
 		}
 	}
 	compressed = append(compressed, keep...)
-	a.history = compressed
+	a.History = compressed
 }
 
 // RunStreaming executes a prompt with real-time SSE streaming to the terminal.
@@ -295,30 +302,30 @@ func BuildUserContent(text string, images []tui.ImageAttachment) interface{} {
 
 // RunStreamingWithImages is like RunStreaming but supports image attachments.
 func (a *Agent) RunStreamingWithImages(prompt string, images []tui.ImageAttachment, term *tui.Terminal) (string, error) {
-	a.history = append(a.history, api.Message{
+	a.History = append(a.History, api.Message{
 		Role:    "user",
 		Content: BuildUserContent(prompt, images),
 	})
-	a.logger.Info("agent", "user_message_with_images", map[string]interface{}{"turns": len(a.history), "images": len(images)})
+	a.Logger.Info("agent", "user_message_with_images", map[string]interface{}{"turns": len(a.History), "images": len(images)})
 	return a.runStreamingLoop(term)
 }
 
 func (a *Agent) RunStreaming(prompt string, term *tui.Terminal) (string, error) {
-	a.history = append(a.history, api.Message{
+	a.History = append(a.History, api.Message{
 		Role:    "user",
 		Content: prompt,
 	})
-	a.logger.Info("agent", "user_message", map[string]interface{}{"turns": len(a.history)})
+	a.Logger.Info("agent", "user_message", map[string]interface{}{"turns": len(a.History)})
 	return a.runStreamingLoop(term)
 }
 
 func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 	for iterations := 0; iterations < maxIterations; iterations++ {
 		// Sanitize + compress history before each API call
-		session.SanitizeSessionMessages(a.history)
+		session.SanitizeSessionMessages(a.History)
 		a.compressHistory()
 		model := a.modelForIteration(iterations)
-		if a.config.Verbose {
+		if a.Cfg.Verbose {
 			fmt.Fprintf(term.Stderr(), "[model] %s (iteration %d)\n", model, iterations)
 		}
 
@@ -326,36 +333,36 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 		// - OllamaModeFull: local model handles everything via prompt dispatch
 		// - OllamaModeChat: local model handles chat only, tool requests go to Claude
 		// - OllamaModeOff: everything goes to Claude
-		if iterations == 0 && a.ollama != nil && a.ollama.Available() && a.ollamaMode != OllamaModeOff {
-			if a.ollamaMode == OllamaModeFull {
-				if a.config.Verbose {
-					fmt.Fprintf(term.Stderr(), "[ollama-full] trying %s\n", a.ollama.agentModel)
+		if iterations == 0 && a.Ollama != nil && a.Ollama.Available() && a.Mode != OllamaModeOff {
+			if a.Mode == OllamaModeFull {
+				if a.Cfg.Verbose {
+					fmt.Fprintf(term.Stderr(), "[ollama-full] trying %s\n", a.Ollama.AgentModel)
 				}
 				result, ok := a.RunOllamaAgent(term)
 				if ok && result != "" {
 					return result, nil
 				}
-				if a.config.Verbose {
+				if a.Cfg.Verbose {
 					fmt.Fprintf(term.Stderr(), "[ollama-full] failed, falling back to Claude\n")
 				}
-			} else if a.ollamaMode == OllamaModeChat && !a.needsTools() {
-				if a.config.Verbose {
-					fmt.Fprintf(term.Stderr(), "[ollama-chat] trying %s\n", a.ollama.model)
+			} else if a.Mode == OllamaModeChat && !a.needsTools() {
+				if a.Cfg.Verbose {
+					fmt.Fprintf(term.Stderr(), "[ollama-chat] trying %s\n", a.Ollama.Model)
 				}
 				ctx, cancel := context.WithCancel(context.Background())
 				a.cancel = cancel
-				ollamaText, ollamaErr := a.ollama.ChatStreaming(ctx, a.buildSystemPrompt(), a.history, term)
+				ollamaText, ollamaErr := a.Ollama.ChatStreaming(ctx, a.buildSystemPrompt(), a.History, term)
 				a.cancel = nil
 				cancel()
 				if ollamaErr == nil && ollamaText != "" {
-					a.history = append(a.history, api.Message{
+					a.History = append(a.History, api.Message{
 						Role:    "assistant",
 						Content: []api.ContentBlock{{Type: "text", Text: ollamaText}},
 					})
 					term.FinishMarkdown(ollamaText)
 					return ollamaText, nil
 				}
-				if a.config.Verbose && ollamaErr != nil {
+				if a.Cfg.Verbose && ollamaErr != nil {
 					fmt.Fprintf(term.Stderr(), "[ollama-chat] failed, falling back to Claude: %v\n", ollamaErr)
 				}
 			}
@@ -365,12 +372,12 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 		content, stopReason, err := a.callStreamingAPI(term, model)
 		term.StopThinking() // safety net — already stopped by first token in the happy path
 		if err != nil {
-			a.logger.Error("api", err.Error())
+			a.Logger.Error("api", err.Error())
 			return "", fmt.Errorf("API call failed: %w", err)
 		}
 
 		// Add assistant response to history
-		a.history = append(a.history, api.Message{
+		a.History = append(a.History, api.Message{
 			Role:    "assistant",
 			Content: content,
 		})
@@ -390,7 +397,7 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 			a.cancel = nil
 			cancel()
 
-			a.history = append(a.history, api.Message{
+			a.History = append(a.History, api.Message{
 				Role:    "user",
 				Content: toolResults,
 			})
@@ -398,7 +405,7 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 		}
 
 		// Show token usage after response
-		term.PrintTokenUsage(a.usage)
+		term.PrintTokenUsage(a.Usage)
 
 		return a.extractText(content), nil
 	}
@@ -409,14 +416,14 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 // needsTools checks if the latest user message likely requires tool calls.
 // If so, we skip Ollama (which can't use tools and will hallucinate data).
 func (a *Agent) needsTools() bool {
-	if len(a.history) == 0 {
+	if len(a.History) == 0 {
 		return false
 	}
 	// Get the last user message
 	var lastUserMsg string
-	for i := len(a.history) - 1; i >= 0; i-- {
-		if a.history[i].Role == "user" {
-			lastUserMsg = extractPlainText(a.history[i].Content)
+	for i := len(a.History) - 1; i >= 0; i-- {
+		if a.History[i].Role == "user" {
+			lastUserMsg = extractPlainText(a.History[i].Content)
 			break
 		}
 	}
@@ -457,13 +464,13 @@ func (a *Agent) needsTools() bool {
 
 // modelForIteration picks the model: haiku for first call (chat), sonnet for tool loops.
 func (a *Agent) modelForIteration(iteration int) string {
-	if !a.config.AutoRoute {
-		return a.config.Model
+	if !a.Cfg.AutoRoute {
+		return a.Cfg.Model
 	}
 	if iteration == 0 {
-		return a.config.ChatModel // haiku — cheap, fast for understanding intent
+		return a.Cfg.ChatModel // haiku — cheap, fast for understanding intent
 	}
-	return a.config.Model // sonnet — smarter for tool orchestration
+	return a.Cfg.Model // sonnet — smarter for tool orchestration
 }
 
 // callStreamingAPI makes a streaming request to the Claude API and processes SSE events.
@@ -474,8 +481,8 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 	// Claude API accepts: string OR array of content blocks.
 	// After JSON round-trips, []api.ContentBlock can become []interface{} — that's still valid
 	// as json.Marshal will serialize it correctly. Only fix nil/unexpected scalars.
-	sanitized := make([]api.Message, len(a.history))
-	for i, msg := range a.history {
+	sanitized := make([]api.Message, len(a.History))
+	for i, msg := range a.History {
 		sanitized[i] = msg
 		switch v := sanitized[i].Content.(type) {
 		case string:
@@ -539,13 +546,13 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 		return nil, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", a.config.AnthropicKey)
+	req.Header.Set("x-api-key", a.Cfg.AnthropicKey)
 	req.Header.Set("anthropic-version", api.AnthropicVersion)
 
-	a.logger.Info("api", "request", map[string]interface{}{"model": model, "messages": len(a.history)})
+	a.Logger.Info("api", "request", map[string]interface{}{"model": model, "messages": len(a.History)})
 
-	if a.config.Verbose {
-		fmt.Printf("[API] Streaming request: %d bytes, %d messages\n", len(data), len(a.history))
+	if a.Cfg.Verbose {
+		fmt.Printf("[API] Streaming request: %d bytes, %d messages\n", len(data), len(a.History))
 	}
 
 	resp, err := a.client.Do(req)
@@ -560,14 +567,14 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		apiErr := fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
-		a.logger.Error("api", apiErr.Error()) // local logger only — not sent off-machine
+		a.Logger.Error("api", apiErr.Error()) // local logger only — not sent off-machine
 		// Telemetry: send only the structural fields and the API error code.
 		// The body (which may include echoed-back prompt content in validation
 		// errors) is logged locally but NOT forwarded to Bugsink.
 		sysutil.CaptureError(fmt.Errorf("anthropic API error %d", resp.StatusCode), map[string]interface{}{
 			"model":         model,
 			"status_code":   fmt.Sprintf("%d", resp.StatusCode),
-			"message_count": fmt.Sprintf("%d", len(a.history)),
+			"message_count": fmt.Sprintf("%d", len(a.History)),
 		})
 		return nil, "", apiErr
 	}
@@ -615,9 +622,9 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 		case "message_start":
 			var ev sseMessageStart
 			if err := json.Unmarshal([]byte(rawData), &ev); err == nil {
-				a.usage.InputTokens += ev.Message.Usage.InputTokens
-				a.usage.Requests++
-				if a.config.Verbose {
+				a.Usage.InputTokens += ev.Message.Usage.InputTokens
+				a.Usage.Requests++
+				if a.Cfg.Verbose {
 					fmt.Printf("[SSE] message_start: input_tokens=%d\n", ev.Message.Usage.InputTokens)
 				}
 			}
@@ -699,8 +706,8 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 			var ev sseMessageDelta
 			if err := json.Unmarshal([]byte(rawData), &ev); err == nil {
 				stopReason = ev.Delta.StopReason
-				a.usage.OutputTokens += ev.Usage.OutputTokens
-				if a.config.Verbose {
+				a.Usage.OutputTokens += ev.Usage.OutputTokens
+				if a.Cfg.Verbose {
 					fmt.Printf("[SSE] message_delta: stop=%s, output_tokens=%d\n", stopReason, ev.Usage.OutputTokens)
 				}
 			}
@@ -726,10 +733,10 @@ func (a *Agent) callAPI() (*api.APIResponse, error) {
 	systemPrompt := a.buildSystemPrompt()
 
 	reqBody := api.APIRequest{
-		Model:     a.config.Model,
+		Model:     a.Cfg.Model,
 		MaxTokens: 8192,
 		System:    systemPrompt,
-		Messages:  a.history,
+		Messages:  a.History,
 		Tools:     a.tools,
 		Stream:    false,
 	}
@@ -744,11 +751,11 @@ func (a *Agent) callAPI() (*api.APIResponse, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", a.config.AnthropicKey)
+	req.Header.Set("x-api-key", a.Cfg.AnthropicKey)
 	req.Header.Set("anthropic-version", api.AnthropicVersion)
 
-	if a.config.Verbose {
-		fmt.Printf("[API] Request: %d bytes, %d messages\n", len(data), len(a.history))
+	if a.Cfg.Verbose {
+		fmt.Printf("[API] Request: %d bytes, %d messages\n", len(data), len(a.History))
 	}
 
 	resp, err := a.client.Do(req)
@@ -772,11 +779,11 @@ func (a *Agent) callAPI() (*api.APIResponse, error) {
 	}
 
 	// Track usage
-	a.usage.InputTokens += apiResp.Usage.InputTokens
-	a.usage.OutputTokens += apiResp.Usage.OutputTokens
-	a.usage.Requests++
+	a.Usage.InputTokens += apiResp.Usage.InputTokens
+	a.Usage.OutputTokens += apiResp.Usage.OutputTokens
+	a.Usage.Requests++
 
-	if a.config.Verbose {
+	if a.Cfg.Verbose {
 		fmt.Printf("[API] Response: stop=%s, input=%d, output=%d tokens\n",
 			apiResp.StopReason, apiResp.Usage.InputTokens, apiResp.Usage.OutputTokens)
 	}
@@ -791,7 +798,7 @@ func (a *Agent) executeToolCalls(content []api.ContentBlock, ctx context.Context
 		if block.Type != "tool_use" {
 			continue
 		}
-		output := ExecuteTool(block.Name, block.Input, a.config.Context, ctx)
+		output := ExecuteTool(block.Name, block.Input, a.Cfg.Context, ctx)
 		results = append(results, api.ContentBlock{
 			Type:      "tool_result",
 			ToolUseID: block.ID,
@@ -805,8 +812,8 @@ func (a *Agent) executeToolCalls(content []api.ContentBlock, ctx context.Context
 func (a *Agent) executeToolCallsWithUI(toolCalls []api.ContentBlock, term *tui.Terminal, ctx context.Context) []api.ContentBlock {
 	var results []api.ContentBlock
 	for _, block := range toolCalls {
-		a.logger.Info("tool", block.Name, map[string]interface{}{"cost": ToolCost(block.Name)})
-		output := ExecuteTool(block.Name, block.Input, a.config.Context, ctx)
+		a.Logger.Info("tool", block.Name, map[string]interface{}{"cost": ToolCost(block.Name)})
+		output := ExecuteTool(block.Name, block.Input, a.Cfg.Context, ctx)
 		summarized := SummarizeToolResult(block.Name, output)
 		term.PrintToolResult(block.Name, summarized)
 
@@ -846,8 +853,8 @@ func (a *Agent) loadPriorSessions() {
 	}
 	a.sessionsFetched = true
 
-	api := a.config.Context.API
-	projectID := a.config.Context.ProjectID
+	api := a.Cfg.Context.API
+	projectID := a.Cfg.Context.ProjectID
 	if api == nil || projectID <= 0 {
 		return
 	}
@@ -887,7 +894,7 @@ func (a *Agent) loadPriorSessions() {
 // buildSystemPrompt creates the system prompt with session context.
 func (a *Agent) buildSystemPrompt() string {
 	var prompt string
-	if a.config.Professional {
+	if a.Cfg.Professional {
 		prompt = `You are qmax-code, a professional QA engineering assistant in the terminal. Be professional and direct. No cat references, no personality. Just be an expert QA engineer.
 
 RULES:
@@ -1024,7 +1031,7 @@ Always state your confidence: "Confidence: HIGH — the button selector changed 
 	}
 
 	// Dashboard URLs
-	cloudURL := a.config.Context.QMaxCfg.CloudURL
+	cloudURL := a.Cfg.Context.QMaxCfg.CloudURL
 	if cloudURL != "" {
 		prompt += fmt.Sprintf(`
 ## Dashboard URLs
@@ -1039,8 +1046,8 @@ You MUST call list_projects first to get the slug. Never guess it.
 	}
 
 	// Add session context
-	if a.config.Context.ProjectID > 0 {
-		prompt += fmt.Sprintf("\n## Active session.Session\n- Project ID: %d\n", a.config.Context.ProjectID)
+	if a.Cfg.Context.ProjectID > 0 {
+		prompt += fmt.Sprintf("\n## Active session.Session\n- Project ID: %d\n", a.Cfg.Context.ProjectID)
 	}
 	if cloudURL != "" {
 		prompt += fmt.Sprintf("- QualityMax API: %s\n", cloudURL)
@@ -1054,17 +1061,17 @@ You MUST call list_projects first to get the slug. Never guess it.
 
 	// Token budget warning
 	budgetThreshold := 80000
-	if a.appConfig != nil && a.appConfig.MaxTokenBudget > 0 {
-		budgetThreshold = a.appConfig.MaxTokenBudget * 40 / 100 // warn at 40% of budget
+	if a.AppConfig != nil && a.AppConfig.MaxTokenBudget > 0 {
+		budgetThreshold = a.AppConfig.MaxTokenBudget * 40 / 100 // warn at 40% of budget
 	}
-	if a.usage.TotalTokens() > budgetThreshold {
-		prompt += fmt.Sprintf("\n⚠️ HIGH TOKEN USAGE: session.Session has used %d tokens. Be extra concise.\n", a.usage.TotalTokens())
+	if a.Usage.TotalTokens() > budgetThreshold {
+		prompt += fmt.Sprintf("\n⚠️ HIGH TOKEN USAGE: session.Session has used %d tokens. Be extra concise.\n", a.Usage.TotalTokens())
 	}
 
-	prompt += outputStyleDirective(a.config.OutputVerbose)
+	prompt += outputStyleDirective(a.Cfg.OutputVerbose)
 
 	// Git context
-	if gi := a.config.Context.GitInfo; gi != nil {
+	if gi := a.Cfg.Context.GitInfo; gi != nil {
 		prompt += "\n## Git Context\n"
 		if gi.Branch != "" {
 			prompt += fmt.Sprintf("Branch: %s\n", gi.Branch)

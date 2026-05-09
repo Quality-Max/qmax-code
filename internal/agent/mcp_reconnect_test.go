@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"os"
@@ -10,6 +10,17 @@ import (
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
+
+// withTempHome points $HOME at a fresh temp dir for the test and restores it
+// in cleanup. Local copy of the helper used by other test files in the repo.
+func withTempHome(t *testing.T) string {
+	t.Helper()
+	orig := os.Getenv("HOME")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	t.Cleanup(func() { os.Setenv("HOME", orig) })
+	return tmp
+}
 
 func TestCodexRunRestoresMCPConfigBeforeExec(t *testing.T) {
 	home := withTempHome(t)
@@ -59,8 +70,8 @@ printf '%s\n' '{"type":"result","result":"cc ok"}'
 `)
 
 	a := NewCCAgent(claudeBin, "", "high", "standard", false, &api.SessionContext{ProjectID: 42})
-	if err := a.writeMCPConfig(); err != nil {
-		t.Fatalf("initial writeMCPConfig: %v", err)
+	if err := a.WriteMCPConfig(); err != nil {
+		t.Fatalf("initial WriteMCPConfig: %v", err)
 	}
 
 	a.mu.Lock()
