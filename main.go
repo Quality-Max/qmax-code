@@ -21,7 +21,7 @@ import (
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
-var Version = "1.16.3"
+var Version = "1.16.4"
 
 const Name = "qmax-code"
 

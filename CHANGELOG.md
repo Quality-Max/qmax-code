@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.4] - 2026-05-09
+
+### Changed
+- Phase 2 step 3 of the package reorg: extracted `internal/session` (session save/load, prompt queue, cloud-session tracker, platform stdin readers). Anthropic Messages API wire types (`Message`, `ContentBlock`, `ImageSource`, `APIRequest/Response/Usage`, `ToolDef`) moved to `internal/api/messages.go` so session, agent, mcp, and cloud upload all share one definition. No user-visible behavior change.
+
 ## [1.16.3] - 2026-05-09
 
 ### Changed
