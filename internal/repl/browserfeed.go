@@ -1,4 +1,4 @@
-package main
+package repl
 
 // /browserfeed: experimental ASCII live feed of a QM Cloud Sandbox desktop.
 //
@@ -32,11 +32,11 @@ const (
 	blockModeHalf
 )
 
-// ShowBrowserFeed opens the live feed for `url` and blocks until the user
+// showBrowserFeed opens the live feed for `url` and blocks until the user
 // quits with Ctrl+]. Returns nil on clean exit. mode controls the renderer:
 // blockModeQuarter (default, sharper) or blockModeHalf (simpler, more
 // portable).
-func ShowBrowserFeed(url string, mode blockMode) error {
+func showBrowserFeed(url string, mode blockMode) error {
 	stream, err := vnc.DialVNC(context.Background(), url, 10)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
@@ -44,11 +44,11 @@ func ShowBrowserFeed(url string, mode blockMode) error {
 	return showBrowserFeedStream(stream, mode, fmt.Sprintf("connected to %s — Ctrl+] to quit", url))
 }
 
-// ShowBrowserFeedFromStream opens the live feed UI using an already-dialled
+// showBrowserFeedFromStream opens the live feed UI using an already-dialled
 // VNCStream. Ownership of the stream is transferred; the stream is closed
 // when the user quits. statusHint is shown in the status line until the
 // first frame arrives.
-func ShowBrowserFeedFromStream(stream *vnc.VNCStream, mode blockMode, statusHint string) error {
+func showBrowserFeedFromStream(stream *vnc.VNCStream, mode blockMode, statusHint string) error {
 	return showBrowserFeedStream(stream, mode, statusHint)
 }
 
@@ -70,7 +70,7 @@ func showBrowserFeedStream(stream *vnc.VNCStream, mode blockMode, status string)
 	// Bridge stream channels → Bubble Tea. Both goroutines exit when their
 	// respective channels close (stream.Close() closes both). A WaitGroup
 	// ensures they've exited before we return so callers never see a
-	// dangling goroutine after ShowBrowserFeed returns.
+	// dangling goroutine after showBrowserFeed returns.
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {

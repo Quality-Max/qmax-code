@@ -39,10 +39,35 @@ const (
 	ollamaCooldownSec = 120
 )
 
+// ValidateOllamaURL checks that ollamaURL is a syntactically valid http or
+// https URL. Returns an error otherwise. Used by callers (REPL, /set ollama,
+// /orch picker) to gate OllamaURL inputs read from on-disk config before
+// they're handed to NewOllamaClient — defends against schemes like file://
+// or javascript: ending up in HTTP request URLs.
+func ValidateOllamaURL(ollamaURL string) error {
+	if ollamaURL == "" {
+		return fmt.Errorf("ollama URL is empty")
+	}
+	u, err := url.Parse(ollamaURL)
+	if err != nil {
+		return fmt.Errorf("invalid ollama URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("ollama URL scheme must be http or https, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("ollama URL is missing host")
+	}
+	return nil
+}
+
 // NewOllamaClient creates a client if URL and model are configured.
-// Returns nil if not configured.
+// Returns nil if not configured or the URL is invalid.
 func NewOllamaClient(cfg *api.Config) *OllamaClient {
 	if cfg.OllamaURL == "" || cfg.OllamaModel == "" {
+		return nil
+	}
+	if err := ValidateOllamaURL(cfg.OllamaURL); err != nil {
 		return nil
 	}
 	agentModel := cfg.OllamaAgentModel

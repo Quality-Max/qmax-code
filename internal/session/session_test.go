@@ -282,3 +282,45 @@ func TestSanitizeSessionMessages(t *testing.T) {
 		t.Error("tool_use block still has nil 'input' after sanitization")
 	}
 }
+
+func TestLoadSessionRejectsTraversalIDs(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, bad := range []string{
+		"../etc/passwd",
+		"../../sessions/abc",
+		"foo/bar",
+		`fooar`,
+		"with spaces",
+		"",
+		strings.Repeat("a", 65),
+		"with.dot",
+		"x..y",
+	} {
+		_, err := LoadSession(bad)
+		if err == nil {
+			t.Errorf("LoadSession(%q) returned no error; want validation failure", bad)
+			continue
+		}
+		if !strings.Contains(err.Error(), "invalid session ID") {
+			t.Errorf("LoadSession(%q): err=%v; want \"invalid session ID\" message", bad, err)
+		}
+	}
+}
+
+func TestLoadSessionAcceptsValidIDs(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// Create a valid session first so the file exists.
+	id := GenerateSessionID()
+	if err := SaveSession(id, nil, 0, api.TokenUsage{}, "model"); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+	if _, err := LoadSession(id); err != nil {
+		t.Errorf("LoadSession(%q) failed for valid ID: %v", id, err)
+	}
+	// Hyphens and underscores are also valid.
+	for _, good := range []string{"abc-123", "abc_123", "ABC", "0123456789"} {
+		if !isValidSessionID(good) {
+			t.Errorf("isValidSessionID(%q) = false; want true", good)
+		}
+	}
+}
