@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"context"
@@ -49,7 +49,7 @@ Available actions:
 // RunOllamaAgent runs a full conversation turn using only Ollama.
 // Returns the final text response and whether it succeeded.
 func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
-	if a.ollama == nil || !a.ollama.Available() {
+	if a.Ollama == nil || !a.Ollama.Available() {
 		return "", false
 	}
 
@@ -61,7 +61,7 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 
 	// Phase 1: Get the local model response (may contain <action> block)
 	// Use the agent model (12B) for better tool dispatch accuracy
-	ollamaText, err := a.ollama.ChatStreamingWithModel(ctx1, a.ollama.agentModel, system, a.history, term)
+	ollamaText, err := a.Ollama.ChatStreamingWithModel(ctx1, a.Ollama.AgentModel, system, a.History, term)
 	a.cancel = nil
 	cancel1()
 
@@ -73,7 +73,7 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 	action, params, remaining := parseActionBlock(ollamaText)
 	if action == "" {
 		// Pure chat response — no tool needed
-		a.history = append(a.history, api.Message{
+		a.History = append(a.History, api.Message{
 			Role:    "assistant",
 			Content: []api.ContentBlock{{Type: "text", Text: ollamaText}},
 		})
@@ -82,7 +82,7 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 	}
 
 	// Phase 2: Execute the action via QualityMax API (fresh context)
-	if a.config.Verbose {
+	if a.Cfg.Verbose {
 		fmt.Fprintf(term.Stderr(), "[ollama-agent] action=%s params=%v\n", action, params)
 	}
 	term.PrintToolIcon(action)
@@ -94,18 +94,18 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 	term.PrintToolResult(action, tui.TruncateStr(toolResult, 200))
 
 	// Phase 3: Feed results back to the local model for formatting.
-	a.history = append(a.history, api.Message{
+	a.History = append(a.History, api.Message{
 		Role:    "assistant",
 		Content: []api.ContentBlock{{Type: "text", Text: remaining}},
 	})
-	a.history = append(a.history, api.Message{
+	a.History = append(a.History, api.Message{
 		Role:    "user",
 		Content: fmt.Sprintf("[Tool result for %s]:\n%s\n\nSummarize these results for the user concisely.", action, truncateToolResult(toolResult)),
 	})
 
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	a.cancel = cancel2
-	summary, err := a.ollama.ChatStreamingWithModel(ctx2, a.ollama.agentModel, system, a.history, term)
+	summary, err := a.Ollama.ChatStreamingWithModel(ctx2, a.Ollama.AgentModel, system, a.History, term)
 	a.cancel = nil
 	cancel2()
 
@@ -114,7 +114,7 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 		summary = toolResult
 	}
 
-	a.history = append(a.history, api.Message{
+	a.History = append(a.History, api.Message{
 		Role:    "assistant",
 		Content: []api.ContentBlock{{Type: "text", Text: summary}},
 	})
@@ -188,7 +188,7 @@ func tryParseActionJSON(jsonStr string) (string, map[string]interface{}, bool) {
 
 // executeOllamaAction maps an action name to a real API call.
 func (a *Agent) executeOllamaAction(action string, params map[string]interface{}, ctx context.Context) string {
-	api := a.config.Context.API
+	api := a.Cfg.Context.API
 	if api == nil {
 		return `{"error": "Not connected to QualityMax. Run /connect first."}`
 	}
@@ -197,25 +197,25 @@ func (a *Agent) executeOllamaAction(action string, params map[string]interface{}
 	case "list_projects":
 		return api.ListProjects(ctx)
 	case "list_test_cases":
-		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		projectID := intVal(params, "project_id", a.Cfg.Context.ProjectID)
 		search := strVal(params, "search")
 		return api.ListTestCases(ctx, projectID, 20, search)
 	case "list_scripts":
-		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		projectID := intVal(params, "project_id", a.Cfg.Context.ProjectID)
 		return api.ListScripts(ctx, projectID, 20)
 	case "run_test":
 		scriptID := intVal(params, "script_id", 0)
 		if scriptID == 0 {
 			return `{"error": "script_id is required"}`
 		}
-		return api.RunTest(ctx, scriptID, true, "", "", a.config.Context.LiveFeed)
+		return api.RunTest(ctx, scriptID, true, "", "", a.Cfg.Context.LiveFeed)
 	case "start_crawl":
-		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		projectID := intVal(params, "project_id", a.Cfg.Context.ProjectID)
 		url := strVal(params, "url")
 		if url == "" {
 			return `{"error": "url is required"}`
 		}
-		return api.StartCrawl(ctx, projectID, url, 2, 10, "", "", a.config.Context.LiveFeed)
+		return api.StartCrawl(ctx, projectID, url, 2, 10, "", "", a.Cfg.Context.LiveFeed)
 	case "review_repo":
 		repoID := intVal(params, "repo_id", 0)
 		if repoID == 0 {
@@ -226,14 +226,14 @@ func (a *Agent) executeOllamaAction(action string, params map[string]interface{}
 		scriptID := intVal(params, "script_id", 0)
 		return api.GetScript(ctx, scriptID)
 	case "get_project_summary":
-		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		projectID := intVal(params, "project_id", a.Cfg.Context.ProjectID)
 		return api.GetProjectSummary(ctx, projectID)
 	case "check_test_status":
 		execID := strVal(params, "execution_id")
 		return api.CheckTestStatus(ctx, execID)
 	case "create_pr":
 		repoID := intVal(params, "repo_id", 0)
-		projectID := intVal(params, "project_id", a.config.Context.ProjectID)
+		projectID := intVal(params, "project_id", a.Cfg.Context.ProjectID)
 		return api.CreatePR(ctx, repoID, projectID)
 	default:
 		return fmt.Sprintf(`{"error": "Unknown action: %s"}`, action)

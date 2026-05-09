@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"bufio"
@@ -89,9 +89,9 @@ func NewCodexAgent(bin, modelID, effort, permissionMode string, outputVerbose bo
 	}
 }
 
-// writeMCPConfig writes the qmax MCP server into ~/.codex/config.toml
+// WriteMCPConfig writes the qmax MCP server into ~/.codex/config.toml
 // so Codex picks it up for every invocation.
-func (a *CodexAgent) writeMCPConfig() error {
+func (a *CodexAgent) WriteMCPConfig() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func (a *CodexAgent) writeMCPConfig() error {
 	if a.sctx.ProjectID > 0 {
 		env["QMAX_PROJECT_ID"] = fmt.Sprintf("%d", a.sctx.ProjectID)
 	}
-	// Live-feed plumbing — see writeMCPConfig in cc_agent.go for context.
+	// Live-feed plumbing — see WriteMCPConfig in cc_agent.go for context.
 	if a.sctx.LiveFeed {
 		env["QMAX_LIVE_FEED"] = "1"
 	}
@@ -117,7 +117,7 @@ func (a *CodexAgent) writeMCPConfig() error {
 	}
 
 	cfgPath := filepath.Join(codexDir, "config.toml")
-	_, err = writeCodexMCPEntry(cfgPath, env)
+	_, err = WriteCodexMCPEntry(cfgPath, env)
 	return err
 }
 
@@ -141,7 +141,7 @@ End each response with the next highest-impact action.
 
 // Run executes one conversation turn through a Codex subprocess.
 func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
-	if err := a.writeMCPConfig(); err != nil {
+	if err := a.WriteMCPConfig(); err != nil {
 		return "", fmt.Errorf("MCP config: %w", err)
 	}
 

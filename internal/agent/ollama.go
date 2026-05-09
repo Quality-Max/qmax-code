@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"bufio"
@@ -23,10 +23,10 @@ import (
 
 // OllamaClient wraps HTTP calls to an Ollama instance with a circuit breaker.
 type OllamaClient struct {
-	baseURL    string // e.g. "https://user:pass@llm.example.com"
-	model      string // e.g. "gemma3:4b-it-q4_K_M" (fast, for chat)
-	agentModel string // e.g. "gemma3:12b-it-q4_K_M" (smarter, for tool dispatch)
-	http       *http.Client
+	BaseURL    string // e.g. "https://user:pass@llm.example.com"
+	Model      string // e.g. "gemma3:4b-it-q4_K_M" (fast, for chat)
+	AgentModel string // e.g. "gemma3:12b-it-q4_K_M" (smarter, for tool dispatch)
+	HTTP       *http.Client
 
 	mu              sync.Mutex
 	failures        int
@@ -50,19 +50,19 @@ func NewOllamaClient(cfg *api.Config) *OllamaClient {
 		agentModel = cfg.OllamaModel // fall back to same model
 	}
 	return &OllamaClient{
-		baseURL:         strings.TrimRight(cfg.OllamaURL, "/"),
-		model:           cfg.OllamaModel,
-		agentModel:      agentModel,
-		http:            &http.Client{Timeout: 120 * time.Second},
+		BaseURL:         strings.TrimRight(cfg.OllamaURL, "/"),
+		Model:           cfg.OllamaModel,
+		AgentModel:      agentModel,
+		HTTP:            &http.Client{Timeout: 120 * time.Second},
 		cooldownSeconds: ollamaCooldownSec,
 	}
 }
 
 // ChatStreamingWithModel is like ChatStreaming but uses a specific model.
 func (o *OllamaClient) ChatStreamingWithModel(ctx context.Context, model, system string, history []api.Message, term *tui.Terminal) (string, error) {
-	savedModel := o.model
-	o.model = model
-	defer func() { o.model = savedModel }()
+	savedModel := o.Model
+	o.Model = model
+	defer func() { o.Model = savedModel }()
 	return o.ChatStreaming(ctx, system, history, term)
 }
 
@@ -136,7 +136,7 @@ func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history
 	}
 
 	reqBody := ollamaChatRequest{
-		Model:    o.model,
+		Model:    o.Model,
 		Messages: messages,
 		Stream:   true,
 	}
@@ -146,7 +146,7 @@ func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history
 		return "", err
 	}
 
-	reqURL := o.baseURL + "/v1/chat/completions"
+	reqURL := o.BaseURL + "/v1/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(data))
 	if err != nil {
 		return "", err
@@ -154,7 +154,7 @@ func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history
 	req.Header.Set("Content-Type", "application/json")
 
 	// Basic auth is embedded in the URL — Go's http client handles it
-	if u, err := url.Parse(o.baseURL); err == nil && u.User != nil {
+	if u, err := url.Parse(o.BaseURL); err == nil && u.User != nil {
 		pass, _ := u.User.Password()
 		req.SetBasicAuth(u.User.Username(), pass)
 		// Rewrite URL without credentials for the request
@@ -163,7 +163,7 @@ func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history
 		req.URL, _ = url.Parse(clean.String() + "/v1/chat/completions")
 	}
 
-	resp, err := o.http.Do(req)
+	resp, err := o.HTTP.Do(req)
 	if err != nil {
 		o.recordFailure()
 		return "", fmt.Errorf("ollama request failed: %w", err)
