@@ -2,6 +2,19 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.5] - 2026-05-09
+
+### Changed
+- Phase 2 steps 4–7 of the package reorg, shipped together. Extracted four packages out of `package main`:
+  - `internal/agent` (Phase 2 step 4, #89): `Agent`, `CCAgent`, `CodexAgent`, `OllamaClient`, tool dispatcher, MCP-config writers. Several `Agent` fields are now exported because the REPL drives session state from outside (history on resume, usage for `/cost`, etc.).
+  - `internal/mcp` (Phase 2 step 5, #90): the stdin/stdout MCP server CC spawns via `qmax-code serve --mcp`. `Version` is plumbed in as a parameter rather than reaching into package main.
+  - `internal/setup` (Phase 2 step 6, #91): first-run wizard, autonomy/global-install consent prompt, MCP installer for CC and Codex.
+  - `internal/repl` (Phase 2 step 7, #92): the entire interactive REPL — slash commands, prompt queue, signal handling, live-feed auto-launch, `/browserfeed` VNC viewer. `main.go` now contains only flag parsing, subcommand routing, agent construction, and one-shot prompt handling (404 lines, down from 1960).
+
+### Security
+- `session.LoadSession` now rejects path-traversal IDs (e.g. `../etc/passwd`) via a new `IsValidSessionID` validator (alphanumeric + `_-`, ≤64 chars). Pre-existing in `main.go` since the `/resume` command first shipped; surfaced when the handler moved into `internal/repl` and triggered a fresh SAST scan.
+- `agent.NewOllamaClient` now rejects URLs whose scheme isn't `http` or `https` via a new `agent.ValidateOllamaURL`. Same scheme check is run at the REPL call sites (`/orch`, `/ollama`, `/set ollama on`) so user-supplied config URLs can't escape into HTTP requests as `file://`, `gopher://`, etc.
+
 ## [1.16.4] - 2026-05-09
 
 ### Changed
