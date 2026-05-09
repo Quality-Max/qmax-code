@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.3] - 2026-05-09
+
+### Changed
+- Phase 2 step 2 of the package reorg: extracted `internal/tui` (terminal, theme, input, progress, term_*, max_ascii, media, tui_backend), and moved the runtime context types (`SessionContext`, `TokenUsage`, `QMaxConfig`, `GitInfo`) plus Anthropic model constants into `internal/api`. `maskURL` consolidated into `internal/sysutil.MaskURL`. `ShowModelPicker` now takes a `ModelPickerOpts` struct. No user-visible behavior change.
+
 ## [1.16.2] - 2026-05-08
 
 ### Changed
