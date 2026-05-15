@@ -313,6 +313,10 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	result := a.parseStream(stdout, term)
 
 	if err := cmd.Wait(); err != nil {
+		// Intentional cancel (user pressed Enter to interrupt) — not an error.
+		if ctx.Err() != nil {
+			return result, nil
+		}
 		// CC exits non-zero on soft errors (e.g. tool failure) but still produces output.
 		// Only fail hard if we got nothing at all.
 		if result == "" {
