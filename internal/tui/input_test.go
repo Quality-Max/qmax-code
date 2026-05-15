@@ -141,7 +141,7 @@ func TestInputFooterShowsOutputModeAndHotkeys(t *testing.T) {
 	m := newInputModelWithOutputMode("qmax > ", nil, true)
 	view := m.View()
 
-	for _, want := range []string{"Ctrl+O output: verbose", "Ctrl+X×3 clear", "Ctrl+←/→ words"} {
+	for _, want := range []string{"Ctrl+O output: verbose", "Ctrl+X×3 clear", "Opt+←/→ words"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("input footer missing %q in %q", want, view)
 		}

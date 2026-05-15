@@ -52,6 +52,7 @@ type CCAgent struct {
 	permissionMode string // "standard" | "unattended" — see Run() for behavior
 	ccSessionID    string // CC's own session ID, for --resume
 	mcpConfigPath  string // temp MCP config written once per qmax session
+	mcpConfigInfo  os.FileInfo
 	sctx           *api.SessionContext
 	lastToolName   string // track last tool name for result display
 	mu             sync.Mutex
@@ -230,23 +231,123 @@ func (a *CCAgent) WriteMCPConfig() error {
 		return err
 	}
 
-	// Use PID to avoid conflicts when multiple qmax-code instances run in parallel.
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("qmax-mcp-%d.json", os.Getpid()))
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	// Create atomically in the OS temp dir so another local process cannot
+	// pre-create the path or swap in a symlink before we write the config.
+	f, err := os.CreateTemp("", fmt.Sprintf("qmax-mcp-%d-*.json", os.Getpid()))
+	if err != nil {
 		return err
+	}
+	path := f.Name()
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	if info.Mode().Perm() != 0600 {
+		_ = os.Remove(path)
+		return fmt.Errorf("MCP config permissions: got %o, want 600", info.Mode().Perm())
 	}
 
 	a.mu.Lock()
 	a.mcpConfigPath = path
+	a.mcpConfigInfo = info
 	a.mu.Unlock()
 	return nil
+}
+
+func sameMCPConfigFile(path string, expected os.FileInfo) bool {
+	if path == "" || expected == nil {
+		return false
+	}
+	current, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(expected, current) &&
+		current.Mode().Perm() == 0600 &&
+		current.Size() == expected.Size() &&
+		current.ModTime().Equal(expected.ModTime())
+}
+
+func validateMCPConfigPathForClaude(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid MCP config path: %w", err)
+	}
+	clean := filepath.Clean(abs)
+	if clean != abs {
+		return "", fmt.Errorf("invalid MCP config path")
+	}
+	if filepath.Base(clean) == "" || !strings.HasPrefix(filepath.Base(clean), "qmax-mcp-") {
+		return "", fmt.Errorf("invalid MCP config path")
+	}
+	for _, r := range clean {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '/' || r == '.' || r == '_' || r == '-':
+		default:
+			return "", fmt.Errorf("invalid MCP config path")
+		}
+	}
+	return clean, nil
+}
+
+func validateCCSessionIDForResume(id string) error {
+	if len(id) != 36 {
+		return fmt.Errorf("invalid Claude session ID")
+	}
+	for i, r := range id {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return fmt.Errorf("invalid Claude session ID")
+			}
+		default:
+			if !((r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') || (r >= '0' && r <= '9')) {
+				return fmt.Errorf("invalid Claude session ID")
+			}
+		}
+	}
+	return nil
+}
+
+func sanitizeCCUserPrompt(prompt string) (string, error) {
+	if strings.ContainsRune(prompt, '\x00') {
+		return "", fmt.Errorf("invalid prompt: contains NUL byte")
+	}
+	var b strings.Builder
+	for _, r := range prompt {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			b.WriteRune(r)
+		case r >= 0x20 && r != 0x7f:
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), nil
 }
 
 // Run executes one conversation turn through a CC subprocess.
 // CC's subscription handles inference; qmax handles tools via MCP.
 func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	a.mu.Lock()
-	if a.mcpConfigPath == "" || fileMissing(a.mcpConfigPath) {
+	if !sameMCPConfigFile(a.mcpConfigPath, a.mcpConfigInfo) {
 		a.mu.Unlock()
 		if err := a.WriteMCPConfig(); err != nil {
 			return "", fmt.Errorf("MCP config: %w", err)
@@ -255,12 +356,25 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	}
 	ccSessionID := a.ccSessionID
 	mcpPath := a.mcpConfigPath
+	mcpInfo := a.mcpConfigInfo
 	a.mu.Unlock()
+	if !sameMCPConfigFile(mcpPath, mcpInfo) {
+		return "", fmt.Errorf("MCP config changed before claude launch")
+	}
+	mcpPath, err := validateMCPConfigPathForClaude(mcpPath)
+	if err != nil {
+		return "", err
+	}
+	safeUserMsg, err := sanitizeCCUserPrompt(userMsg)
+	if err != nil {
+		return "", err
+	}
 
 	systemPrompt := ccQASystemPrompt + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose)
 
 	args := []string{
-		"--print", userMsg,
+		"--print",
+		"--input-format", "text",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--append-system-prompt", systemPrompt,
@@ -281,6 +395,9 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		args = append(args, "--model", a.modelID)
 	}
 	if ccSessionID != "" {
+		if err := validateCCSessionIDForResume(ccSessionID); err != nil {
+			return "", err
+		}
 		args = append(args, "--resume", ccSessionID)
 	}
 
@@ -301,7 +418,7 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	}()
 
 	cmd := exec.CommandContext(ctx, a.claudeBin, args...)
-	cmd.Stdin = strings.NewReader("")
+	cmd.Stdin = strings.NewReader(safeUserMsg)
 	cmd.Stderr = os.Stderr // CC's own errors and status messages
 
 	stdout, err := cmd.StdoutPipe()
@@ -328,14 +445,6 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	return result, nil
 }
 
-func fileMissing(path string) bool {
-	if path == "" {
-		return true
-	}
-	_, err := os.Stat(path)
-	return os.IsNotExist(err)
-}
-
 // Cancel interrupts a Run call that is in progress. Safe to call from any goroutine.
 func (a *CCAgent) Cancel() {
 	a.runMu.Lock()
@@ -355,7 +464,7 @@ func (a *CCAgent) Cleanup() {
 	}
 }
 
-// CleanupStaleMCPConfigs removes qmax-mcp-<pid>.json files left in the OS
+// CleanupStaleMCPConfigs removes qmax-mcp-<pid>-*.json files left in the OS
 // temp dir by previous qmax-code instances that crashed before their Cleanup()
 // could run. Safe to call on every startup — skips files whose PID is alive.
 func CleanupStaleMCPConfigs() {
@@ -365,10 +474,12 @@ func CleanupStaleMCPConfigs() {
 		return
 	}
 	for _, path := range matches {
-		base := filepath.Base(path) // "qmax-mcp-12345.json"
-		// Extract PID: strip "qmax-mcp-" prefix and ".json" suffix.
+		base := filepath.Base(path) // "qmax-mcp-12345-random.json"
 		inner := strings.TrimPrefix(base, "qmax-mcp-")
 		inner = strings.TrimSuffix(inner, ".json")
+		if idx := strings.IndexByte(inner, '-'); idx >= 0 {
+			inner = inner[:idx]
+		}
 		pid, err := strconv.Atoi(inner)
 		if err != nil {
 			continue
@@ -427,7 +538,7 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 
 		switch event.Type {
 		case "system":
-			if event.Subtype == "init" && event.SessionID != "" {
+			if event.Subtype == "init" && event.SessionID != "" && validateCCSessionIDForResume(event.SessionID) == nil {
 				a.mu.Lock()
 				a.ccSessionID = event.SessionID
 				a.mu.Unlock()
