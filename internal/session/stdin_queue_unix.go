@@ -45,7 +45,7 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 			newState.Cc[unix.VMIN] = 1
 			newState.Cc[unix.VTIME] = 0
 			if setErr := unix.IoctlSetTermios(fd, ioctlSetTermios, &newState); setErr == nil {
-				defer unix.IoctlSetTermios(fd, ioctlSetTermios, oldState)
+				defer func() { _ = unix.IoctlSetTermios(fd, ioctlSetTermios, oldState) }()
 			}
 		}
 
