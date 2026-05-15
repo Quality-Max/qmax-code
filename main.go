@@ -353,26 +353,46 @@ func main() {
 		cliAgent = ca
 	}
 
-	// One-shot mode
-	if *oneShot != "" {
-		result, err := ag.Run(*oneShot)
+	// One-shot mode and positional-arg mode honour the configured CLI backend.
+	// Prior to the QUA-576 fix these paths always called ag.Run (Anthropic API),
+	// silently ignoring backend=cc and backend=codex — which meant every CI /
+	// scripting / cloud-session invocation bypassed the cc backend and hit the
+	// Anthropic API. Now we route through cliAgent when configured, falling
+	// back to the API agent only when no CLI backend is active.
+	runOneShot := func(prompt string) error {
+		if cliAgent != nil {
+			// CLI backends stream their own output (tool icons, glamour-rendered
+			// text) via the Terminal; FinishMarkdown handles final rendering.
+			// Build a Terminal here since main never created one (repl.Run owns
+			// the interactive Terminal instance).
+			term := tui.NewTerminal()
+			defer term.Close()
+			_, err := cliAgent.Run(prompt, term)
+			return err
+		}
+		// Direct-API path: non-streaming. Print the returned text ourselves.
+		result, err := ag.Run(prompt)
 		if err != nil {
+			return err
+		}
+		fmt.Println(result)
+		return nil
+	}
+
+	if *oneShot != "" {
+		if err := runOneShot(*oneShot); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println(result)
 		return
 	}
 
 	// Also handle positional args as a prompt: qmax-code "test the login flow"
 	if remaining := flag.Args(); len(remaining) > 0 {
-		prompt := strings.Join(remaining, " ")
-		result, err := ag.Run(prompt)
-		if err != nil {
+		if err := runOneShot(strings.Join(remaining, " ")); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println(result)
 		return
 	}
 
