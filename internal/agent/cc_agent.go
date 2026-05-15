@@ -300,6 +300,22 @@ func validateCCSessionIDForResume(id string) error {
 	return nil
 }
 
+func sanitizeCCUserPrompt(prompt string) (string, error) {
+	if strings.ContainsRune(prompt, '\x00') {
+		return "", fmt.Errorf("invalid prompt: contains NUL byte")
+	}
+	var b strings.Builder
+	for _, r := range prompt {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			b.WriteRune(r)
+		case r >= 0x20 && r != 0x7f:
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), nil
+}
+
 // Run executes one conversation turn through a CC subprocess.
 // CC's subscription handles inference; qmax handles tools via MCP.
 func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
@@ -317,6 +333,10 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	a.mu.Unlock()
 	if !sameMCPConfigFile(mcpPath, mcpInfo) {
 		return "", fmt.Errorf("MCP config changed before claude launch")
+	}
+	safeUserMsg, err := sanitizeCCUserPrompt(userMsg)
+	if err != nil {
+		return "", err
 	}
 
 	systemPrompt := ccQASystemPrompt + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose)
@@ -367,7 +387,7 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	}()
 
 	cmd := exec.CommandContext(ctx, a.claudeBin, args...)
-	cmd.Stdin = strings.NewReader(userMsg)
+	cmd.Stdin = strings.NewReader(safeUserMsg)
 	cmd.Stderr = os.Stderr // CC's own errors and status messages
 
 	stdout, err := cmd.StdoutPipe()

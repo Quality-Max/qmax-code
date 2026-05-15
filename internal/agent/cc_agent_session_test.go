@@ -265,3 +265,20 @@ func TestCCAgentRunRejectsInvalidResumeIDBeforeExec(t *testing.T) {
 		t.Fatalf("fake claude executed despite invalid resume ID; stat err = %v", err)
 	}
 }
+
+func TestSanitizeCCUserPrompt(t *testing.T) {
+	got, err := sanitizeCCUserPrompt("hello\tworld\n$(echo ok)\x1b[31m")
+	if err != nil {
+		t.Fatalf("sanitizeCCUserPrompt returned error: %v", err)
+	}
+	if strings.ContainsRune(got, '\x1b') {
+		t.Fatalf("sanitizeCCUserPrompt kept escape byte in %q", got)
+	}
+	if !strings.Contains(got, "$(echo ok)") {
+		t.Fatalf("sanitizeCCUserPrompt removed printable prompt text: %q", got)
+	}
+
+	if _, err := sanitizeCCUserPrompt("bad\x00prompt"); err == nil {
+		t.Fatal("sanitizeCCUserPrompt accepted NUL byte")
+	}
+}
