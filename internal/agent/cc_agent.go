@@ -279,6 +279,9 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		args = append(args, "--model", a.modelID)
 	}
 	if ccSessionID != "" {
+		if !isSafeCCSessionID(ccSessionID) {
+			return "", fmt.Errorf("invalid Claude session ID")
+		}
 		args = append(args, "--resume", ccSessionID)
 	}
 
@@ -425,7 +428,7 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 
 		switch event.Type {
 		case "system":
-			if event.Subtype == "init" && event.SessionID != "" {
+			if event.Subtype == "init" && event.SessionID != "" && isSafeCCSessionID(event.SessionID) {
 				a.mu.Lock()
 				a.ccSessionID = event.SessionID
 				a.mu.Unlock()
@@ -486,6 +489,26 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 
 	term.FinishMarkdown(finalResult)
 	return finalResult
+}
+
+func isSafeCCSessionID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	if strings.HasPrefix(id, "-") {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // parseCCBlocks unmarshals a CC message content field (string or []block).

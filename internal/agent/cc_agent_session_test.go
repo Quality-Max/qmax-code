@@ -209,3 +209,30 @@ func TestCCAgentSetOutputVerboseTogglesField(t *testing.T) {
 		t.Fatal("SetOutputVerbose(false) did not toggle CC agent field")
 	}
 }
+
+func TestSafeCCSessionIDValidation(t *testing.T) {
+	valid := []string{
+		"5f7a8d9c",
+		"550e8400-e29b-41d4-a716-446655440000",
+		"session_ABC-123",
+	}
+	for _, id := range valid {
+		if !isSafeCCSessionID(id) {
+			t.Fatalf("isSafeCCSessionID(%q) = false, want true", id)
+		}
+	}
+
+	invalid := []string{
+		"",
+		"../../session",
+		"$(touch pwned)",
+		"--dangerously-skip-permissions",
+		"abc def",
+		strings.Repeat("a", 129),
+	}
+	for _, id := range invalid {
+		if isSafeCCSessionID(id) {
+			t.Fatalf("isSafeCCSessionID(%q) = true, want false", id)
+		}
+	}
+}
