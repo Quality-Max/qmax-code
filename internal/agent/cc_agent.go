@@ -50,6 +50,7 @@ type CCAgent struct {
 	permissionMode string // "standard" | "unattended" — see Run() for behavior
 	ccSessionID    string // CC's own session ID, for --resume
 	mcpConfigPath  string // temp MCP config written once per qmax session
+	mcpConfigInfo  os.FileInfo
 	sctx           *api.SessionContext
 	lastToolName   string // track last tool name for result display
 	mu             sync.Mutex
@@ -235,6 +236,11 @@ func (a *CCAgent) WriteMCPConfig() error {
 		return err
 	}
 	path := f.Name()
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		_ = os.Remove(path)
@@ -244,15 +250,35 @@ func (a *CCAgent) WriteMCPConfig() error {
 		_ = os.Remove(path)
 		return err
 	}
-	if err := os.Chmod(path, 0600); err != nil {
+	info, err := os.Stat(path)
+	if err != nil {
 		_ = os.Remove(path)
 		return err
+	}
+	if info.Mode().Perm() != 0600 {
+		_ = os.Remove(path)
+		return fmt.Errorf("MCP config permissions: got %o, want 600", info.Mode().Perm())
 	}
 
 	a.mu.Lock()
 	a.mcpConfigPath = path
+	a.mcpConfigInfo = info
 	a.mu.Unlock()
 	return nil
+}
+
+func sameMCPConfigFile(path string, expected os.FileInfo) bool {
+	if path == "" || expected == nil {
+		return false
+	}
+	current, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(expected, current) &&
+		current.Mode().Perm() == 0600 &&
+		current.Size() == expected.Size() &&
+		current.ModTime().Equal(expected.ModTime())
 }
 
 func validateCCSessionIDForResume(id string) error {
@@ -278,7 +304,7 @@ func validateCCSessionIDForResume(id string) error {
 // CC's subscription handles inference; qmax handles tools via MCP.
 func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	a.mu.Lock()
-	if a.mcpConfigPath == "" || fileMissing(a.mcpConfigPath) {
+	if !sameMCPConfigFile(a.mcpConfigPath, a.mcpConfigInfo) {
 		a.mu.Unlock()
 		if err := a.WriteMCPConfig(); err != nil {
 			return "", fmt.Errorf("MCP config: %w", err)
@@ -287,12 +313,17 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	}
 	ccSessionID := a.ccSessionID
 	mcpPath := a.mcpConfigPath
+	mcpInfo := a.mcpConfigInfo
 	a.mu.Unlock()
+	if !sameMCPConfigFile(mcpPath, mcpInfo) {
+		return "", fmt.Errorf("MCP config changed before claude launch")
+	}
 
 	systemPrompt := ccQASystemPrompt + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose)
 
 	args := []string{
-		"--print", userMsg,
+		"--print",
+		"--input-format", "text",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--append-system-prompt", systemPrompt,
@@ -336,7 +367,7 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	}()
 
 	cmd := exec.CommandContext(ctx, a.claudeBin, args...)
-	cmd.Stdin = strings.NewReader("")
+	cmd.Stdin = strings.NewReader(userMsg)
 	cmd.Stderr = os.Stderr // CC's own errors and status messages
 
 	stdout, err := cmd.StdoutPipe()
@@ -361,14 +392,6 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		}
 	}
 	return result, nil
-}
-
-func fileMissing(path string) bool {
-	if path == "" {
-		return true
-	}
-	_, err := os.Stat(path)
-	return os.IsNotExist(err)
 }
 
 // Cancel interrupts a Run call that is in progress. Safe to call from any goroutine.
