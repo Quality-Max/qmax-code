@@ -282,3 +282,23 @@ func TestSanitizeCCUserPrompt(t *testing.T) {
 		t.Fatal("sanitizeCCUserPrompt accepted NUL byte")
 	}
 }
+
+func TestValidateMCPConfigPathForClaude(t *testing.T) {
+	valid := filepath.Join(t.TempDir(), "qmax-mcp-1234-abcd.json")
+	got, err := validateMCPConfigPathForClaude(valid)
+	if err != nil {
+		t.Fatalf("validateMCPConfigPathForClaude(%q) returned error: %v", valid, err)
+	}
+	if got != filepath.Clean(valid) {
+		t.Fatalf("validated path = %q, want %q", got, filepath.Clean(valid))
+	}
+
+	for _, path := range []string{
+		filepath.Join(t.TempDir(), "other.json"),
+		filepath.Join(t.TempDir(), "qmax-mcp-bad path.json"),
+	} {
+		if _, err := validateMCPConfigPathForClaude(path); err == nil {
+			t.Fatalf("validateMCPConfigPathForClaude(%q) = nil, want error", path)
+		}
+	}
+}

@@ -281,6 +281,31 @@ func sameMCPConfigFile(path string, expected os.FileInfo) bool {
 		current.ModTime().Equal(expected.ModTime())
 }
 
+func validateMCPConfigPathForClaude(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid MCP config path: %w", err)
+	}
+	clean := filepath.Clean(abs)
+	if clean != abs {
+		return "", fmt.Errorf("invalid MCP config path")
+	}
+	if filepath.Base(clean) == "" || !strings.HasPrefix(filepath.Base(clean), "qmax-mcp-") {
+		return "", fmt.Errorf("invalid MCP config path")
+	}
+	for _, r := range clean {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '/' || r == '.' || r == '_' || r == '-':
+		default:
+			return "", fmt.Errorf("invalid MCP config path")
+		}
+	}
+	return clean, nil
+}
+
 func validateCCSessionIDForResume(id string) error {
 	if len(id) != 36 {
 		return fmt.Errorf("invalid Claude session ID")
@@ -333,6 +358,10 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	a.mu.Unlock()
 	if !sameMCPConfigFile(mcpPath, mcpInfo) {
 		return "", fmt.Errorf("MCP config changed before claude launch")
+	}
+	mcpPath, err := validateMCPConfigPathForClaude(mcpPath)
+	if err != nil {
+		return "", err
 	}
 	safeUserMsg, err := sanitizeCCUserPrompt(userMsg)
 	if err != nil {
