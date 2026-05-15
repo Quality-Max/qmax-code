@@ -28,7 +28,8 @@ type Config struct {
 
 	// Backend selects the LLM inference backend.
 	//   ""  / "api" → Anthropic API directly (default, requires ANTHROPIC_API_KEY)
-	//   "cc"        → Claude Code CLI subprocess (uses CC subscription, no API key needed)
+	//   "cc"        → Claude Code CLI subprocess (no QM API key; `claude --print`
+	//                 uses the user's Agent SDK credit starting 2026-06-15)
 	//   "codex"     → OpenAI Codex CLI subprocess (uses OpenAI subscription, no API key needed)
 	// In both CLI modes qmax tools are served to the CLI via an embedded MCP server.
 	Backend string `json:"backend,omitempty"`

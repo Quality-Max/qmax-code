@@ -132,6 +132,16 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					tui.ColorDim, recent[0].ID, recent[0].Turns, formatDuration(age), tui.ColorReset)
 			}
 		}
+
+		// QUA-578: surface the 2026-06-15 Anthropic Agent SDK credit cutover
+		// for cc-backend users. Shown at most once per local day to avoid
+		// nagging. The two phrasings (pre/post cutover) reflect the actual
+		// billing change documented at
+		// https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan.
+		if ag.Cfg.Context != nil && ag.Cfg.Context.Backend == "cc" {
+			maybePrintSDKCreditBanner()
+		}
+
 		fmt.Println()
 	}
 	term.SetSessionPrompt(sessionID)
@@ -779,7 +789,9 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		}
 		stopQueueReader := session.StartQueueReader(pq, term, cancelCurrent)
 
-		// CC mode: delegate entirely to Claude Code subprocess (uses CC subscription).
+		// CC mode: delegate entirely to Claude Code subprocess. This does not
+		// require a QM Anthropic API key, but `claude --print` usage draws from
+		// the user's Agent SDK credit starting 2026-06-15.
 		// Normal mode: use direct Anthropic API.
 		var llmResult string
 		var err error
@@ -1107,7 +1119,7 @@ Commands:
   /orch          Cycle orchestration backend: off → CC → Codex → off
   /theme         Live-preview color scheme picker
   /cloudsync     Toggle cloud session sync (enabled/disabled)
-  /cc            Switch to Claude Code backend (CC subscription, no API tokens)
+  /cc            Switch to Claude Code backend (no QM API key; Agent SDK credit)
   /codex         Switch to Codex CLI backend (OpenAI subscription, no API tokens)
   /api           Switch back to direct Anthropic API
   /ollama        Toggle Ollama on/off (self-hosted LLM for chat)
@@ -1135,7 +1147,7 @@ api.Config examples:
   /set cloud_sync false      Disable cloud session sync
   /set ollama on            Enable self-hosted LLM for chat (saves API costs)
   /set ollama off           Disable Ollama, use Claude for all calls
-  /set backend cc           Use Claude Code subscription (no API key needed)
+  /set backend cc           Use Claude Code login (Agent SDK credit for --print)
   /set backend codex        Use OpenAI Codex subscription (no API key needed)
   /set backend api          Use Anthropic API directly (default)
   /set theme ocean          Switch color theme (historic, ocean, neon, ember, aurora · paper, sky, sparkling, radiance, goldenhour)
@@ -1245,12 +1257,11 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 
 	switch key {
 	case "model":
-		validModels := map[string]bool{"auto": true, "sonnet": true, "opus": true, "haiku": true}
-		if !validModels[strings.ToLower(value)] {
-			term.PrintError("Valid models: auto, sonnet, opus, haiku")
+		if !api.IsValidClaudeModelName(value) {
+			term.PrintError("Valid models: " + api.ValidClaudeModelsHelp())
 			return
 		}
-		cfg.DefaultModel = strings.ToLower(value)
+		cfg.DefaultModel = api.ResolveClaudeModel(value)
 		term.PrintSystem(fmt.Sprintf("Default model set to: %s", cfg.DefaultModel))
 
 	case "project":
@@ -1485,4 +1496,48 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
 	return fmt.Sprintf("%dh", int(d.Hours()))
+}
+
+// sdkCreditCutover is the date Anthropic moves `claude --print` /
+// Agent SDK calls off the regular Pro/Max subscription pool onto a
+// separate per-user monthly credit. Reference:
+// https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan
+var sdkCreditCutover = time.Date(2026, time.June, 15, 0, 0, 0, 0, time.Local)
+
+// maybePrintSDKCreditBanner emits a one-line notice — at most once per
+// local day — explaining that the cc backend's `claude --print` traffic
+// is metered against the new Anthropic Agent SDK monthly credit. Before
+// the cutover the message is a heads-up; after, it's a reminder that the
+// session is drawing from that credit (and falls through to API rates
+// once exhausted if extra-usage is enabled).
+//
+// Persistence lives in ~/.qmax-code/sdk_credit_banner_seen. The file holds
+// the YYYY-MM-DD of the last shown banner; if it matches today we stay
+// silent. Best-effort: any read/write failure simply re-shows.
+func maybePrintSDKCreditBanner() {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return // can't track state; skip rather than nag every session
+	}
+	markerPath := filepath.Join(home, ".qmax-code", "sdk_credit_banner_seen")
+	today := time.Now().Format("2006-01-02")
+
+	if data, err := os.ReadFile(markerPath); err == nil {
+		if strings.TrimSpace(string(data)) == today {
+			return
+		}
+	}
+
+	if time.Now().Before(sdkCreditCutover) {
+		fmt.Printf("  %s↪ Heads-up: starting 2026-06-15, the cc backend will draw from your monthly Claude Agent SDK credit (Pro $20 / Max 5x $100 / Max 20x $200), then API rates if extra-usage is enabled.%s\n",
+			tui.ColorDim, tui.ColorReset)
+	} else {
+		fmt.Printf("  %s↪ This session uses your Claude Agent SDK monthly credit (Pro $20 / Max 5x $100 / Max 20x $200), then API rates if extra-usage is enabled. /backend api to switch.%s\n",
+			tui.ColorDim, tui.ColorReset)
+	}
+
+	// Best-effort marker write — silent failure means a re-show, which is
+	// strictly better than a missed disclosure.
+	_ = os.MkdirAll(filepath.Dir(markerPath), 0o755)
+	_ = os.WriteFile(markerPath, []byte(today), 0o644)
 }
