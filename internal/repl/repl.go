@@ -336,6 +336,15 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 			continue
 
+		case input == "/queue clear":
+			n := pq.Clear()
+			if n == 0 {
+				term.PrintSystem("Queue was already empty.")
+			} else {
+				term.PrintSystem(fmt.Sprintf("Cleared %d queued prompt(s).", n))
+			}
+			continue
+
 		case strings.HasPrefix(input, "/queue "):
 			queued := strings.TrimSpace(strings.TrimPrefix(input, "/queue "))
 			if queued != "" {
@@ -884,7 +893,17 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 
 		// Stop queue reader and wait for the goroutine to exit before we
 		// touch stdin again (either via the queue loop or tui.ReadInput).
-		stopQueueReader()
+		// If the user was mid-typing when the agent finished — i.e. typed a
+		// partial line but didn't press Enter before the response came back —
+		// the queue reader returns that text. Push it onto the queue so it
+		// isn't silently lost (QUA-577). The user can /queue clear if it was
+		// stray input.
+		partial := strings.TrimSpace(stopQueueReader())
+		if partial != "" {
+			pq.Push(partial)
+			fmt.Println()
+			term.PrintSystem(fmt.Sprintf("↩ partial input recovered → queued [%d]: %s  (type /queue clear to discard)", pq.Len(), partial))
+		}
 
 		// If prompts were queued during this run, surface them.
 		if n := pq.Len(); n > 0 {
@@ -1155,6 +1174,7 @@ api.Config examples:
 Queue:
   /queue                    Show pending queue
   /queue <prompt>           Add a prompt to the queue immediately
+  /queue clear              Discard all queued prompts
   (type while agent runs)   Prompts entered during processing are auto-queued
 
 Shortcuts:

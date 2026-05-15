@@ -39,3 +39,12 @@ func (q *PromptQueue) Len() int {
 	defer q.mu.Unlock()
 	return len(q.items)
 }
+
+// Clear empties the queue and returns the number of items that were removed.
+func (q *PromptQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	n := len(q.items)
+	q.items = nil
+	return n
+}
