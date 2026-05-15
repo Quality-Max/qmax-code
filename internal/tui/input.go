@@ -426,7 +426,7 @@ func (m inputModel) View() string {
 			mode = "verbose"
 		}
 		b.WriteString("\n")
-		b.WriteString(menuHintStyle.Render(fmt.Sprintf("  Ctrl+O output: %s • Ctrl+X×3 clear • Ctrl+←/→ words • Ctrl+C cancel • / commands", mode)))
+		b.WriteString(menuHintStyle.Render(fmt.Sprintf("  Ctrl+O output: %s • Ctrl+X×3 clear • Opt+←/→ or Ctrl+←/→ words • Ctrl+C cancel • / commands", mode)))
 	} else {
 		// Menu mode
 		b.WriteString(m.prompt)

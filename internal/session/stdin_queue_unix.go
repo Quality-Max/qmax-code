@@ -51,7 +51,15 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 
 		var lineRunes []rune
 		var rawBuf []byte
+		// Pre-allocated read buffer — reused every iteration.
+		readBuf := make([]byte, 32)
 		typing := false
+
+		// Escape-sequence state machine: absorbs ESC sequences so that
+		// Option+Arrow (which sends ESC+b/f or ESC+[+...+D/C) doesn't
+		// insert stray characters into the typed line.
+		escSeq := false    // true after ESC, consuming the sequence
+		escBracket := false // true after ESC+[ (CSI), consuming until final byte
 
 		for {
 			select {
@@ -71,27 +79,25 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 				continue
 			}
 
-			buf := make([]byte, 32)
-			nr, err := unix.Read(fd, buf)
+			nr, err := unix.Read(fd, readBuf)
 			if err != nil || nr == 0 {
 				continue
 			}
-			rawBuf = append(rawBuf, buf[:nr]...)
+			rawBuf = append(rawBuf, readBuf[:nr]...)
 
 			for len(rawBuf) > 0 {
 				r, size := utf8.DecodeRune(rawBuf)
-				if r == utf8.RuneError {
-					if size == 0 {
-						break // empty — wait for more bytes
-					}
-					rawBuf = rawBuf[1:] // bad byte; skip
-					continue
+				if size == 0 {
+					break // incomplete sequence — wait for more bytes
 				}
 				rawBuf = rawBuf[size:]
+				if r == utf8.RuneError && size == 1 {
+					continue // bad byte; discard
+				}
 
 				// On the first keystroke: tell the spinner to pause (it checks this
 				// flag before each frame write), then open a dedicated typing line.
-				if !typing {
+				if !typing && !escSeq && r != 0x1b {
 					typing = true
 					term.SetUserTyping(true)
 					// \r moves to column 0; \033[K clears to EOL (erases any spinner
@@ -131,7 +137,24 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 					fmt.Println()
 
 				default:
-					if r >= 32 { // printable
+					if r == 0x1b { // ESC — start of an escape sequence
+						escSeq = true
+						escBracket = false
+					} else if escSeq {
+						if escBracket {
+							// Inside CSI: consume until final byte (0x40–0x7E)
+							if r >= 0x40 && r <= 0x7E {
+								escSeq = false
+								escBracket = false
+							}
+						} else if r == '[' {
+							escBracket = true // ESC+[ introduces a CSI sequence
+						} else {
+							// Simple ESC+char (e.g., Option+b/f on macOS Terminal.app)
+							escSeq = false
+						}
+						// In all escape-sequence branches: do not append to lineRunes
+					} else if r >= 32 { // printable character
 						lineRunes = append(lineRunes, r)
 						fmt.Printf("%c", r)
 					}

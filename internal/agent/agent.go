@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
@@ -67,7 +68,8 @@ type Agent struct {
 
 	tools           []api.ToolDef
 	client          *http.Client
-	cancel          context.CancelFunc // cancel the current streaming request
+	cancelMu        sync.Mutex
+	cancel          context.CancelFunc // cancel the current streaming request; protected by cancelMu
 	priorSessions   string             // cached prior-session summaries from backend
 	sessionsFetched bool               // true once loadPriorSessions has run
 }
@@ -125,10 +127,13 @@ func (a *Agent) ClearHistory() {
 }
 
 // CancelCurrent cancels the current streaming request if one is in progress.
+// Safe to call from any goroutine concurrently with RunStreaming.
 func (a *Agent) CancelCurrent() {
+	a.cancelMu.Lock()
 	if a.cancel != nil {
 		a.cancel()
 	}
+	a.cancelMu.Unlock()
 }
 
 // Run executes a prompt through the agent loop and returns the final text response.
@@ -350,9 +355,13 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 					fmt.Fprintf(term.Stderr(), "[ollama-chat] trying %s\n", a.Ollama.Model)
 				}
 				ctx, cancel := context.WithCancel(context.Background())
+				a.cancelMu.Lock()
 				a.cancel = cancel
+				a.cancelMu.Unlock()
 				ollamaText, ollamaErr := a.Ollama.ChatStreaming(ctx, a.buildSystemPrompt(), a.History, term)
+				a.cancelMu.Lock()
 				a.cancel = nil
+				a.cancelMu.Unlock()
 				cancel()
 				if ollamaErr == nil && ollamaText != "" {
 					a.History = append(a.History, api.Message{
@@ -392,9 +401,13 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
+			a.cancelMu.Lock()
 			a.cancel = cancel
+			a.cancelMu.Unlock()
 			toolResults := a.executeToolCallsWithUI(toolCalls, term, ctx)
+			a.cancelMu.Lock()
 			a.cancel = nil
+			a.cancelMu.Unlock()
 			cancel()
 
 			a.History = append(a.History, api.Message{
@@ -535,9 +548,13 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	a.cancelMu.Lock()
 	a.cancel = cancel
+	a.cancelMu.Unlock()
 	defer func() {
+		a.cancelMu.Lock()
 		a.cancel = nil
+		a.cancelMu.Unlock()
 		cancel()
 	}()
 
