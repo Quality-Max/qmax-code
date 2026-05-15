@@ -13,6 +13,7 @@ package agent
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -210,20 +211,21 @@ func TestCCAgentSetOutputVerboseTogglesField(t *testing.T) {
 	}
 }
 
-func TestSafeCCSessionIDValidation(t *testing.T) {
+func TestCCSessionIDValidation(t *testing.T) {
 	valid := []string{
-		"5f7a8d9c",
 		"550e8400-e29b-41d4-a716-446655440000",
-		"session_ABC-123",
+		"D31D7581-31BC-413A-9288-6DF74AA8A1C7",
 	}
 	for _, id := range valid {
-		if !isSafeCCSessionID(id) {
-			t.Fatalf("isSafeCCSessionID(%q) = false, want true", id)
+		if err := validateCCSessionIDForResume(id); err != nil {
+			t.Fatalf("validateCCSessionIDForResume(%q) = %v, want nil", id, err)
 		}
 	}
 
 	invalid := []string{
 		"",
+		"5f7a8d9c",
+		"session_ABC-123",
 		"../../session",
 		"$(touch pwned)",
 		"--dangerously-skip-permissions",
@@ -231,8 +233,35 @@ func TestSafeCCSessionIDValidation(t *testing.T) {
 		strings.Repeat("a", 129),
 	}
 	for _, id := range invalid {
-		if isSafeCCSessionID(id) {
-			t.Fatalf("isSafeCCSessionID(%q) = true, want false", id)
+		if err := validateCCSessionIDForResume(id); err == nil {
+			t.Fatalf("validateCCSessionIDForResume(%q) = nil, want error", id)
 		}
+	}
+}
+
+func TestCCAgentRunRejectsInvalidResumeIDBeforeExec(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	claudeBin := writeFakeCLI(t, "claude", "#!/bin/sh\ntouch "+marker+"\n")
+	mcpConfigPath := filepath.Join(dir, "mcp.json")
+	if err := os.WriteFile(mcpConfigPath, []byte("{}"), 0600); err != nil {
+		t.Fatalf("write mcp config: %v", err)
+	}
+
+	a := NewCCAgent(claudeBin, "", "high", "standard", false, &api.SessionContext{})
+	a.mu.Lock()
+	a.mcpConfigPath = mcpConfigPath
+	a.ccSessionID = "$(touch pwned)"
+	a.mu.Unlock()
+
+	_, err := a.Run("hello", &tui.Terminal{})
+	if err == nil {
+		t.Fatal("Run returned nil error for invalid resume ID")
+	}
+	if !strings.Contains(err.Error(), "invalid Claude session ID") {
+		t.Fatalf("Run error = %v, want invalid session ID", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("fake claude executed despite invalid resume ID; stat err = %v", err)
 	}
 }
