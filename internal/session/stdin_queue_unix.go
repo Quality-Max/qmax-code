@@ -7,39 +7,62 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
-// StartQueueReader starts a background goroutine that reads lines from stdin
-// (using OS canonical mode — full-line buffering with echo) while the agent
-// is processing.  Each non-empty line is pushed onto pq.
+// StartQueueReader starts a background goroutine that reads chars from stdin
+// one at a time while the agent is processing. Each non-empty line (Enter-terminated)
+// is pushed onto pq. If cancelFn is non-nil it is called when the user presses Enter,
+// allowing the running agent to be interrupted so the queued prompt is processed next.
 //
-// Returns a stop function that must be called before the next tui.ReadInput so
-// that no stdin data is consumed by two readers simultaneously.
-func StartQueueReader(pq *PromptQueue, term *tui.Terminal) func() {
+// The goroutine switches stdin to "half-raw" mode: ICANON and ECHO are disabled so
+// we can manage echo ourselves (preventing the spinner from overwriting typed text),
+// while OPOST is left enabled so the agent's concurrent stdout output still gets
+// proper newline translation. Returns a stop function that must be called before the
+// next tui.ReadInput to ensure stdin is never shared between two readers.
+func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func() {
 	done := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
 
 	go func() {
 		defer wg.Done()
+		defer term.SetUserTyping(false)
 
 		fd := int(os.Stdin.Fd())
-		var pending []byte // bytes read before the closing newline
+
+		// Switch to half-raw mode: disable canonical mode and echo only.
+		// Keeping OPOST ensures the agent's fmt.Print output (running concurrently)
+		// still gets \n → \r\n translation and doesn't look broken.
+		oldState, stateErr := unix.IoctlGetTermios(fd, ioctlGetTermios)
+		if stateErr == nil {
+			newState := *oldState
+			newState.Lflag &^= unix.ICANON | unix.ECHO
+			newState.Cc[unix.VMIN] = 1
+			newState.Cc[unix.VTIME] = 0
+			if setErr := unix.IoctlSetTermios(fd, ioctlSetTermios, &newState); setErr == nil {
+				defer unix.IoctlSetTermios(fd, ioctlSetTermios, oldState)
+			}
+		}
+
+		var lineRunes []rune
+		var rawBuf []byte
+		typing := false
 
 		for {
-			// Check whether we've been asked to stop.
 			select {
 			case <-done:
+				if typing {
+					fmt.Print("\r\033[K") // erase the typing line before exiting
+				}
 				return
 			default:
 			}
 
-			// Poll stdin with a 50 ms timeout so we wake up frequently
-			// enough to notice the done signal.
 			var rfds unix.FdSet
 			rfds.Set(fd)
 			tv := unix.Timeval{Sec: 0, Usec: 50_000}
@@ -48,39 +71,77 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal) func() {
 				continue
 			}
 
-			// In canonical mode the OS delivers a complete line at once.
-			buf := make([]byte, 4096)
+			buf := make([]byte, 32)
 			nr, err := unix.Read(fd, buf)
 			if err != nil || nr == 0 {
 				continue
 			}
+			rawBuf = append(rawBuf, buf[:nr]...)
 
-			pending = append(pending, buf[:nr]...)
-
-			// Extract complete lines.
-			for {
-				idx := strings.IndexByte(string(pending), '\n')
-				if idx < 0 {
-					break
-				}
-				line := strings.TrimSpace(string(pending[:idx]))
-				pending = pending[idx+1:]
-
-				if line == "" {
+			for len(rawBuf) > 0 {
+				r, size := utf8.DecodeRune(rawBuf)
+				if r == utf8.RuneError {
+					if size == 0 {
+						break // empty — wait for more bytes
+					}
+					rawBuf = rawBuf[1:] // bad byte; skip
 					continue
 				}
-				pq.Push(line)
-				pos := pq.Len()
-				// Print confirmation on its own line so it doesn't corrupt
-				// mid-stream token output.
-				fmt.Printf("\n  %s✓ queued [%d]:%s %s\n",
-					tui.ColorDim, pos, tui.ColorReset, line)
+				rawBuf = rawBuf[size:]
+
+				// On the first keystroke: tell the spinner to pause (it checks this
+				// flag before each frame write), then open a dedicated typing line.
+				if !typing {
+					typing = true
+					term.SetUserTyping(true)
+					// \r moves to column 0; \033[K clears to EOL (erases any spinner
+					// text); \n moves to a fresh line where we show the input prompt.
+					fmt.Print("\r\033[K\n  ⌨  ")
+				}
+
+				switch r {
+				case '\r', '\n': // Enter
+					text := strings.TrimSpace(string(lineRunes))
+					lineRunes = lineRunes[:0]
+					fmt.Println()
+					typing = false
+					term.SetUserTyping(false)
+					if text == "" {
+						break
+					}
+					// Cancel the running agent so this prompt is processed immediately.
+					if cancelFn != nil {
+						cancelFn()
+					}
+					pq.Push(text)
+					pos := pq.Len()
+					fmt.Printf("  %s✓ queued [%d]:%s %s\n",
+						tui.ColorDim, pos, tui.ColorReset, text)
+
+				case 127, 8: // Backspace / Delete
+					if len(lineRunes) > 0 {
+						lineRunes = lineRunes[:len(lineRunes)-1]
+						fmt.Print("\b \b")
+					}
+
+				case 3: // Ctrl+C — owned by the signal handler in repl.go; don't eat it
+					typing = false
+					term.SetUserTyping(false)
+					lineRunes = lineRunes[:0]
+					fmt.Println()
+
+				default:
+					if r >= 32 { // printable
+						lineRunes = append(lineRunes, r)
+						fmt.Printf("%c", r)
+					}
+				}
 			}
 		}
 	}()
 
 	return func() {
 		close(done)
-		wg.Wait() // guaranteed no stdin reads after this returns
+		wg.Wait()
 	}
 }
