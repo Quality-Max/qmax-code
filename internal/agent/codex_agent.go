@@ -198,8 +198,14 @@ func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		}
 	}
 
-	if err := cmd.Wait(); err != nil && sb.Len() == 0 {
-		return "", fmt.Errorf("codex exited with error: %w", err)
+	if err := cmd.Wait(); err != nil {
+		// Intentional cancel (user pressed Enter to interrupt) — not an error.
+		if ctx.Err() != nil {
+			return strings.TrimSpace(sb.String()), nil
+		}
+		if sb.Len() == 0 {
+			return "", fmt.Errorf("codex exited with error: %w", err)
+		}
 	}
 
 	result := strings.TrimSpace(sb.String())
