@@ -228,9 +228,20 @@ func (a *CCAgent) WriteMCPConfig() error {
 		return err
 	}
 
-	// Use PID to avoid conflicts when multiple qmax-code instances run in parallel.
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("qmax-mcp-%d.json", os.Getpid()))
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	// Create atomically in the OS temp dir so another local process cannot
+	// pre-create the path or swap in a symlink before we write the config.
+	f, err := os.CreateTemp("", fmt.Sprintf("qmax-mcp-%d-*.json", os.Getpid()))
+	if err != nil {
+		return err
+	}
+	path := f.Name()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
 		return err
 	}
 
@@ -356,7 +367,7 @@ func (a *CCAgent) Cleanup() {
 	}
 }
 
-// CleanupStaleMCPConfigs removes qmax-mcp-<pid>.json files left in the OS
+// CleanupStaleMCPConfigs removes qmax-mcp-<pid>-*.json files left in the OS
 // temp dir by previous qmax-code instances that crashed before their Cleanup()
 // could run. Safe to call on every startup — skips files whose PID is alive.
 func CleanupStaleMCPConfigs() {
@@ -366,10 +377,12 @@ func CleanupStaleMCPConfigs() {
 		return
 	}
 	for _, path := range matches {
-		base := filepath.Base(path) // "qmax-mcp-12345.json"
-		// Extract PID: strip "qmax-mcp-" prefix and ".json" suffix.
+		base := filepath.Base(path) // "qmax-mcp-12345-random.json"
 		inner := strings.TrimPrefix(base, "qmax-mcp-")
 		inner = strings.TrimSuffix(inner, ".json")
+		if idx := strings.IndexByte(inner, '-'); idx >= 0 {
+			inner = inner[:idx]
+		}
 		pid, err := strconv.Atoi(inner)
 		if err != nil {
 			continue
