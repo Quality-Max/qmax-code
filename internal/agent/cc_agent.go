@@ -23,6 +23,8 @@ import (
 // which CLI is underneath.
 type CLIAgent interface {
 	Run(userMsg string, term *tui.Terminal) (string, error)
+	// Cancel interrupts a Run call in progress. Safe to call from another goroutine.
+	Cancel()
 	SetOutputVerbose(verbose bool)
 	Cleanup()
 }
@@ -51,6 +53,8 @@ type CCAgent struct {
 	sctx           *api.SessionContext
 	lastToolName   string // track last tool name for result display
 	mu             sync.Mutex
+	runMu          sync.Mutex
+	runCancel      context.CancelFunc // non-nil while Run() is active
 }
 
 // ccStandardAllowlist is the curated list passed to `claude --allowedTools` in
@@ -284,6 +288,16 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
+	// Expose cancel so Cancel() can interrupt from another goroutine.
+	a.runMu.Lock()
+	a.runCancel = cancel
+	a.runMu.Unlock()
+	defer func() {
+		a.runMu.Lock()
+		a.runCancel = nil
+		a.runMu.Unlock()
+	}()
+
 	cmd := exec.CommandContext(ctx, a.claudeBin, args...)
 	cmd.Stdin = strings.NewReader("")
 	cmd.Stderr = os.Stderr // CC's own errors and status messages
@@ -314,6 +328,15 @@ func fileMissing(path string) bool {
 	}
 	_, err := os.Stat(path)
 	return os.IsNotExist(err)
+}
+
+// Cancel interrupts a Run call that is in progress. Safe to call from any goroutine.
+func (a *CCAgent) Cancel() {
+	a.runMu.Lock()
+	if a.runCancel != nil {
+		a.runCancel()
+	}
+	a.runMu.Unlock()
 }
 
 // Cleanup removes the temp MCP config file.

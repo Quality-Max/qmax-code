@@ -769,7 +769,15 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		// Start the queue reader so the user can type the next prompt while
 		// the agent is working.  It is stopped (and fully drained) before
 		// the next tui.ReadInput call so stdin is never shared between readers.
-		stopQueueReader := session.StartQueueReader(pq, term)
+		// Pressing Enter while typing cancels the running agent so the queued
+		// prompt is processed on the very next iteration.
+		var cancelCurrent func()
+		if cliAgent != nil {
+			cancelCurrent = cliAgent.Cancel
+		} else {
+			cancelCurrent = ag.CancelCurrent
+		}
+		stopQueueReader := session.StartQueueReader(pq, term, cancelCurrent)
 
 		// CC mode: delegate entirely to Claude Code subprocess (uses CC subscription).
 		// Normal mode: use direct Anthropic API.

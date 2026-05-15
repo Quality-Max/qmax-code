@@ -41,6 +41,8 @@ func (m *mockCLIAgent) Run(_ string, _ *tui.Terminal) (string, error) {
 	return "ok", nil
 }
 
+func (m *mockCLIAgent) Cancel() {}
+
 func (m *mockCLIAgent) Cleanup() {}
 
 func (m *mockCLIAgent) SetOutputVerbose(bool) {}

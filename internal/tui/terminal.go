@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/glamour"
@@ -121,10 +122,11 @@ type spinner struct {
 	done sync.Once
 	stop chan struct{}
 	wg   sync.WaitGroup
+	term *Terminal // checked each tick to pause while user is typing
 }
 
-func newSpinner() *spinner {
-	s := &spinner{stop: make(chan struct{})}
+func newSpinner(t *Terminal) *spinner {
+	s := &spinner{stop: make(chan struct{}), term: t}
 	msg := spinnerMessages[rand.Intn(len(spinnerMessages))]
 	s.wg.Add(1)
 	go func() {
@@ -138,6 +140,10 @@ func newSpinner() *spinner {
 				fmt.Print("\r\033[K") // erase spinner line
 				return
 			case <-ticker.C:
+				// Pause while the user is typing so our \r doesn't overwrite their input.
+				if s.term != nil && s.term.userTyping.Load() {
+					continue
+				}
 				frame := spinnerFrames[i%len(spinnerFrames)]
 				i++
 				fmt.Printf("\r  %s%s %s...%s",
@@ -163,6 +169,13 @@ type Terminal struct {
 	streamBuf     strings.Builder // buffers streamed text for post-render
 	currentPrompt string          // track prompt for readline recreation
 	thinking      *spinner        // active thinking spinner, if any
+	userTyping    atomic.Bool     // true while StartQueueReader has the user typing
+}
+
+// SetUserTyping tells the active spinner to pause (true) or resume (false) its
+// line rewrites so typed characters are not overwritten.
+func (t *Terminal) SetUserTyping(v bool) {
+	t.userTyping.Store(v)
 }
 
 // Stderr returns the writer used for diagnostic / debug log lines that the
@@ -236,7 +249,7 @@ func (t *Terminal) Close() {
 // Safe to call even if a spinner is already running (replaces it).
 func (t *Terminal) StartThinking() {
 	t.StopThinking()
-	t.thinking = newSpinner()
+	t.thinking = newSpinner(t)
 }
 
 // StopThinking stops the spinner and erases it from the terminal.

@@ -146,12 +146,18 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyLeft:
-		if m.cursor > 0 {
+		// Alt+Left (xterm \x1b[1;3D) = word-left, plain Left = char-left.
+		if msg.Alt {
+			m.cursor = previousWordBoundary(runes, m.cursor)
+		} else if m.cursor > 0 {
 			m.cursor--
 		}
 
 	case tea.KeyRight:
-		if m.cursor < len(runes) {
+		// Alt+Right (xterm \x1b[1;3C) = word-right, plain Right = char-right.
+		if msg.Alt {
+			m.cursor = nextWordBoundary(runes, m.cursor)
+		} else if m.cursor < len(runes) {
 			m.cursor++
 		}
 
@@ -214,6 +220,18 @@ func (m inputModel) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyRunes:
 		if msg.Paste {
 			m.pasted = true
+		}
+		// macOS Option+Left sends ESC+'b', Option+Right sends ESC+'f'.
+		// Bubbletea delivers these as KeyRunes with Alt=true.
+		if msg.Alt && len(msg.Runes) == 1 {
+			switch msg.Runes[0] {
+			case 'b', 'B':
+				m.cursor = previousWordBoundary(runes, m.cursor)
+				return m, nil
+			case 'f', 'F':
+				m.cursor = nextWordBoundary(runes, m.cursor)
+				return m, nil
+			}
 		}
 		ch := string(msg.Runes)
 		// Typing "/" on an empty line opens the slash menu.
@@ -408,7 +426,7 @@ func (m inputModel) View() string {
 			mode = "verbose"
 		}
 		b.WriteString("\n")
-		b.WriteString(menuHintStyle.Render(fmt.Sprintf("  Ctrl+O output: %s • Ctrl+X×3 clear • Ctrl+←/→ words • Ctrl+C cancel • / commands", mode)))
+		b.WriteString(menuHintStyle.Render(fmt.Sprintf("  Ctrl+O output: %s • Ctrl+X×3 clear • Opt+←/→ or Ctrl+←/→ words • Ctrl+C cancel • / commands", mode)))
 	} else {
 		// Menu mode
 		b.WriteString(m.prompt)

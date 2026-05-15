@@ -6,6 +6,6 @@ import "github.com/qualitymax/qmax-code/internal/tui"
 
 // StartQueueReader is a no-op on Windows; the prompt queue still works via
 // /queue but concurrent stdin reading while streaming is not supported.
-func StartQueueReader(pq *PromptQueue, term *tui.Terminal) func() {
+func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func() {
 	return func() {}
 }

@@ -41,6 +41,8 @@ type CodexAgent struct {
 	sctx           *api.SessionContext
 	history        []codexTurn // conversation history managed on our side
 	mu             sync.Mutex
+	runMu          sync.Mutex
+	runCancel      context.CancelFunc // non-nil while Run() is active
 }
 
 type codexTurn struct {
@@ -160,6 +162,15 @@ func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
+	a.runMu.Lock()
+	a.runCancel = cancel
+	a.runMu.Unlock()
+	defer func() {
+		a.runMu.Lock()
+		a.runCancel = nil
+		a.runMu.Unlock()
+	}()
+
 	cmd := exec.CommandContext(ctx, a.codexBin, args...)
 	cmd.Stdin = strings.NewReader("")
 	cmd.Stderr = os.Stderr
@@ -253,6 +264,15 @@ func (a *CodexAgent) SetOutputVerbose(verbose bool) {
 	a.mu.Lock()
 	a.outputVerbose = verbose
 	a.mu.Unlock()
+}
+
+// Cancel interrupts a Run call that is in progress. Safe to call from any goroutine.
+func (a *CodexAgent) Cancel() {
+	a.runMu.Lock()
+	if a.runCancel != nil {
+		a.runCancel()
+	}
+	a.runMu.Unlock()
 }
 
 // Cleanup is a no-op for CodexAgent (no temp files to remove).
