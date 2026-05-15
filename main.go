@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	xterm "golang.org/x/term"
+
 	"github.com/qualitymax/qmax-code/internal/agent"
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/mcp"
@@ -17,7 +19,7 @@ import (
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
-var Version = "1.16.9"
+var Version = "1.16.10"
 
 const Name = "qmax-code"
 
@@ -111,6 +113,18 @@ func main() {
 		return
 	}
 
+	// QUA-580: refuse interactive startup when stdin is not a terminal.
+	// This must happen before any setup, consent, or API-key prompt, because
+	// those paths are interactive too and can block forever when stdin is a
+	// pipe. One-shot prompts (-p or positional args) remain valid headless use.
+	if *oneShot == "" && len(flag.Args()) == 0 && !xterm.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Fprintln(os.Stderr, "qmax-code: stdin is not a terminal.")
+		fmt.Fprintln(os.Stderr, "  For non-interactive use, pass a prompt:")
+		fmt.Fprintln(os.Stderr, "      qmax-code -p \"<your prompt>\"")
+		fmt.Fprintln(os.Stderr, "      qmax-code \"<your prompt>\"")
+		os.Exit(2)
+	}
+
 	// Load persistent user config
 	appConfig := api.LoadQMaxCodeConfig()
 
@@ -146,6 +160,11 @@ func main() {
 		effectiveModel = "auto"
 	}
 	effectiveModel = resolveModel(effectiveModel)
+	if !isValidModelName(effectiveModel) {
+		fmt.Fprintf(os.Stderr, "Error: --model %q is not recognized.\n", *model)
+		fmt.Fprintf(os.Stderr, "  Valid: %s.\n", api.ValidClaudeModelsHelp())
+		os.Exit(2)
+	}
 
 	// Resolve Anthropic API key: flag > env > keychain
 	anthropicKey := *anthropicAPIKey
@@ -186,8 +205,10 @@ func main() {
 	}
 
 	// CLI backend mode: route all LLM inference through a local CLI subprocess.
-	// Neither an Anthropic API key nor an OpenAI key is required — the user's
-	// subscription (CC or OpenAI/Codex) covers inference.
+	// Neither a QM-held Anthropic API key nor an OpenAI key is required. In cc
+	// mode, qmax-code uses the user's Claude Code login via `claude --print`;
+	// starting 2026-06-15, that traffic draws from the user's monthly Claude
+	// Agent SDK credit before any extra-usage billing.
 	// qmax tools are served to the CLI via the embedded MCP server.
 	var cliAgent agent.CLIAgent
 	cliBackend := appConfig.Backend // "cc" | "codex" | "" (API)
@@ -252,7 +273,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "\nError: Anthropic API key required.")
 		fmt.Fprintln(os.Stderr, "  export ANTHROPIC_API_KEY=sk-ant-...")
 		fmt.Fprintln(os.Stderr, "  Or use a CLI backend (no API key needed):")
-		fmt.Fprintln(os.Stderr, "    qmax-code config set backend cc      # Claude Code subscription")
+		fmt.Fprintln(os.Stderr, "    qmax-code config set backend cc      # Claude Code login / Agent SDK credit")
 		fmt.Fprintln(os.Stderr, "    qmax-code config set backend codex   # OpenAI/Codex subscription")
 		os.Exit(1)
 	}
@@ -332,26 +353,46 @@ func main() {
 		cliAgent = ca
 	}
 
-	// One-shot mode
-	if *oneShot != "" {
-		result, err := ag.Run(*oneShot)
+	// One-shot mode and positional-arg mode honour the configured CLI backend.
+	// Prior to the QUA-576 fix these paths always called ag.Run (Anthropic API),
+	// silently ignoring backend=cc and backend=codex — which meant every CI /
+	// scripting / cloud-session invocation bypassed the cc backend and hit the
+	// Anthropic API. Now we route through cliAgent when configured, falling
+	// back to the API agent only when no CLI backend is active.
+	runOneShot := func(prompt string) error {
+		if cliAgent != nil {
+			// CLI backends stream their own output (tool icons, glamour-rendered
+			// text) via the Terminal; FinishMarkdown handles final rendering.
+			// Build a Terminal here since main never created one (repl.Run owns
+			// the interactive Terminal instance).
+			term := tui.NewTerminal()
+			defer term.Close()
+			_, err := cliAgent.Run(prompt, term)
+			return err
+		}
+		// Direct-API path: non-streaming. Print the returned text ourselves.
+		result, err := ag.Run(prompt)
 		if err != nil {
+			return err
+		}
+		fmt.Println(result)
+		return nil
+	}
+
+	if *oneShot != "" {
+		if err := runOneShot(*oneShot); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println(result)
 		return
 	}
 
 	// Also handle positional args as a prompt: qmax-code "test the login flow"
 	if remaining := flag.Args(); len(remaining) > 0 {
-		prompt := strings.Join(remaining, " ")
-		result, err := ag.Run(prompt)
-		if err != nil {
+		if err := runOneShot(strings.Join(remaining, " ")); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println(result)
 		return
 	}
 
@@ -390,14 +431,12 @@ func main() {
 
 // resolveModel expands shorthand model names to full model IDs.
 func resolveModel(m string) string {
-	switch strings.ToLower(m) {
-	case "sonnet":
-		return api.ModelSonnet
-	case "opus":
-		return api.ModelOpus
-	case "haiku":
-		return api.ModelHaiku
-	default:
-		return m
-	}
+	return api.ResolveClaudeModel(m)
+}
+
+// isValidModelName reports whether m is a recognized model identifier.
+// QUA-579: pre-fix, any string was forwarded to the API and produced a
+// confusing 401/400. Now we fail fast with a list of valid choices.
+func isValidModelName(m string) bool {
+	return api.IsValidClaudeModelName(m)
 }

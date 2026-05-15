@@ -344,7 +344,7 @@ func (t *Terminal) PrintBanner(version string, ctx *api.SessionContext) {
 
 	switch ctx.Backend {
 	case "cc":
-		fmt.Printf("  %s▸ Backend: Claude Code (CC subscription — no API tokens)%s\n", themeStatusColor, ColorReset)
+		fmt.Printf("  %s▸ Backend: Claude Code (no QM API key; Agent SDK credit for --print)%s\n", themeStatusColor, ColorReset)
 		if ctx.Auth != nil && ctx.Auth.Email != "" {
 			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, ColorReset)
 		}

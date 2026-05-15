@@ -128,6 +128,29 @@ func TestPromptQueue_ConcurrentPush(t *testing.T) {
 	}
 }
 
+func TestPromptQueue_ClearReturnsCount(t *testing.T) {
+	var q PromptQueue
+	q.Push("a")
+	q.Push("b")
+	q.Push("c")
+
+	n := q.Clear()
+	if n != 3 {
+		t.Errorf("clear returned %d, want 3", n)
+	}
+	if q.Len() != 0 {
+		t.Errorf("len after clear: got %d, want 0", q.Len())
+	}
+}
+
+func TestPromptQueue_ClearEmpty(t *testing.T) {
+	var q PromptQueue
+	n := q.Clear()
+	if n != 0 {
+		t.Errorf("clear on empty queue returned %d, want 0", n)
+	}
+}
+
 func TestPromptQueue_ConcurrentPushPop(t *testing.T) {
 	var q PromptQueue
 	const count = 200

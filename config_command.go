@@ -28,7 +28,7 @@ import (
 //
 //	default_framework → "", "playwright", "pytest", "rust_cargo", "go_test"
 //	default_project   → integer project ID
-//	default_model     → "auto", "sonnet", "opus", "haiku", or full model ID
+//	default_model     → "auto", "sonnet", "opus", "haiku", or known full model ID
 //	professional      → bool ("true" / "false")
 //	auto_save         → bool
 //	output_verbose    → bool (compact vs previous detailed answer style)
@@ -162,7 +162,10 @@ func setConfigField(key, value string) error {
 		}
 
 	case "default_model":
-		cfg.DefaultModel = value
+		if value != "" && !api.IsValidClaudeModelName(value) {
+			return fmt.Errorf("invalid default_model %q; allowed: %s", value, api.ValidClaudeModelsHelp())
+		}
+		cfg.DefaultModel = api.ResolveClaudeModel(value)
 
 	case "professional":
 		b, err := parseConfigBool(value)

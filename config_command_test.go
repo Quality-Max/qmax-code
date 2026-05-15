@@ -42,6 +42,22 @@ func TestSetConfigField_DefaultFrameworkRejectsBadValues(t *testing.T) {
 	}
 }
 
+func TestSetConfigField_DefaultModelValidation(t *testing.T) {
+	withTempHome(t)
+
+	if err := setConfigField("default_model", "sonnet"); err != nil {
+		t.Fatalf("expected shorthand model to be accepted: %v", err)
+	}
+	loaded := api.LoadQMaxCodeConfig()
+	if loaded.DefaultModel != api.ModelSonnet {
+		t.Errorf("DefaultModel: got %q, want %q", loaded.DefaultModel, api.ModelSonnet)
+	}
+
+	if err := setConfigField("default_model", "claude-future-model-9-0"); err == nil {
+		t.Fatal("expected unknown Claude model ID to be rejected")
+	}
+}
+
 func TestSetConfigField_UnsetEqualsEmptyValue(t *testing.T) {
 	withTempHome(t)
 

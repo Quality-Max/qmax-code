@@ -31,14 +31,29 @@ import (
 // so we can suppress kernel echo while leaving the agent's concurrent stdout
 // stream intact. Returns a stop function that must be called before the next
 // tui.ReadInput so stdin is never shared between two readers.
-func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func() {
+//
+// The stop function returns any partial line the user had typed but not yet
+// Enter-terminated when the agent finished. If the agent's response races the
+// user's typing (turn ends before Enter is pressed), the caller can recover the
+// partial text rather than silently dropping it (QUA-577).
+func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func() string {
 	done := make(chan struct{})
+	partialCh := make(chan string, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
+
+	// lineRunes is only mutated inside the goroutine. The stop function
+	// reads its final value via partialCh after wg.Wait, so there is no
+	// concurrent access window.
+	var lineRunes []rune
 
 	go func() {
 		defer wg.Done()
 		defer term.SetUserTyping(false)
+		// Send whatever partial line was buffered when the goroutine exits.
+		// Runs before wg.Done (LIFO), so wg.Wait observes the send. Channel
+		// is buffered (cap 1), so this never blocks even if no one reads.
+		defer func() { partialCh <- string(lineRunes) }()
 
 		fd := int(os.Stdin.Fd())
 
@@ -56,7 +71,6 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 			}
 		}
 
-		var lineRunes []rune
 		var rawBuf []byte
 		// Pre-allocated read buffer — reused every iteration.
 		readBuf := make([]byte, 32)
@@ -167,8 +181,17 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 		}
 	}()
 
-	return func() {
+	return func() string {
 		close(done)
 		wg.Wait()
+		// Channel is buffered and always written in a defer before wg.Done,
+		// so by the time we read, the value is there. Use a non-blocking
+		// receive with a default as belt-and-suspenders.
+		select {
+		case s := <-partialCh:
+			return s
+		default:
+			return ""
+		}
 	}
 }

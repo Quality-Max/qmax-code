@@ -30,16 +30,18 @@ type CLIAgent interface {
 }
 
 // CCAgent orchestrates a Claude Code CLI subprocess for LLM inference.
-// All inference runs through the user's CC subscription — zero Anthropic API
-// tokens consumed by qmax-code itself. qmax tools are exposed to CC as an MCP
-// server so CC can call them natively via its own tool-use mechanism.
+// Inference runs through the user's Claude Code login, so qmax-code does not
+// need a QM-held Anthropic API key. Because this agent uses `claude --print`,
+// usage moves to the user's monthly Claude Agent SDK credit on 2026-06-15.
+// qmax tools are exposed to CC as an MCP server so CC can call them natively
+// via its own tool-use mechanism.
 //
 // Per-message flow:
 //  1. qmax-code spawns:  claude --print "msg" --output-format stream-json
 //     --append-system-prompt <QA_PROMPT> --mcp-config <temp_file>
 //     [--resume <cc_session_id>]
 //  2. CC spawns: qmax-code serve --mcp  (our MCP server subprocess)
-//  3. CC uses qmax tools via MCP, runs on its own subscription
+//  3. CC uses qmax tools via MCP, metered to the user's Claude account
 //  4. qmax-code parses CC's stream-json and renders in the terminal
 //  5. CC session ID is saved for --resume on the next turn
 type CCAgent struct {
