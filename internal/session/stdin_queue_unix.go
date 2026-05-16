@@ -19,18 +19,16 @@ import (
 // is pushed onto pq. If cancelFn is non-nil it is called when the user presses Enter,
 // allowing the running agent to be interrupted so the queued prompt is processed next.
 //
-// Display strategy: keep the user's typing visually separate from the agent's
-// concurrent output. On the first keystroke we print a single static status line
-// ("⌨ typing — Enter to queue, Ctrl+C to cancel") and then accumulate keystrokes
-// silently in a buffer with no per-character echo. This means the agent's
-// StreamText / FinishMarkdown / PrintToolIcon writes can never overwrite, erase,
-// or interleave with the user's in-progress input. On Enter the captured text is
-// revealed in the queued-prompt confirmation line.
+// Display strategy: on the first printable keystroke, print a status line and an
+// input prompt ("  › "), then echo every subsequent character in real-time and
+// handle backspace visually with \b \b. The spinner already pauses when userTyping
+// is set, so spinner rewrites don't overwrite the input line. Concurrent streaming
+// text may rarely interleave, but visible typing is far better UX than invisible.
 //
 // The goroutine switches stdin to "half-raw" mode (ICANON+ECHO off, OPOST on)
-// so we can suppress kernel echo while leaving the agent's concurrent stdout
-// stream intact. Returns a stop function that must be called before the next
-// tui.ReadInput so stdin is never shared between two readers.
+// so we own echoing while leaving the agent's concurrent stdout stream intact.
+// Returns a stop function that must be called before the next tui.ReadInput so
+// stdin is never shared between two readers.
 //
 // The stop function returns any partial line the user had typed but not yet
 // Enter-terminated when the agent finished. If the agent's response races the
@@ -113,17 +111,14 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 					continue // bad byte; discard
 				}
 
-				// On the first keystroke: pause the spinner and print a static
-				// status line. No per-character echo follows — keystrokes are
-				// silently buffered until Enter, so concurrent agent output
-				// can't overwrite or erase the user's in-progress input.
-				if !typing && !escSeq && r != 0x1b {
+				// On the first printable keystroke: pause the spinner, print a
+				// status line, and open an inline input area. Subsequent
+				// keystrokes are echoed character-by-character below.
+				if !typing && !escSeq && r >= 32 {
 					typing = true
 					term.SetUserTyping(true)
-					// \r\033[K erases any spinner text on the current line;
-					// the trailing \n leaves the cursor on a fresh line so
-					// subsequent agent output doesn't share the status row.
-					fmt.Printf("\r\033[K\n  %s⌨ typing — Enter to queue, Ctrl+C to cancel%s\n",
+					// \r\033[K erases any spinner text on the current line.
+					fmt.Printf("\r\033[K\n  %s⌨ typing — Enter to queue · Ctrl+C to cancel%s\n  › ",
 						tui.ColorDim, tui.ColorReset)
 				}
 
@@ -131,6 +126,9 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 				case '\r', '\n': // Enter
 					text := strings.TrimSpace(string(lineRunes))
 					lineRunes = lineRunes[:0]
+					if typing {
+						fmt.Println() // advance cursor past the echoed input line
+					}
 					typing = false
 					term.SetUserTyping(false)
 					if text == "" {
@@ -145,12 +143,16 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 					fmt.Printf("  %s✓ queued [%d]:%s %s\n",
 						tui.ColorDim, pos, tui.ColorReset, text)
 
-				case 127, 8: // Backspace / Delete — pop silently
+				case 127, 8: // Backspace / Delete
 					if len(lineRunes) > 0 {
 						lineRunes = lineRunes[:len(lineRunes)-1]
+						fmt.Print("\b \b") // visually erase the character
 					}
 
-				case 3: // Ctrl+C — owned by the signal handler in repl.go; don't eat it
+				case 3: // Ctrl+C — SIGINT delivered by OS; reset local input state
+					if typing {
+						fmt.Println() // advance cursor past the echoed input line
+					}
 					typing = false
 					term.SetUserTyping(false)
 					lineRunes = lineRunes[:0]
@@ -173,7 +175,8 @@ func StartQueueReader(pq *PromptQueue, term *tui.Terminal, cancelFn func()) func
 							escSeq = false
 						}
 						// In all escape-sequence branches: do not buffer the rune
-					} else if r >= 32 { // printable character — buffer silently
+					} else if r >= 32 { // printable character — echo and buffer
+						fmt.Print(string(r))
 						lineRunes = append(lineRunes, r)
 					}
 				}
