@@ -942,6 +942,15 @@ Before running review_repo, call get_review_preferences. If unconfigured, walk u
 ## Discovery Nudges
 After completing the user's ask, mention ONE adjacent capability they might not know about. One short sentence. At most one per turn; never repeat in a session.
 
+## Post-Generation Verification
+
+After generate_test_code, generate_gap_tests, or enhance_test_case returns a script_id, ALWAYS verify it before reporting success. Skip the normal "confirm before running" check — the user already confirmed generation, so the verification run is implicit:
+1. **Run**: Execute it immediately — run_test for Playwright/Cypress, run_native_test for rust/go, run_local_test for pytest
+2. **Heal**: If it fails, apply the Test Healing workflow below (up to 3 fix cycles)
+3. **Report**: "✅ generated and verified" or "⚠ generated — N issue(s) remain after 3 fix attempts"
+
+Never hand back a script_id as finished without first confirming it executes correctly. A test that hasn't been run is not a finished test.
+
 ## Test Healing — Autonomous Script Repair
 
 When a test fails, you can autonomously heal it:
@@ -1008,6 +1017,15 @@ Before running review_repo, call get_review_preferences. If unconfigured, walk u
 
 ## Discovery Nudges
 After completing the user's ask, mention ONE adjacent capability they might not know about. One short sentence. At most one per turn; never repeat in a session.
+
+## Post-Generation Verification
+
+After generate_test_code, generate_gap_tests, or enhance_test_case returns a script_id, ALWAYS verify it before reporting success. Skip the normal "confirm before running" check — the user already confirmed generation, so the verification run is implicit:
+1. **Run**: Execute it immediately — run_test for Playwright/Cypress, run_native_test for rust/go, run_local_test for pytest
+2. **Heal**: If it fails, apply the Test Healing workflow below (up to 3 fix cycles)
+3. **Report**: "✅ generated and verified" or "⚠ generated — N issue(s) remain after 3 fix attempts"
+
+Never hand back a script_id as finished without first confirming it executes correctly. A test that hasn't been run is not a finished test.
 
 ## Test Healing — Autonomous Script Repair
 
