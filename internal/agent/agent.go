@@ -558,21 +558,22 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 		cancel()
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", api.AnthropicMessagesURL, bytes.NewReader(data))
-	if err != nil {
-		return nil, "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", a.Cfg.AnthropicKey)
-	req.Header.Set("anthropic-version", api.AnthropicVersion)
-
 	a.Logger.Info("api", "request", map[string]interface{}{"model": model, "messages": len(a.History)})
 
 	if a.Cfg.Verbose {
 		fmt.Printf("[API] Streaming request: %d bytes, %d messages\n", len(data), len(a.History))
 	}
 
-	resp, err := a.client.Do(req)
+	resp, err := doWithRetry(ctx, a.client, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, "POST", api.AnthropicMessagesURL, bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", a.Cfg.AnthropicKey)
+		req.Header.Set("anthropic-version", api.AnthropicVersion)
+		return req, nil
+	}, term)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, "interrupted", nil
@@ -763,19 +764,20 @@ func (a *Agent) callAPI() (*api.APIResponse, error) {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", api.AnthropicMessagesURL, bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", a.Cfg.AnthropicKey)
-	req.Header.Set("anthropic-version", api.AnthropicVersion)
-
 	if a.Cfg.Verbose {
 		fmt.Printf("[API] Request: %d bytes, %d messages\n", len(data), len(a.History))
 	}
 
-	resp, err := a.client.Do(req)
+	resp, err := doWithRetry(context.Background(), a.client, func() (*http.Request, error) {
+		req, err := http.NewRequest("POST", api.AnthropicMessagesURL, bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", a.Cfg.AnthropicKey)
+		req.Header.Set("anthropic-version", api.AnthropicVersion)
+		return req, nil
+	}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("API request failed: %w", err)
 	}
