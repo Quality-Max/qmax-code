@@ -944,8 +944,8 @@ After completing the user's ask, mention ONE adjacent capability they might not 
 
 ## Post-Generation Verification
 
-After generate_test_code (or generate_gap_tests) returns a script_id, ALWAYS verify it before reporting success:
-1. **Run**: Execute it immediately — run_test for Playwright/Cypress, run_native_test for pytest/rust/go
+After generate_test_code, generate_gap_tests, or enhance_test_case returns a script_id, ALWAYS verify it before reporting success. Skip the normal "confirm before running" check — the user already confirmed generation, so the verification run is implicit:
+1. **Run**: Execute it immediately — run_test for Playwright/Cypress, run_native_test for rust/go, run_local_test for pytest
 2. **Heal**: If it fails, apply the Test Healing workflow below (up to 3 fix cycles)
 3. **Report**: "✅ generated and verified" or "⚠ generated — N issue(s) remain after 3 fix attempts"
 
@@ -1020,8 +1020,8 @@ After completing the user's ask, mention ONE adjacent capability they might not 
 
 ## Post-Generation Verification
 
-After generate_test_code (or generate_gap_tests) returns a script_id, ALWAYS verify it before reporting success:
-1. **Run**: Execute it immediately — run_test for Playwright/Cypress, run_native_test for pytest/rust/go
+After generate_test_code, generate_gap_tests, or enhance_test_case returns a script_id, ALWAYS verify it before reporting success. Skip the normal "confirm before running" check — the user already confirmed generation, so the verification run is implicit:
+1. **Run**: Execute it immediately — run_test for Playwright/Cypress, run_native_test for rust/go, run_local_test for pytest
 2. **Heal**: If it fails, apply the Test Healing workflow below (up to 3 fix cycles)
 3. **Report**: "✅ generated and verified" or "⚠ generated — N issue(s) remain after 3 fix attempts"
 
