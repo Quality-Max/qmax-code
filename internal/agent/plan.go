@@ -43,15 +43,27 @@ func parsePlanSteps(rawInput interface{}) ([]PlanStep, error) {
 		if !ok {
 			return nil, fmt.Errorf("step %d must be an object", i+1)
 		}
-		title := strings.TrimSpace(fmt.Sprintf("%v", m["title"]))
-		if m["title"] == nil || title == "" {
+		// Require a real string (nil/number/bool/object all fail) rather than
+		// stringifying whatever the model sent — a non-string title is a schema
+		// violation, not a label to coerce into "42" or "map[...]".
+		title, ok := m["title"].(string)
+		if !ok {
+			return nil, fmt.Errorf("step %d: title is required and must be a string", i+1)
+		}
+		if title = strings.TrimSpace(title); title == "" {
 			return nil, fmt.Errorf("step %d: title is required", i+1)
 		}
 		// Default an omitted/empty status to "pending" — a model often sends new
-		// steps without one. Any other non-empty value is a real error.
-		status := strings.TrimSpace(fmt.Sprintf("%v", m["status"]))
-		if m["status"] == nil || status == "" {
-			status = "pending"
+		// steps without one. A non-string or unknown value is a real error.
+		status := "pending"
+		if raw, present := m["status"]; present && raw != nil {
+			s, ok := raw.(string)
+			if !ok {
+				return nil, fmt.Errorf("step %d: status must be a string", i+1)
+			}
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				status = trimmed
+			}
 		}
 		if !validPlanStatus[status] {
 			return nil, fmt.Errorf("step %d: invalid status %q (want pending|in_progress|done)", i+1, status)

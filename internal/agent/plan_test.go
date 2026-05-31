@@ -62,6 +62,8 @@ func TestParsePlanSteps_Errors(t *testing.T) {
 		{"too many", map[string]interface{}{"steps": tooMany}, "too many"},
 		{"step not object", map[string]interface{}{"steps": []interface{}{"x"}}, "must be an object"},
 		{"missing title", map[string]interface{}{"steps": []interface{}{map[string]interface{}{"status": "pending"}}}, "title is required"},
+		{"non-string title", map[string]interface{}{"steps": []interface{}{map[string]interface{}{"title": 42, "status": "pending"}}}, "must be a string"},
+		{"non-string status", map[string]interface{}{"steps": []interface{}{map[string]interface{}{"title": "t", "status": true}}}, "status must be a string"},
 		{"bad status", map[string]interface{}{"steps": []interface{}{map[string]interface{}{"title": "t", "status": "doing"}}}, "invalid status"},
 	}
 	for _, tc := range cases {
