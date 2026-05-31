@@ -833,6 +833,23 @@ func (a *Agent) executeToolCallsWithUI(toolCalls []api.ContentBlock, term *tui.T
 	for _, block := range toolCalls {
 		a.Logger.Info("tool", block.Name, map[string]interface{}{"cost": ToolCost(block.Name)})
 		output := ExecuteTool(block.Name, block.Input, a.Cfg.Context, ctx)
+
+		// update_plan renders a dedicated checklist from its input rather than
+		// the generic tool-result line (which would just echo {total,done}).
+		if block.Name == "update_plan" {
+			if steps, err := parsePlanSteps(block.Input); err == nil {
+				term.PrintPlan(toTUIPlanSteps(steps))
+			} else {
+				term.PrintToolResult(block.Name, output) // surface the validation error
+			}
+			results = append(results, api.ContentBlock{
+				Type:      "tool_result",
+				ToolUseID: block.ID,
+				Content:   output,
+			})
+			continue
+		}
+
 		summarized := SummarizeToolResult(block.Name, output)
 		term.PrintToolResult(block.Name, summarized)
 
@@ -1066,6 +1083,12 @@ Always state your confidence: "Confidence: HIGH — the button selector changed 
 - If you can't see the page (no screenshot analysis), tell the user you're blind and suggest they check the screenshot URL.
 `
 	}
+
+	// Planning (shared by both personas). update_plan is native-agent only.
+	prompt += `
+## Planning
+For any multi-step task (e.g. generate→run→heal, gap analysis across cases, CI/CD setup), call update_plan FIRST to lay out your steps, then update it as you go — mark a step "in_progress" when you start it and "done" when you finish, always passing the COMPLETE ordered list. Skip it for single-step questions; don't narrate the plan in prose when the tool already shows it.
+`
 
 	// Dashboard URLs
 	cloudURL := a.Cfg.Context.QMaxCfg.CloudURL

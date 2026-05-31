@@ -84,6 +84,7 @@ var toolIcons = map[string]string{
 	"get_script":         "📖",
 	"update_script":      "🔧",
 	"rollback_script":    "⏪",
+	"update_plan":        "📋",
 }
 
 // spinnerFrames is the braille animation cycle.
@@ -539,6 +540,57 @@ func (t *Terminal) PrintToolResult(name string, output string) {
 		}
 	} else {
 		fmt.Printf("  %s\n", styleSuccess.Render(fmt.Sprintf("✓ %d lines of output", lineCount)))
+	}
+}
+
+// PlanStep is one entry of an agent task plan, in the shape PrintPlan renders.
+// Kept here (not imported from agent) because agent imports tui, not vice versa.
+type PlanStep struct {
+	Title  string
+	Status string // pending | in_progress | done
+}
+
+// PrintPlan renders the agent's task plan (from update_plan) as a checklist with
+// a done/total progress line. Marks: ✓ done, ▸ in_progress, ◦ pending.
+// Restarts the thinking spinner on exit, mirroring PrintToolResult.
+func (t *Terminal) PrintPlan(steps []PlanStep) {
+	t.StopThinking() // erase spinner before plan display
+	if t.streaming {
+		t.streaming = false
+		fmt.Println()
+	}
+	defer t.StartThinking()
+
+	done := 0
+	for _, s := range steps {
+		if s.Status == "done" {
+			done++
+		}
+	}
+
+	icon := toolIcons["update_plan"]
+	if icon == "" {
+		icon = "📋"
+	}
+	fmt.Printf("\n  %s %s %s\n",
+		icon,
+		styleTool.Render("plan"),
+		styleDim.Render(fmt.Sprintf("(%d/%d done)", done, len(steps))))
+
+	for _, s := range steps {
+		var mark, title string
+		switch s.Status {
+		case "done":
+			mark = styleSuccess.Render("✓")
+			title = styleDim.Render(s.Title)
+		case "in_progress":
+			mark = styleSystem.Render("▸")
+			title = styleTool.Render(s.Title)
+		default:
+			mark = styleDim.Render("◦")
+			title = s.Title
+		}
+		fmt.Printf("    %s %s\n", mark, title)
 	}
 }
 

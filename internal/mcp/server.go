@@ -169,7 +169,7 @@ func errResp(id interface{}, code int, msg string) response {
 // buildToolList converts qmax ToolDefs to MCP format.
 // The only structural difference is camelCase inputSchema vs Anthropic's input_schema.
 func buildToolList() []toolDef {
-	defs := agent.BuildToolDefs()
+	defs := agent.BuildMCPToolDefs()
 	out := make([]toolDef, len(defs))
 	for i, d := range defs {
 		out[i] = toolDef(d)
