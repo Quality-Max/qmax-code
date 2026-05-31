@@ -152,11 +152,65 @@ func BuildToolDefs() []api.ToolDef {
 	return out
 }
 
+// nativeOnlyToolNames lists tools exposed only to the native Anthropic agent
+// loop, never via the MCP server. update_plan is a UX/observability surface for
+// the native REPL; Claude Code (the MCP server's consumer) already has its own
+// TodoWrite, so exposing ours would be redundant and could collide.
+var nativeOnlyToolNames = map[string]bool{
+	"update_plan": true,
+}
+
+// BuildMCPToolDefs returns the tool definitions exposed via the MCP server —
+// the public set minus native-only tools (see nativeOnlyToolNames).
+func BuildMCPToolDefs() []api.ToolDef {
+	defs := BuildToolDefs()
+	out := make([]api.ToolDef, 0, len(defs))
+	for _, d := range defs {
+		if !nativeOnlyToolNames[d.Name] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // buildAllToolDefs returns every tool definition, including experimental ones.
 // Used internally; public callers go through BuildToolDefs which applies the
 // QMAX_EXPERIMENTAL gate.
 func buildAllToolDefs() []api.ToolDef {
 	return []api.ToolDef{
+		// --- Planning ---
+		{
+			Name:        "update_plan",
+			Description: "Record or update your step-by-step plan for the current task. Call this FIRST — before running commands, generating code, or editing files — to lay out how you'll approach the work. Call it again whenever the plan changes: mark a step \"in_progress\" when you start it and \"done\" when you finish, adding or revising steps as you learn more. Always pass the COMPLETE ordered list of steps; it fully replaces the previous plan. Use it for multi-step work (generate→run→heal, gap analysis across cases, CI/CD setup); skip it for single-step questions.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"steps": map[string]interface{}{
+						"type":        "array",
+						"description": "The full ordered list of plan steps (1–20). Fully replaces any previous plan.",
+						"minItems":    1,
+						"maxItems":    20,
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"title": map[string]interface{}{
+									"type":        "string",
+									"description": "Short, concrete description of the step",
+								},
+								"status": map[string]interface{}{
+									"type":        "string",
+									"enum":        []string{"pending", "in_progress", "done"},
+									"description": "Current status of this step",
+								},
+							},
+							"required": []string{"title", "status"},
+						},
+					},
+				},
+				"required": []string{"steps"},
+			},
+		},
+
 		// --- Project operations ---
 		{
 			Name:        "list_projects",
@@ -656,6 +710,14 @@ func buildAllToolDefs() []api.ToolDef {
 // Uses the API client for QualityMax operations (no qmax CLI needed).
 // Falls back to qmax CLI if API client is not available.
 func ExecuteTool(name string, rawInput interface{}, sctx *api.SessionContext, ctx context.Context) string {
+	// update_plan is a local, side-effect-free planning surface — handle it
+	// before any API/CLI dispatch. The rich terminal checklist is rendered by
+	// the UI layer (executeToolCallsWithUI); here we just validate the steps and
+	// return a compact summary for the model.
+	if name == "update_plan" {
+		return executeUpdatePlan(rawInput)
+	}
+
 	// Use API client if available (standalone mode)
 	if sctx.API != nil {
 		result := executeToolViaAPI(name, rawInput, sctx, ctx)
@@ -1563,7 +1625,7 @@ func ToolCost(name string) string {
 	case "list_projects", "list_test_cases", "list_scripts", "check_test_status",
 		"crawl_status", "crawl_results", "list_crawl_jobs", "list_repos",
 		"repo_coverage", "repo_quality", "read_file", "run_command", "write_file",
-		"get_script":
+		"get_script", "update_plan":
 		return "free" // read-only or local, no cost
 	case "generate_test_code":
 		return "low" // AI generation, small cost
