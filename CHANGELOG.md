@@ -2,6 +2,14 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.15] - 2026-06-02
+
+### Added
+- `internal/security.IsSafePublicURL`: an SSRF host-validator for user-supplied outbound URLs (QUA-766, #113). Rejects non-http(s) schemes, `localhost`/`*.localhost`/`*.local`, every IPv6 literal, and every IPv4 literal in any resolver notation — closing the octal/hex/decimal/short-form/bare-32-bit bypasses (`0177.0.0.1`, `0x7f.0.0.1`, `2130706433`, `[::1]`, …) in one rule, which inherently covers loopback, cloud-metadata, and RFC-1918 ranges. Preparatory: no call site yet — wire it in when an outbound-URL surface (MCP client, "fetch this URL") lands.
+
+### Changed
+- Stop tracking `.claude/` session state in git (added to `.gitignore`).
+
 ## [1.16.14] - 2026-06-02
 
 ### Added
