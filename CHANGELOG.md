@@ -2,6 +2,12 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.14] - 2026-06-02
+
+### Added
+- Native `update_plan` planning tool for the Anthropic agent loop (QUA-764, #110). Multi-step flows (generate→run→heal, gap analysis, CI/CD setup) now surface a status-tracked checklist (`✓`/`▸`/`◦` + done/total) in the terminal. Full-replace semantics, 3-state status, ~20-step cap; side-effect-free (a compact `{total,done}` goes to the model, the checklist renders from the tool input). Native-agent only — excluded from the MCP server export so it doesn't collide with Claude Code's own TodoWrite.
+- `internal/fastapply`: a backend-agnostic Fast Apply safety-guard harness (QUA-765, #111). Wraps "small model regenerates the whole file from an edit" with guards that turn any suspect result into a typed error instead of a corrupted write: pre-flight size rejection, truncation / abnormal-finish refusal, drastic-shrink guard (>50% line drop on files ≥40 lines), outer-fence stripping, and trailing-newline preservation. The model call is injected as a `Generator`, so the guards are pure and fully unit-tested. Not yet wired to a consumer (`write_file`/`update_script` are candidates).
+
 ## [1.16.5] - 2026-05-09
 
 ### Changed
