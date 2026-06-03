@@ -2,6 +2,14 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.16] - 2026-06-03
+
+### Added
+- Claude Opus 4.8 and Opus 4.8 (1M context) in the `/orch` model picker (#115). The `opus` shorthand and `auto` routing now resolve to Opus 4.8; Opus 4.7 stays selectable by full ID. The 1M variant uses the `claude-opus-4-8[1m]` selector on the Claude Code backend.
+
+### Fixed
+- `TokenUsage.EstimatedCost` used retired rates, making `/cost` and `/status` wrong by 3–4× (#115). Corrected to current standard per-MTok pricing: Opus 4.6/4.7/4.8 $5/$25 (was the Opus 4.1 $15/$75), Haiku 4.5 $1/$5 (was the Haiku 3 $0.25/$1.25); Sonnet 4.6 $3/$15 unchanged. The 1M window bills at these same standard rates (no >200K premium tier), so flat per-model pricing is correct.
+
 ## [1.16.15] - 2026-06-02
 
 ### Added
