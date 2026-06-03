@@ -72,15 +72,18 @@ func (u *TokenUsage) TotalTokens() int {
 	return u.InputTokens + u.OutputTokens
 }
 
-// EstimatedCost returns estimated cost in USD.
-// Pricing: Sonnet input=$3/MTok output=$15/MTok, Opus input=$15/MTok output=$75/MTok, Haiku input=$0.25/MTok output=$1.25/MTok
+// EstimatedCost returns estimated cost in USD, based on standard per-MTok API
+// rates (https://platform.claude.com/docs/en/about-claude/pricing). The 1M
+// context window bills at these same standard rates — there is no >200K
+// premium tier for Opus 4.6+/Sonnet 4.6 — so a flat rate per model is correct.
+// Pricing: Opus 4.6/4.7/4.8 input=$5/MTok output=$25/MTok, Sonnet 4.6 input=$3/MTok output=$15/MTok, Haiku 4.5 input=$1/MTok output=$5/MTok
 func (u *TokenUsage) EstimatedCost(model string) float64 {
 	var inputRate, outputRate float64
 	switch {
 	case strings.Contains(model, "opus"):
-		inputRate, outputRate = 15.0, 75.0
+		inputRate, outputRate = 5.0, 25.0
 	case strings.Contains(model, "haiku"):
-		inputRate, outputRate = 0.25, 1.25
+		inputRate, outputRate = 1.0, 5.0
 	default: // sonnet
 		inputRate, outputRate = 3.0, 15.0
 	}
