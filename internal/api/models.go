@@ -23,7 +23,7 @@ func ResolveClaudeModel(m string) string {
 // instead of being forwarded to the Anthropic API or Claude Code.
 func IsValidClaudeModelName(m string) bool {
 	switch ResolveClaudeModel(m) {
-	case "auto", ModelSonnet, ModelOpus, ModelHaiku:
+	case "auto", ModelSonnet, ModelOpus, ModelOpus47, ModelHaiku:
 		return true
 	default:
 		return false
@@ -31,5 +31,5 @@ func IsValidClaudeModelName(m string) bool {
 }
 
 func ValidClaudeModelsHelp() string {
-	return "auto, sonnet, opus, haiku, " + ModelSonnet + ", " + ModelOpus + ", " + ModelHaiku
+	return "auto, sonnet, opus, haiku, " + ModelSonnet + ", " + ModelOpus + ", " + ModelOpus47 + ", " + ModelHaiku
 }
