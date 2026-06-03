@@ -125,9 +125,9 @@ type pickerEntry struct {
 }
 
 var ccModels = []pickerEntry{
-	{backend: "cc", modelID: "claude-opus-4-7", label: "Opus 4.7", subLabel: "1M ctx", isNew: true, shortcut: '1'},
-	{backend: "cc", modelID: "claude-opus-4-7", label: "Opus 4.7", isNew: true, shortcut: '2'},
-	{backend: "cc", modelID: "claude-opus-4-6", label: "Opus 4.6", subLabel: "1M ctx", shortcut: '3'},
+	{backend: "cc", modelID: "claude-opus-4-8[1m]", label: "Opus 4.8", subLabel: "1M ctx", isNew: true, shortcut: '1'},
+	{backend: "cc", modelID: "claude-opus-4-8", label: "Opus 4.8", isNew: true, shortcut: '2'},
+	{backend: "cc", modelID: "claude-opus-4-7", label: "Opus 4.7", subLabel: "1M ctx", shortcut: '3'},
 	{backend: "cc", modelID: "claude-sonnet-4-6", label: "Sonnet 4.6", isFav: true, shortcut: '4'},
 	{backend: "cc", modelID: "claude-haiku-4-5-20251001", label: "Haiku 4.5", shortcut: '5'},
 }
@@ -143,7 +143,7 @@ var codexModels = []pickerEntry{
 var apiModels = []pickerEntry{
 	{backend: "", modelID: "auto", label: "auto", subLabel: "haiku→sonnet routing", isFav: true},
 	{backend: "", modelID: api.ModelSonnet, label: "Sonnet 4.6"},
-	{backend: "", modelID: api.ModelOpus, label: "Opus 4.6"},
+	{backend: "", modelID: api.ModelOpus, label: "Opus 4.8"},
 	{backend: "", modelID: api.ModelHaiku, label: "Haiku 4.5"},
 }
 
