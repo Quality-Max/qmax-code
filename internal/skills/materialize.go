@@ -53,7 +53,13 @@ func Materialize(backend Backend, home string) (*MaterializeResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(root, 0700); err != nil {
+	if err := mkdirStrict(root); err != nil {
+		return nil, err
+	}
+	// Guard against a pre-planted symlink at ~/.claude or ~/.codex redirecting
+	// writes outside the user's home. Done after MkdirAll so the path exists to
+	// resolve, but before any skill files are written.
+	if err := ensureWithinHome(root, home); err != nil {
 		return nil, err
 	}
 
@@ -73,11 +79,11 @@ func Materialize(backend Backend, home string) (*MaterializeResult, error) {
 // writeSkill renders one skill folder for the given backend.
 func writeSkill(backend Backend, root string, sk Skill) error {
 	dir := filepath.Join(root, sk.Name)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := mkdirStrict(dir); err != nil {
 		return err
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(renderSkillMD(backend, sk)), 0600); err != nil {
+	if err := writeFileStrict(filepath.Join(dir, "SKILL.md"), []byte(renderSkillMD(backend, sk))); err != nil {
 		return err
 	}
 
@@ -85,12 +91,55 @@ func writeSkill(backend Backend, root string, sk Skill) error {
 	// metadata and MCP dependencies. Only emit it when there is something to say.
 	if backend == BackendCodex && (len(sk.MCPDeps) > 0 || sk.ShortDescription != "") {
 		agentsDir := filepath.Join(dir, "agents")
-		if err := os.MkdirAll(agentsDir, 0700); err != nil {
+		if err := mkdirStrict(agentsDir); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(agentsDir, "openai.yaml"), []byte(renderOpenAIYAML(sk)), 0600); err != nil {
+		if err := writeFileStrict(filepath.Join(agentsDir, "openai.yaml"), []byte(renderOpenAIYAML(sk))); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// Skill files hold no secrets, but they live among the user's CLI config, so we
+// keep them owner-only and deterministic regardless of the ambient umask.
+const (
+	dirPerm  os.FileMode = 0700
+	filePerm os.FileMode = 0600
+)
+
+// mkdirStrict creates dir (and parents) then chmods the leaf so umask can't
+// leave it more permissive than dirPerm.
+func mkdirStrict(dir string) error {
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
+		return err
+	}
+	return os.Chmod(dir, dirPerm)
+}
+
+// writeFileStrict writes data then chmods the file to filePerm, so the result
+// is the same whatever the umask was.
+func writeFileStrict(path string, data []byte) error {
+	if err := os.WriteFile(path, data, filePerm); err != nil {
+		return err
+	}
+	return os.Chmod(path, filePerm)
+}
+
+// ensureWithinHome resolves symlinks on root and home and verifies root is
+// contained in home, so a redirected ~/.claude or ~/.codex can't escape.
+func ensureWithinHome(root, home string) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	realHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(realHome, realRoot)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("skills: resolved dir %q escapes home %q", realRoot, realHome)
 	}
 	return nil
 }

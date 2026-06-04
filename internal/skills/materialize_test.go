@@ -106,6 +106,47 @@ func TestMaterializeIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMaterializeSetsDeterministicPerms(t *testing.T) {
+	home := t.TempDir()
+	if _, err := Materialize(BackendCodex, home); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".codex", "skills", "migrate-to-playwright")
+	di, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if di.Mode().Perm() != dirPerm {
+		t.Errorf("dir perms = %o, want %o", di.Mode().Perm(), dirPerm)
+	}
+	fi, err := os.Stat(filepath.Join(dir, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != filePerm {
+		t.Errorf("file perms = %o, want %o", fi.Mode().Perm(), filePerm)
+	}
+}
+
+func TestMaterializeRejectsSymlinkEscape(t *testing.T) {
+	home := t.TempDir()
+	evil := t.TempDir()
+	// Plant ~/.codex/skills as a symlink pointing outside home.
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(evil, filepath.Join(home, ".codex", "skills")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if _, err := Materialize(BackendCodex, home); err == nil {
+		t.Fatal("expected error materializing into a symlink that escapes home")
+	}
+	// And it must not have written any skill files into the escape target.
+	if _, err := os.Stat(filepath.Join(evil, "migrate-to-playwright", "SKILL.md")); err == nil {
+		t.Error("skill files were written outside home via symlink")
+	}
+}
+
 func TestYAMLScalarQuoting(t *testing.T) {
 	cases := map[string]string{
 		"simple":          "simple",
