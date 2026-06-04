@@ -133,7 +133,6 @@ func RunOrch(backend string, term *tui.Terminal) {
 		}
 		term.PrintSystem("Claude Code now has qmax tools in EVERY session (not just when spawned by qmax-code).")
 		term.PrintSystem("Run `claude` directly and qmax QA tools will be available automatically.")
-		materializeSkills(skills.BackendCC, term)
 
 	case "codex":
 		term.PrintSystem("Setting up Codex integration…")
@@ -148,21 +147,31 @@ func RunOrch(backend string, term *tui.Terminal) {
 			term.PrintSystem(fmt.Sprintf("qmax MCP entry added to %s", res.MCPPath))
 		}
 		term.PrintSystem("Codex now has qmax tools in every session.")
-		materializeSkills(skills.BackendCodex, term)
 	}
 }
 
-// materializeSkills writes the qmax skill catalog into the backend's native
-// skills directory so the QA skills auto-load in every CLI session, the same
-// way the MCP tools do. Failures are non-fatal — the MCP integration is the
-// hard requirement; skills are an additive convenience.
-func materializeSkills(backend skills.Backend, term *tui.Terminal) {
+// InstallSkills materializes the qmax QA skill catalog into the backend's
+// native skills directory (~/.claude/skills or ~/.codex/skills). It is
+// idempotent and refreshes the catalog on every call, so existing users pick up
+// new or updated skills on upgrade.
+//
+// It is deliberately decoupled from RunOrch's one-time MCP install: the MCP
+// entry is written once (guarded by IsOrchInstalled), but skills must keep
+// syncing on every activation/upgrade — otherwise anyone who already had the
+// MCP installed would never receive the skill catalog.
+func InstallSkills(backend string) (*skills.MaterializeResult, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		term.PrintError(fmt.Sprintf("Could not locate home dir for skill install: %v", err))
-		return
+		return nil, err
 	}
-	res, err := skills.Materialize(backend, home)
+	return skills.Materialize(skills.Backend(backend), home)
+}
+
+// InstallSkillsReport runs InstallSkills and reports the outcome to the
+// terminal. Non-fatal: skills are additive, so a failure is surfaced but does
+// not block backend activation.
+func InstallSkillsReport(backend string, term *tui.Terminal) {
+	res, err := InstallSkills(backend)
 	if err != nil {
 		term.PrintError(fmt.Sprintf("Skill install failed: %v", err))
 		return

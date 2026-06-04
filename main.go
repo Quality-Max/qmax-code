@@ -19,7 +19,7 @@ import (
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
-var Version = "1.16.17"
+var Version = "1.16.18"
 
 const Name = "qmax-code"
 
@@ -339,12 +339,21 @@ func main() {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
 			}
 		}
+		// Skills sync every launch (idempotent) so an upgraded catalog reaches
+		// users who already have the MCP installed. Independent of IsOrchInstalled.
+		if appConfig.OrchGlobalInstall {
+			_, _ = setup.InstallSkills("cc")
+		}
 		cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
 	case "codex":
 		if appConfig.OrchGlobalInstall && !setup.IsOrchInstalled("codex") {
 			if res, err := setup.InstallCodex(); err == nil && !res.AlreadyHadMCP {
 				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
 			}
+		}
+		// Skills sync every launch (idempotent), independent of IsOrchInstalled.
+		if appConfig.OrchGlobalInstall {
+			_, _ = setup.InstallSkills("codex")
 		}
 		ca := agent.NewCodexAgent(agent.FindCodex(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
 		if err := ca.WriteMCPConfig(); err != nil {

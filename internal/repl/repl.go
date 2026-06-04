@@ -432,8 +432,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				}
 				cfg.OrchPermissionMode = consent.PermissionMode
 				cfg.OrchGlobalInstall = consent.GlobalInstall
-				if consent.GlobalInstall && !setup.IsOrchInstalled(result.Backend) {
-					setup.RunOrch(result.Backend, term)
+				if consent.GlobalInstall {
+					if !setup.IsOrchInstalled(result.Backend) {
+						setup.RunOrch(result.Backend, term)
+					}
+					setup.InstallSkillsReport(result.Backend, term)
 				}
 			}
 
@@ -554,8 +557,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				}
 				cfg.OrchPermissionMode = consent.PermissionMode
 				cfg.OrchGlobalInstall = consent.GlobalInstall
-				if consent.GlobalInstall && !setup.IsOrchInstalled("cc") {
-					setup.RunOrch("cc", term)
+				if consent.GlobalInstall {
+					if !setup.IsOrchInstalled("cc") {
+						setup.RunOrch("cc", term)
+					}
+					setup.InstallSkillsReport("cc", term)
 				}
 				cliAgent = agent.NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
 				cfg.Backend = "cc"
@@ -576,8 +582,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				}
 				cfg.OrchPermissionMode = consent.PermissionMode
 				cfg.OrchGlobalInstall = consent.GlobalInstall
-				if consent.GlobalInstall && !setup.IsOrchInstalled("codex") {
-					setup.RunOrch("codex", term)
+				if consent.GlobalInstall {
+					if !setup.IsOrchInstalled("codex") {
+						setup.RunOrch("codex", term)
+					}
+					setup.InstallSkillsReport("codex", term)
 				}
 				ca := agent.NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
 				if err := ca.WriteMCPConfig(); err != nil {
