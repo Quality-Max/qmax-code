@@ -2,6 +2,14 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.17] - 2026-06-04
+
+### Added
+- Orch now materializes the qmax QA skills (`migrate-to-playwright`, `qa-quality-gate`, `sast-presurgery`, `qa-triage`) as native `SKILL.md` folders into Claude Code (`~/.claude/skills`) and Codex (`~/.codex/skills`) during backend setup, so they auto-load in every CLI session — not just qmax-code (#117). Codex skills additionally get an `agents/openai.yaml` declaring their qmax MCP dependency. MCP prompts were not used as the bridge because Codex does not yet surface them as slash commands ([openai/codex#8342](https://github.com/openai/codex/issues/8342)); `SKILL.md` is consumed natively by both CLIs.
+
+### Security
+- Skill materialization writes owner-only files (`0600`) and directories (`0700`) deterministically regardless of umask, validates skill names to a single safe path segment, and rejects symlinked skills directories that resolve outside the user's home (#117).
+
 ## [1.16.16] - 2026-06-03
 
 ### Added
