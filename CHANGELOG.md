@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.18.0] - 2026-06-04
+
+### Added
+- Imported the 15 browser/runtime QA skills from [Quality-Max/free-qa-skills](https://github.com/Quality-Max/free-qa-skills): `accessibility-check`, `broken-link-scan`, `cold-load-waterfall`, `console-error-scan`, `cookie-privacy-scan`, `core-web-vitals`, `form-validation-scan`, `i18n-rtl-audit`, `mixed-content-scan`, `page-weight-budget`, `responsive-screenshots`, `security-headers-check`, `seo-check`, `third-party-bloat`, `ui-ux-scan`. Unlike the static-analysis skills, these drive a live page load and declare a Playwright MCP dependency (surfaced to Codex via `agents/openai.yaml`). The catalog now ships **27 skills** and fully mirrors free-qa-skills plus the qmax-specific ones.
+
 ## [1.17.1] - 2026-06-04
 
 ### Added
