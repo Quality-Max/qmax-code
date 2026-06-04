@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/qualitymax/qmax-code/internal/agent"
+	"github.com/qualitymax/qmax-code/internal/skills"
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
@@ -132,6 +133,7 @@ func RunOrch(backend string, term *tui.Terminal) {
 		}
 		term.PrintSystem("Claude Code now has qmax tools in EVERY session (not just when spawned by qmax-code).")
 		term.PrintSystem("Run `claude` directly and qmax QA tools will be available automatically.")
+		materializeSkills(skills.BackendCC, term)
 
 	case "codex":
 		term.PrintSystem("Setting up Codex integration…")
@@ -146,7 +148,26 @@ func RunOrch(backend string, term *tui.Terminal) {
 			term.PrintSystem(fmt.Sprintf("qmax MCP entry added to %s", res.MCPPath))
 		}
 		term.PrintSystem("Codex now has qmax tools in every session.")
+		materializeSkills(skills.BackendCodex, term)
 	}
+}
+
+// materializeSkills writes the qmax skill catalog into the backend's native
+// skills directory so the QA skills auto-load in every CLI session, the same
+// way the MCP tools do. Failures are non-fatal — the MCP integration is the
+// hard requirement; skills are an additive convenience.
+func materializeSkills(backend skills.Backend, term *tui.Terminal) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		term.PrintError(fmt.Sprintf("Could not locate home dir for skill install: %v", err))
+		return
+	}
+	res, err := skills.Materialize(backend, home)
+	if err != nil {
+		term.PrintError(fmt.Sprintf("Skill install failed: %v", err))
+		return
+	}
+	term.PrintSystem(fmt.Sprintf("Installed %d qmax QA skills into %s", len(res.Written), res.Dir))
 }
 
 // IsOrchSetupDone returns true if the qmax MCP entry already exists in the
