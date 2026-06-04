@@ -108,6 +108,57 @@ var Catalog = []Skill{
 		MCPDeps:          []MCPDep{qmaxDep},
 		bodyFile:         "qa-triage.md",
 	},
+	// The skills below are pure static-analysis / review passes: like
+	// sast-presurgery, they reason over the diff and source and do not drive the
+	// qmax test runner, so they declare no MCPDeps and work in either backend.
+	{
+		Name:             "diff-risk-review",
+		Description:      "Review the current git diff for correctness, security, and performance risk before it is committed, producing severity-ranked findings with file:line and a fix. Use before committing or opening a PR, or when the user asks what could be wrong with their changes.",
+		ShortDescription: "Risk-review the uncommitted diff",
+		bodyFile:         "diff-risk-review.md",
+	},
+	{
+		Name:             "secret-scan",
+		Description:      "Scan the working tree or git diff for hardcoded secrets: API keys, tokens, private keys, connection strings, and cloud credentials across common providers. Use before committing, or when the user worries a credential may have leaked into the code.",
+		ShortDescription: "Find hardcoded secrets before they're committed",
+		bodyFile:         "secret-scan.md",
+	},
+	{
+		Name:             "dependency-audit",
+		Description:      "Audit project dependencies for risk: known-vulnerable versions, unpinned ranges, abandoned packages, and badly outdated majors, across npm, pip, Go, Cargo, and Bundler. Use when the user asks about dependency risk, outdated packages, or supply-chain safety.",
+		ShortDescription: "Audit deps for vulns and rot",
+		bodyFile:         "dependency-audit.md",
+	},
+	{
+		Name:             "dead-code-scan",
+		Description:      "Find dead code in a repository: unused exports, unreferenced files, unreachable branches, and unused imports, each with a safe-to-remove confidence. Use when the user wants to clean up, asks what can be deleted, or is reducing maintenance surface.",
+		ShortDescription: "Find unused exports, files, and branches",
+		bodyFile:         "dead-code-scan.md",
+	},
+	{
+		Name:             "complexity-hotspots",
+		Description:      "Rank the most complex code in a repository: long functions, deep nesting, high cyclomatic complexity, and god-files, worst-first with a refactor for each. Use when the user wants to find refactor targets or asks which code is hardest to maintain.",
+		ShortDescription: "Rank refactor hotspots by complexity",
+		bodyFile:         "complexity-hotspots.md",
+	},
+	{
+		Name:             "error-handling-audit",
+		Description:      "Audit a repository or diff for weak error handling: swallowed exceptions, bare catches, floating promises, missing network timeouts/retries, and errors logged but not surfaced. Use when reviewing reliability, or when failures seem to disappear silently.",
+		ShortDescription: "Find swallowed errors and missing handling",
+		bodyFile:         "error-handling-audit.md",
+	},
+	{
+		Name:             "test-quality-review",
+		Description:      "Review an existing test suite for quality rather than coverage: assertion-free tests, weak assertions, skipped/only tests, over-mocking, and missing edge cases. Use when the user asks whether their tests actually test anything, or wants a test-suite quality audit.",
+		ShortDescription: "Audit whether tests actually assert anything",
+		bodyFile:         "test-quality-review.md",
+	},
+	{
+		Name:             "flaky-selector-scan",
+		Description:      "Scan a UI test suite (Playwright, Cypress, Selenium) for brittle locators such as nth-child, absolute XPath, and generated class hashes, and suggest stable role/data-test replacements. Use when UI tests keep breaking on redesigns or the user asks why their tests are flaky.",
+		ShortDescription: "Find brittle UI locators, suggest stable ones",
+		bodyFile:         "flaky-selector-scan.md",
+	},
 }
 
 // SortedCatalog returns the catalog ordered by name for deterministic output.
