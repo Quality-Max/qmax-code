@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.17.0] - 2026-06-04
+
+### Added
+- Eight pure-static-analysis review skills added to the orch catalog (#120): `diff-risk-review`, `secret-scan`, `dependency-audit`, `dead-code-scan`, `complexity-hotspots`, `error-handling-audit`, `test-quality-review`, `flaky-selector-scan`. Like `sast-presurgery`, they reason over the diff/source and declare no MCP dependency, so they work in both Claude Code and Codex sessions. The catalog now ships 12 skills, materialized into `~/.claude/skills` and `~/.codex/skills`.
+
 ## [1.16.18] - 2026-06-04
 
 ### Fixed
