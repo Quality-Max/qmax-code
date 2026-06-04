@@ -13,9 +13,9 @@
 //     `agents/openai.yaml` for UI metadata, MCP dependencies, and invocation
 //     policy.
 //
-// A single Skill in this catalog is the source of truth. Render() emits the
-// right SKILL.md (and, for Codex, openai.yaml) for whichever backend is being
-// installed, so one definition stays in sync across both CLIs.
+// A single Skill in this catalog is the source of truth. Materialize() emits
+// the right SKILL.md (and, for Codex, openai.yaml) for whichever backend is
+// being installed, so one definition stays in sync across both CLIs.
 package skills
 
 import (
@@ -97,7 +97,9 @@ var Catalog = []Skill{
 		Name:             "sast-presurgery",
 		Description:      "Run a focused static-analysis security pass on the code about to be changed, before the edit lands. Use when planning a change to security-sensitive code, or when the user wants vulnerabilities found pre-emptively rather than in post-merge review.",
 		ShortDescription: "Pre-change SAST on the surgical site",
-		bodyFile:         "sast-presurgery.md",
+		// No MCPDeps: this is a pure static-analysis skill that reasons over the
+		// diff and source; it does not drive the qmax test runner like the others.
+		bodyFile: "sast-presurgery.md",
 	},
 	{
 		Name:             "qa-triage",

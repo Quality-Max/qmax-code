@@ -111,10 +111,52 @@ func TestYAMLScalarQuoting(t *testing.T) {
 		"simple":          "simple",
 		"has: colon":      `"has: colon"`,
 		"trailing space ": `"trailing space "`,
+		// A backslash is literal in a plain scalar → stays unquoted.
+		`a\b`: `a\b`,
+		// Control characters force quoting and get escaped.
+		"tab\there":  `"tab\there"`,
+		"cr\rhere":   `"cr\rhere"`,
+		"nul\x00bye": `"nul\x00bye"`,
+		"esc\x1bseq": `"esc\x1bseq"`,
 	}
 	for in, want := range cases {
 		if got := yamlScalar(in); got != want {
 			t.Errorf("yamlScalar(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestYAMLQuotedEscapesBackslash(t *testing.T) {
+	if got := yamlQuoted(`a"b\c`); got != `"a\"b\\c"` {
+		t.Errorf("yamlQuoted = %q", got)
+	}
+}
+
+func TestCatalogNamesAreValid(t *testing.T) {
+	for _, sk := range Catalog {
+		if !skillNameRe.MatchString(sk.Name) {
+			t.Errorf("catalog skill name %q does not satisfy %s", sk.Name, skillNameRe)
+		}
+	}
+}
+
+// sast-presurgery has a ShortDescription but no MCPDeps: Codex should still get
+// an openai.yaml (for the UI blurb) but without a dependencies section.
+func TestMaterializeCodexShortDescWithoutMCPDeps(t *testing.T) {
+	home := t.TempDir()
+	if _, err := Materialize(BackendCodex, home); err != nil {
+		t.Fatal(err)
+	}
+	yaml := filepath.Join(home, ".codex", "skills", "sast-presurgery", "agents", "openai.yaml")
+	data, err := os.ReadFile(yaml)
+	if err != nil {
+		t.Fatalf("expected openai.yaml for short-desc-only skill: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "short_description:") {
+		t.Errorf("missing short_description:\n%s", text)
+	}
+	if strings.Contains(text, "dependencies:") {
+		t.Errorf("should not emit dependencies section when MCPDeps empty:\n%s", text)
 	}
 }

@@ -4,8 +4,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+// skillNameRe constrains a skill slug to a single path segment of lowercase
+// alphanumerics, hyphens, and underscores. Since Name becomes a directory path
+// under the user's home, this guards against traversal ("../") or hidden-dir
+// ("." prefix) names — defense for the day the catalog is sourced externally.
+var skillNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // Backend identifies which CLI's native skill format to render.
 type Backend string
@@ -52,6 +59,9 @@ func Materialize(backend Backend, home string) (*MaterializeResult, error) {
 
 	res := &MaterializeResult{Backend: backend, Dir: root}
 	for _, sk := range SortedCatalog() {
+		if !skillNameRe.MatchString(sk.Name) {
+			return nil, fmt.Errorf("skills: invalid skill name %q (must match %s)", sk.Name, skillNameRe)
+		}
 		if err := writeSkill(backend, root, sk); err != nil {
 			return nil, fmt.Errorf("write skill %q: %w", sk.Name, err)
 		}
@@ -110,6 +120,10 @@ func renderSkillMD(backend Backend, sk Skill) string {
 			b.WriteString("metadata:\n")
 			b.WriteString("  short-description: " + yamlScalar(sk.ShortDescription) + "\n")
 		}
+	default:
+		// Materialize validates the backend via SkillsDir before reaching here,
+		// so an unknown value is a programming error, not a runtime condition.
+		panic(fmt.Sprintf("skills: unknown backend %q", backend))
 	}
 
 	b.WriteString("---\n\n")
@@ -148,16 +162,53 @@ func renderOpenAIYAML(sk Skill) string {
 
 // yamlScalar renders a string as a YAML scalar, quoting only when needed so the
 // common case stays readable. Used for unquoted-by-default frontmatter keys.
+//
+// A backslash in a plain scalar is a literal (YAML only escapes inside double
+// quotes), so it does not force quoting — but control characters do, since they
+// can corrupt the frontmatter. This hardening matters most when the catalog is
+// ever fed from an external source rather than the in-repo definitions.
 func yamlScalar(s string) string {
-	if s == "" || strings.ContainsAny(s, ":#\"'\n") || strings.HasPrefix(s, " ") || strings.HasSuffix(s, " ") {
+	if s == "" || strings.ContainsAny(s, ":#\"'\n") || strings.HasPrefix(s, " ") || strings.HasSuffix(s, " ") || hasControlChar(s) {
 		return yamlQuoted(s)
 	}
 	return s
 }
 
-// yamlQuoted renders a double-quoted YAML string with the minimal escaping YAML
-// requires inside double quotes.
+// hasControlChar reports whether s contains any C0 control character or DEL.
+func hasControlChar(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+// yamlQuoted renders a double-quoted YAML string, escaping the metacharacters
+// and control characters that are illegal or ambiguous inside double quotes.
 func yamlQuoted(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
-	return `"` + r.Replace(s) + `"`
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&b, `\x%02x`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
