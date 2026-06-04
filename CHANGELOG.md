@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.16.18] - 2026-06-04
+
+### Fixed
+- Skill materialization (1.16.17) never ran for users who already had the qmax MCP installed: it was nested inside `RunOrch`, which the REPL and startup gate behind `!IsOrchInstalled(backend)`. Since the guard short-circuits once the MCP entry exists, every existing orch user was locked out of the QA skills. Decoupled skill install from the one-time MCP guard — it now runs on every backend activation and every launch (idempotent), so the catalog reaches existing users and refreshes on upgrade. New `setup.InstallSkills` / `setup.InstallSkillsReport`.
+
 ## [1.16.17] - 2026-06-04
 
 ### Added
