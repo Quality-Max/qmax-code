@@ -179,6 +179,49 @@ func InstallSkillsReport(backend string, term *tui.Terminal) {
 	term.PrintSystem(fmt.Sprintf("Installed %d qmax QA skills into %s", len(res.Written), res.Dir))
 }
 
+// InstallSkillsBoth materializes the catalog into both CLI backends and reports
+// each. Used by the `/skills install` command.
+func InstallSkillsBoth(term *tui.Terminal) {
+	InstallSkillsReport("cc", term)
+	InstallSkillsReport("codex", term)
+}
+
+// PrintSkillsStatus lists the qmax QA skill catalog and shows, per skill,
+// whether it is currently materialized into the Claude Code and Codex skills
+// directories. Backs the `/skills` command so the catalog is visible from
+// inside qmax-code, even though the skills themselves run in the CLI backends.
+func PrintSkillsStatus(term *tui.Terminal) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		term.PrintError(fmt.Sprintf("Could not locate home dir: %v", err))
+		return
+	}
+	ccDir, _ := skills.SkillsDir(skills.BackendCC, home)
+	cxDir, _ := skills.SkillsDir(skills.BackendCodex, home)
+
+	catalog := skills.SortedCatalog()
+	term.PrintSystem(fmt.Sprintf("qmax QA skills (%d) — installed in:  cc = ~/.claude/skills · codex = ~/.codex/skills", len(catalog)))
+	for _, sk := range catalog {
+		cc := installMark(filepath.Join(ccDir, sk.Name, "SKILL.md"))
+		cx := installMark(filepath.Join(cxDir, sk.Name, "SKILL.md"))
+		desc := sk.ShortDescription
+		if desc == "" {
+			desc = sk.Description
+		}
+		fmt.Printf("  cc:%s codex:%s  %s%-22s%s %s\n", cc, cx, tui.ColorBold, sk.Name, tui.ColorReset, desc)
+	}
+	term.PrintSystem("Skills load inside Claude Code / Codex sessions — auto-invoked by description, or `$name` in Codex.")
+	term.PrintSystem("Run /skills install to (re)install them into both backends now.")
+}
+
+// installMark returns a check or cross depending on whether path exists.
+func installMark(path string) string {
+	if _, err := os.Stat(path); err == nil {
+		return tui.ColorGreen + "✓" + tui.ColorReset
+	}
+	return tui.ColorDim + "·" + tui.ColorReset
+}
+
 // IsOrchSetupDone returns true if the qmax MCP entry already exists in the
 // CLI's config file. Used to skip the setup banner on subsequent launches.
 func IsOrchInstalled(backend string) bool {

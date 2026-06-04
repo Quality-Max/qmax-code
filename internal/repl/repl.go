@@ -315,6 +315,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		case input == "/config":
 			printConfigInfo(ag.AppConfig, term)
 			continue
+		case input == "/skills":
+			setup.PrintSkillsStatus(term)
+			continue
+		case input == "/skills install":
+			setup.InstallSkillsBoth(term)
+			continue
 		case input == "/set":
 			handleSetCommand(input, ag, term)
 			startCloudSession()
