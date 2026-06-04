@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.17.1] - 2026-06-04
+
+### Added
+- `/skills` command surfaces the QA skill catalog from inside qmax-code: lists all 12 skills with their short description and a per-backend ✓/· install marker (Claude Code + Codex). `/skills install` (re)materializes the catalog into both `~/.claude/skills` and `~/.codex/skills` on demand. Previously the skills were only visible inside the spawned CLI sessions, with no way to see or manage them from qmax-code.
+
 ## [1.17.0] - 2026-06-04
 
 ### Added

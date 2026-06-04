@@ -33,6 +33,7 @@ var slashMenuItems = []SlashMenuItem{
 	{"/status", "Auth + session info"},
 	{"/cost", "Token usage + cost"},
 	{"/config", "Show config"},
+	{"/skills", "List qmax QA skills + install status"},
 	{"/sessions", "List saved sessions"},
 	{"/resume", "Resume a session"},
 	{"/save", "Save current session"},
