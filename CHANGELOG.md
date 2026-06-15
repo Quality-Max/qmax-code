@@ -2,6 +2,14 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.18.1] - 2026-06-15
+
+### Added
+- `qmax-code codex connect` performs a fresh Codex OAuth login and securely
+  attaches it to the authenticated QualityMax user. It reuses the existing
+  one-time browser login when QualityMax authentication is missing or expired,
+  and never accepts or sends a target user ID.
+
 ## [1.18.0] - 2026-06-04
 
 ### Added

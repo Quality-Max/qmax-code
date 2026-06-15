@@ -19,7 +19,7 @@ import (
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
-var Version = "1.18.0"
+var Version = "1.18.1"
 
 const Name = "qmax-code"
 
@@ -69,6 +69,15 @@ func main() {
 	//   qmax-code config unset default_framework
 	if len(os.Args) > 1 && os.Args[1] == "config" {
 		handleConfigCommand(os.Args[2:])
+		return
+	}
+
+	// Attach a fresh local Codex login to the authenticated QualityMax user.
+	if len(os.Args) > 1 && os.Args[1] == "codex" {
+		if err := handleCodexCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
 		return
 	}
 

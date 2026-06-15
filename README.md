@@ -68,11 +68,18 @@ qmax-code login
 # Or use a QualityMax API key from Settings > API Keys
 qmax-code login --api-key qm-YOUR-API-KEY
 
-# 3. Start using
+# 3. Attach Codex for QualityMax mobile runs (optional)
+qmax-code codex connect
+
+# 4. Start using
 qmax-code
 qmax-code "crawl staging.myapp.com and generate e2e tests"
 qmax-code -p "run all tests for project 42"
 ```
+
+`qmax-code codex connect` runs a fresh `codex login`, reuses the saved
+QualityMax login (or opens the one-time browser authorization when needed), and
+attaches Codex to the authenticated QualityMax user.
 
 No qmax CLI needed. qmax-code calls the QualityMax API directly.
 
