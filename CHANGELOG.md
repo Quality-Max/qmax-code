@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.18.2] - 2026-06-22
+
+### Added
+- `qmax-code cc connect` reads the local active Claude Code credentials (from macOS Keychain or fallback credentials.json file) and securely uploads them to the authenticated QualityMax user.
+
 ## [1.18.1] - 2026-06-15
 
 ### Added
