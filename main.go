@@ -81,6 +81,15 @@ func main() {
 		return
 	}
 
+	// Attach a fresh local Claude Code login to the authenticated QualityMax user.
+	if len(os.Args) > 1 && os.Args[1] == "cc" {
+		if err := handleCCCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Handle "login" subcommand before flag parsing
 	if len(os.Args) > 1 && os.Args[1] == "login" {
 		loginFlags := flag.NewFlagSet("login", flag.ExitOnError)
