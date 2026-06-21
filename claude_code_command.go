@@ -36,12 +36,19 @@ func handleCCCommand(args []string) error {
 
 func loadClaudeCodeFromKeychain() (string, error) {
 	if runtime.GOOS == "darwin" {
-		cmd := exec.Command("security", "find-generic-password", "-s", "claude-code", "-w")
+		// Try "Claude Code-credentials" first
+		cmd := exec.Command("security", "find-generic-password", "-s", "Claude Code-credentials", "-w")
 		out, err := cmd.Output()
-		if err != nil {
-			return "", fmt.Errorf("not found in macOS keychain")
+		if err == nil {
+			return strings.TrimSpace(string(out)), nil
 		}
-		return strings.TrimSpace(string(out)), nil
+		// Fallback to "claude-code"
+		cmd = exec.Command("security", "find-generic-password", "-s", "claude-code", "-w")
+		out, err = cmd.Output()
+		if err == nil {
+			return strings.TrimSpace(string(out)), nil
+		}
+		return "", fmt.Errorf("not found in macOS keychain")
 	}
 	return "", fmt.Errorf("keychain not supported on %s", runtime.GOOS)
 }
@@ -61,9 +68,15 @@ func readClaudeCodeAuth() (string, error) {
 	}
 
 	paths := []string{
-		filepath.Join(home, ".config", "claude", "credentials.json"),
+		filepath.Join(home, ".claude", ".credentials.json"),
 		filepath.Join(home, ".claude", "credentials.json"),
+		filepath.Join(home, ".config", "claude", ".credentials.json"),
+		filepath.Join(home, ".config", "claude", "credentials.json"),
+		filepath.Join(home, ".config", "claude-code", ".credentials.json"),
 		filepath.Join(home, ".config", "claude-code", "credentials.json"),
+		filepath.Join(home, "Library", "Application Support", "Claude", "claude-code", ".credentials.json"),
+		filepath.Join(home, "Library", "Application Support", "Claude", "claude-code", "credentials.json"),
+		filepath.Join(home, "Library", "Application Support", "claude", "claude-code", ".credentials.json"),
 		filepath.Join(home, "Library", "Application Support", "claude", "claude-code", "credentials.json"),
 	}
 

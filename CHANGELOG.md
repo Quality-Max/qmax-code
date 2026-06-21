@@ -2,6 +2,11 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.18.3] - 2026-06-22
+
+### Fixed
+- Fixed Claude Code credential lookup on macOS by checking the correct Keychain service name `"Claude Code-credentials"` and added support for `.credentials.json` (leading dot) fallbacks.
+
 ## [1.18.2] - 2026-06-22
 
 ### Added
