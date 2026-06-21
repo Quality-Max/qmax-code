@@ -33,6 +33,29 @@ func TestReadClaudeCodeAuthFile(t *testing.T) {
 	}
 }
 
+func TestReadClaudeCodeAuthFileDot(t *testing.T) {
+	home := withTempHome(t)
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(dir, ".credentials.json"),
+		[]byte(`{"tokens":{"access_token":"access-dot"}}`),
+		0600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := readClaudeCodeAuth()
+	if err != nil {
+		t.Fatalf("readClaudeCodeAuth: %v", err)
+	}
+	if got != `{"tokens":{"access_token":"access-dot"}}` {
+		t.Fatalf("unexpected content: %q", got)
+	}
+}
+
 func TestConnectClaudeCodeRunsAndUsesAuthenticatedUpload(t *testing.T) {
 	oldLoad := loadQualityMaxAuthForCC
 	oldLogin := loginQualityMaxForCC
