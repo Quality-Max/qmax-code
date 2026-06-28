@@ -75,9 +75,19 @@ type oaiToolCall struct {
 
 type oaiMessage struct {
 	Role       string        `json:"role"` // system | user | assistant | tool
-	Content    string        `json:"content"`
+	Content    interface{}   `json:"content"`
 	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string        `json:"tool_call_id,omitempty"` // for role="tool"
+}
+
+type oaiContentPart struct {
+	Type     string       `json:"type"`
+	Text     string       `json:"text,omitempty"`
+	ImageURL *oaiImageURL `json:"image_url,omitempty"`
+}
+
+type oaiImageURL struct {
+	URL string `json:"url"`
 }
 
 type oaiChatRequest struct {
@@ -198,6 +208,15 @@ func normalizeContent(content interface{}) ([]api.ContentBlock, string, bool) {
 			if in, ok := m["input"]; ok {
 				b.Input = in
 			}
+			if source, ok := m["source"].(map[string]interface{}); ok {
+				img := &api.ImageSource{}
+				img.Type, _ = source["type"].(string)
+				img.MediaType, _ = source["media_type"].(string)
+				img.Data, _ = source["data"].(string)
+				if img.MediaType != "" && img.Data != "" {
+					b.Source = img
+				}
+			}
 			blocks = append(blocks, b)
 		}
 		return blocks, "", false
@@ -209,9 +228,9 @@ func normalizeContent(content interface{}) ([]api.ContentBlock, string, bool) {
 
 // historyToOpenAI converts qmax conversation history (Anthropic Messages
 // shape) into OpenAI chat messages, mapping tool_use → assistant tool_calls
-// and tool_result → role:"tool" messages. Images are dropped (text-only
-// models); callers that need vision should select a multimodal Cerebras model
-// and a future content-array path.
+// and tool_result → role:"tool" messages. User image blocks are converted to
+// OpenAI content parts so multimodal Cerebras models can inspect screenshots
+// and pasted images.
 func historyToOpenAI(system string, history []api.Message) []oaiMessage {
 	msgs := make([]oaiMessage, 0, len(history)+1)
 	if system != "" {
@@ -266,15 +285,45 @@ func historyToOpenAI(system string, history []api.Message) []oaiMessage {
 				}
 			}
 			if !hasToolResult {
-				var text strings.Builder
-				for _, b := range blocks {
-					if b.Type == "text" {
-						text.WriteString(b.Text)
-					}
-				}
-				msgs = append(msgs, oaiMessage{Role: m.Role, Content: text.String()})
+				msgs = append(msgs, oaiMessage{Role: m.Role, Content: contentBlocksToOpenAI(blocks)})
 			}
 		}
 	}
 	return msgs
+}
+
+func contentBlocksToOpenAI(blocks []api.ContentBlock) interface{} {
+	var text strings.Builder
+	var parts []oaiContentPart
+	hasImage := false
+
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			if b.Text == "" {
+				continue
+			}
+			text.WriteString(b.Text)
+			parts = append(parts, oaiContentPart{Type: "text", Text: b.Text})
+		case "image":
+			if b.Source == nil || b.Source.MediaType == "" || b.Source.Data == "" {
+				continue
+			}
+			hasImage = true
+			parts = append(parts, oaiContentPart{
+				Type: "image_url",
+				ImageURL: &oaiImageURL{
+					URL: "data:" + b.Source.MediaType + ";base64," + b.Source.Data,
+				},
+			})
+		}
+	}
+
+	if hasImage {
+		if len(parts) == 0 {
+			return []oaiContentPart{{Type: "text", Text: ""}}
+		}
+		return parts
+	}
+	return text.String()
 }

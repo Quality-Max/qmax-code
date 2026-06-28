@@ -80,6 +80,23 @@ func TestSetConfigField_CerebrasModelAndBaseURL(t *testing.T) {
 	}
 }
 
+func TestConfigSetDisplayValueRedactsCerebrasKey(t *testing.T) {
+	secret := "csk-vv52c6kwywjmejmnp8xd8c2p4"
+	got := configSetDisplayValue("cerebras_key", secret)
+	if got == secret || got == "" {
+		t.Fatalf("cerebras_key display was not redacted: %q", got)
+	}
+	if got != "(set; stored in OS keychain)" {
+		t.Fatalf("cerebras_key display = %q", got)
+	}
+	if got := configSetDisplayValue("cerebras_key", ""); got != "(cleared)" {
+		t.Fatalf("cleared cerebras_key display = %q", got)
+	}
+	if got := configSetDisplayValue("cerebras_model", "gemma-4-31b"); got != "gemma-4-31b" {
+		t.Fatalf("non-secret display changed: %q", got)
+	}
+}
+
 func TestSetConfigField_DefaultModelValidation(t *testing.T) {
 	withTempHome(t)
 

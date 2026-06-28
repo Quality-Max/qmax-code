@@ -153,6 +153,39 @@ func TestHistoryToOpenAIToolRoundTrip(t *testing.T) {
 	}
 }
 
+func TestHistoryToOpenAIImageBlocksBecomeOpenAIContentParts(t *testing.T) {
+	hist := []api.Message{
+		{Role: "user", Content: []api.ContentBlock{
+			{Type: "image", Source: &api.ImageSource{
+				Type:      "base64",
+				MediaType: "image/png",
+				Data:      "iVBORw0KGgo=",
+			}},
+			{Type: "text", Text: "What is visible?"},
+		}},
+	}
+	msgs := historyToOpenAI("", hist)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	parts, ok := msgs[0].Content.([]oaiContentPart)
+	if !ok {
+		t.Fatalf("content type = %T, want []oaiContentPart", msgs[0].Content)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("expected image+text parts, got %d (%+v)", len(parts), parts)
+	}
+	if parts[0].Type != "image_url" || parts[0].ImageURL == nil {
+		t.Fatalf("first part should be image_url: %+v", parts[0])
+	}
+	if got := parts[0].ImageURL.URL; got != "data:image/png;base64,iVBORw0KGgo=" {
+		t.Fatalf("image URL = %q", got)
+	}
+	if parts[1].Type != "text" || parts[1].Text != "What is visible?" {
+		t.Fatalf("text part mismatch: %+v", parts[1])
+	}
+}
+
 func TestHistoryToOpenAIPostJSONInterfaceBlocks(t *testing.T) {
 	// After a session JSON round-trip, []api.ContentBlock becomes []interface{}
 	// of map[string]interface{}. The converter must handle that shape too.

@@ -497,8 +497,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				cliAgent.Cleanup()
 				cliAgent = nil
 			}
-			ag.Mode = agent.OllamaModeOff
-			ag.Cerebras = nil
+			deactivateEmbeddedBackends(ag)
 
 			// Spin up the new agent with selected model + effort.
 			switch result.Backend {
@@ -594,6 +593,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				cliAgent.Cleanup()
 				cliAgent = nil
 			}
+			deactivateEmbeddedBackends(ag)
 
 			switch wantBackend {
 			case "cc":
@@ -674,6 +674,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			if ag.Ollama == nil {
 				ag.Ollama = agent.NewOllamaClient(cfg)
 			}
+			if cliAgent != nil {
+				cliAgent.Cleanup()
+				cliAgent = nil
+			}
+			ag.Cerebras = nil
 			switch ag.Mode {
 			case agent.OllamaModeOff:
 				ag.Mode = agent.OllamaModeChat
@@ -1578,6 +1583,11 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
 	return fmt.Sprintf("%dh", int(d.Hours()))
+}
+
+func deactivateEmbeddedBackends(ag *agent.Agent) {
+	ag.Mode = agent.OllamaModeOff
+	ag.Cerebras = nil
 }
 
 // sdkCreditCutover is the date Anthropic moves `claude --print` /

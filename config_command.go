@@ -49,7 +49,7 @@ func handleConfigCommand(args []string) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("  Set %s = %s\n", args[1], args[2])
+		fmt.Printf("  Set %s = %s\n", args[1], configSetDisplayValue(args[1], args[2]))
 
 	case "unset":
 		if len(args) < 2 {
@@ -292,4 +292,16 @@ func parseConfigBool(s string) (bool, error) {
 		return true, nil
 	}
 	return false, fmt.Errorf("expected true/false, got %q", s)
+}
+
+func configSetDisplayValue(key, value string) string {
+	switch key {
+	case "cerebras_key":
+		if value == "" {
+			return "(cleared)"
+		}
+		return "(set; stored in OS keychain)"
+	default:
+		return value
+	}
 }
