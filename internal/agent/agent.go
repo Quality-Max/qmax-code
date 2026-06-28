@@ -63,8 +63,9 @@ type Agent struct {
 	History   []api.Message
 	Usage     api.TokenUsage
 	Logger    *sysutil.Logger
-	Ollama    *OllamaClient // optional self-hosted LLM
-	Mode      OllamaMode    // off, chat, or full
+	Ollama    *OllamaClient   // optional self-hosted LLM
+	Mode      OllamaMode      // off, chat, or full
+	Cerebras  *CerebrasClient // optional Cerebras backend; when set, owns the whole turn
 
 	tools           []api.ToolDef
 	client          *http.Client
@@ -325,6 +326,15 @@ func (a *Agent) RunStreaming(prompt string, term *tui.Terminal) (string, error) 
 }
 
 func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
+	// Cerebras backend owns the entire turn via its own native function-calling
+	// loop (full tool set). No Claude fallback — the user has no Anthropic key.
+	if a.Cerebras != nil {
+		if out, ok := a.RunCerebrasAgent(term); ok {
+			return out, nil
+		}
+		return "", fmt.Errorf("cerebras backend request failed")
+	}
+
 	for iterations := 0; iterations < maxIterations; iterations++ {
 		// Sanitize + compress history before each API call
 		session.SanitizeSessionMessages(a.History)

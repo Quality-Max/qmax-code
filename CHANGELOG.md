@@ -2,6 +2,24 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Cerebras inference backend.** Select `backend=cerebras` to drive the native
+  qmax agent loop through Cerebras's OpenAI-compatible API using native function
+  calling against the full qmax tool set — fast and low-cost, no Anthropic key or
+  external CLI required. Configure with `CEREBRAS_API_KEY` (stored in the OS
+  keychain) plus optional `cerebras_model` (default `gpt-oss-120b`) and
+  `cerebras_base_url` (default `https://api.cerebras.ai/v1`). Activate via
+  `qmax-code config set backend cerebras`, `--backend cerebras`, or the
+  `CEREBRAS_API_BASE` / `CEREBRAS_MODEL` env vars. Works in both interactive and
+  one-shot modes.
+- Cerebras is selectable in the `/orch` model picker (its own section with
+  `gpt-oss-120b`, `zai-glm-4.7`, and `gemma-4-31b` (vision, preview), plus a
+  key-status indicator). Choosing it prompts
+  for the API key inline when one isn't configured yet (blank cancels), saving it
+  to the OS keychain.
+
 ## [1.18.3] - 2026-06-22
 
 ### Fixed

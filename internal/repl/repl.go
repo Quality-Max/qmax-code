@@ -379,6 +379,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				OllamaModel:    cfg.OllamaModel,
 				CCInstalled:    agent.FindClaudeCode() != "",
 				CodexInstalled: agent.FindCodex() != "",
+				CerebrasKeySet: cfg.CerebrasKey != "",
 			})
 			if !result.Confirmed {
 				continue
@@ -406,10 +407,55 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					cliAgent = nil
 				}
 				ag.Mode = agent.OllamaModeFull
+				ag.Cerebras = nil
 				cfg.Backend = ""
 				ag.Cfg.Context.Backend = ""
 				_ = cfg.Save()
 				term.PrintSystem(fmt.Sprintf("Backend: Ollama  model: %s  endpoint: %s", cfg.OllamaModel, sysutil.MaskURL(cfg.OllamaURL)))
+				continue
+			}
+
+			// ── Cerebras selected ─────────────────────────────────────────────
+			if result.Backend == "cerebras" {
+				// Prompt for the API key now if it isn't configured yet. Optional —
+				// leaving it blank cancels the switch without changing anything.
+				if cfg.CerebrasKey == "" {
+					term.PrintSystem("Cerebras needs an API key (get one at https://cloud.cerebras.ai).")
+					key := setup.ReadSecret("  Paste your Cerebras key (blank to cancel): ")
+					if key == "" {
+						term.PrintSystem("No key entered — backend not changed.")
+						continue
+					}
+					looks, verr := api.ValidateCerebrasKey(key)
+					if verr != nil {
+						term.PrintError(fmt.Sprintf("That doesn't look like an API key (%v). Backend not changed.", verr))
+						continue
+					}
+					if !looks {
+						term.PrintSystem("  Note: key doesn't start with \"csk-\" — saving anyway.")
+					}
+					if err := api.SaveCerebrasKey(key); err != nil {
+						term.PrintError(fmt.Sprintf("Could not save key: %v", err))
+						continue
+					}
+					cfg.CerebrasKey = key
+					term.PrintSystem("  Saved to OS keychain.")
+				}
+				// Apply the chosen Cerebras model.
+				if result.ModelID != "" {
+					cfg.CerebrasModel = result.ModelID
+				}
+				// Tear down any active CLI agent / Ollama mode.
+				if cliAgent != nil {
+					cliAgent.Cleanup()
+					cliAgent = nil
+				}
+				ag.Mode = agent.OllamaModeOff
+				ag.Cerebras = agent.NewCerebrasClient(cfg)
+				cfg.Backend = "cerebras"
+				ag.Cfg.Context.Backend = "cerebras"
+				_ = cfg.Save()
+				term.PrintSystem(fmt.Sprintf("Backend: Cerebras  model: %s", cfg.CerebrasModel))
 				continue
 			}
 
@@ -446,12 +492,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				}
 			}
 
-			// Tear down current CLI agent and disable Ollama if switching away from it.
+			// Tear down current CLI agent and disable Ollama/Cerebras if switching away.
 			if cliAgent != nil {
 				cliAgent.Cleanup()
 				cliAgent = nil
 			}
-			ag.Mode = agent.OllamaModeOff
+			deactivateEmbeddedBackends(ag)
 
 			// Spin up the new agent with selected model + effort.
 			switch result.Backend {
@@ -547,6 +593,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				cliAgent.Cleanup()
 				cliAgent = nil
 			}
+			deactivateEmbeddedBackends(ag)
 
 			switch wantBackend {
 			case "cc":
@@ -627,6 +674,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			if ag.Ollama == nil {
 				ag.Ollama = agent.NewOllamaClient(cfg)
 			}
+			if cliAgent != nil {
+				cliAgent.Cleanup()
+				cliAgent = nil
+			}
+			ag.Cerebras = nil
 			switch ag.Mode {
 			case agent.OllamaModeOff:
 				ag.Mode = agent.OllamaModeChat
@@ -1531,6 +1583,11 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
 	return fmt.Sprintf("%dh", int(d.Hours()))
+}
+
+func deactivateEmbeddedBackends(ag *agent.Agent) {
+	ag.Mode = agent.OllamaModeOff
+	ag.Cerebras = nil
 }
 
 // sdkCreditCutover is the date Anthropic moves `claude --print` /
