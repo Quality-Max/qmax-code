@@ -4,6 +4,8 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-06-28
+
 ### Added
 - **Cerebras inference backend.** Select `backend=cerebras` to drive the native
   qmax agent loop through Cerebras's OpenAI-compatible API using native function
@@ -19,6 +21,16 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   key-status indicator). Choosing it prompts
   for the API key inline when one isn't configured yet (blank cancels), saving it
   to the OS keychain.
+- Cerebras image input: image blocks are converted to OpenAI-style multimodal
+  `image_url` content parts, so vision-capable models (e.g. `gemma-4-31b`) receive
+  pasted images and screenshots instead of silently dropping them.
+
+### Fixed
+- `config set cerebras_key` no longer echoes the raw secret back to the terminal;
+  it now prints `(set; stored in OS keychain)`.
+- Switching backends with `/api`, `/cc`, `/codex`, or `/ollama` now clears the
+  active Cerebras client, so live backend switches actually leave the Cerebras
+  loop instead of continuing to route every turn through it.
 
 ## [1.18.3] - 2026-06-22
 
