@@ -99,6 +99,21 @@ func printConfig() {
 	} else {
 		fmt.Println("    ollama_url        = (not set)")
 	}
+	if cfg.CerebrasKey != "" {
+		fmt.Println("    cerebras_key      = (set; stored in OS keychain)")
+	} else {
+		fmt.Println("    cerebras_key      = (not set)")
+	}
+	cerebrasModel := cfg.CerebrasModel
+	if cerebrasModel == "" {
+		cerebrasModel = api.CerebrasDefaultModel + " (default)"
+	}
+	fmt.Printf("    cerebras_model    = %q\n", cerebrasModel)
+	cerebrasBase := cfg.CerebrasBaseURL
+	if cerebrasBase == "" {
+		cerebrasBase = api.CerebrasAPIBase + " (default)"
+	}
+	fmt.Printf("    cerebras_base_url = %q\n", cerebrasBase)
 	backend := cfg.Backend
 	if backend == "" {
 		backend = "api"
@@ -131,6 +146,12 @@ func printConfig() {
 			fmt.Printf("  (codex found: %s)", bin)
 		} else {
 			fmt.Print("  (WARNING: codex binary not found in PATH)")
+		}
+	case "cerebras":
+		if cfg.CerebrasKey != "" {
+			fmt.Printf("  (cerebras key set; model: %s)", cerebrasModel)
+		} else {
+			fmt.Print("  (WARNING: CEREBRAS_API_KEY not set)")
 		}
 	}
 	fmt.Println()
@@ -210,11 +231,30 @@ func setConfigField(key, value string) error {
 
 	case "backend":
 		switch value {
-		case "", "api", "cc", "codex":
+		case "", "api", "cc", "codex", "cerebras":
 			cfg.Backend = value
 		default:
-			return fmt.Errorf("invalid backend %q; allowed: api, cc, codex", value)
+			return fmt.Errorf("invalid backend %q; allowed: api, cc, codex, cerebras", value)
 		}
+
+	case "cerebras_key":
+		// Stored in the OS keychain, never in config.json. Empty clears it.
+		if value != "" {
+			looks, verr := api.ValidateCerebrasKey(value)
+			if verr != nil {
+				return fmt.Errorf("invalid cerebras_key: %w", verr)
+			}
+			if !looks {
+				fmt.Fprintln(os.Stderr, "  Note: key doesn't start with \"csk-\" — double-check it's a Cerebras key.")
+			}
+		}
+		return api.SaveCerebrasKey(value)
+
+	case "cerebras_model":
+		cfg.CerebrasModel = value
+
+	case "cerebras_base_url":
+		cfg.CerebrasBaseURL = value
 
 	case "theme":
 		return tui.SaveTheme(cfg, value)

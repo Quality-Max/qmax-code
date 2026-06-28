@@ -36,7 +36,7 @@ func main() {
 	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
 	quiet := flag.Bool("q", false, "Quiet mode — no banner, minimal output (for CI)")
 	showVersion := flag.Bool("version", false, "Show version")
-	backendFlag := flag.String("backend", "", "Orchestration backend: cc, codex, or api (overrides saved config)")
+	backendFlag := flag.String("backend", "", "Orchestration backend: cc, codex, cerebras, or api (overrides saved config)")
 	flag.Parse()
 	_ = quiet // reserved for future CI mode
 
@@ -157,14 +157,14 @@ func main() {
 	// --backend flag overrides saved config for this session only.
 	if *backendFlag != "" {
 		switch *backendFlag {
-		case "cc", "codex", "api", "":
+		case "cc", "codex", "cerebras", "api", "":
 			if *backendFlag == "api" {
 				appConfig.Backend = ""
 			} else {
 				appConfig.Backend = *backendFlag
 			}
 		default:
-			fmt.Fprintf(os.Stderr, "Error: --backend must be cc, codex, or api\n")
+			fmt.Fprintf(os.Stderr, "Error: --backend must be cc, codex, cerebras, or api\n")
 			os.Exit(2)
 		}
 	}
@@ -269,6 +269,37 @@ func main() {
 			_ = appConfig.Save()
 			anthropicKey = "__codex_mode__" // skip Anthropic key gate below
 		}
+	} else if cliBackend == "cerebras" {
+		// Cerebras drives the native qmax agent loop (full tool set, native
+		// function calling) via its OpenAI-compatible API. No Anthropic key,
+		// no external CLI, no MCP subprocess — qmax owns the loop directly.
+		if appConfig.CerebrasKey == "" {
+			fmt.Println()
+			fmt.Println("  Cerebras API key needed (powers fast, low-cost inference).")
+			fmt.Println("  Get one at: https://cloud.cerebras.ai")
+			fmt.Println()
+			key := setup.ReadSecret("  Paste your Cerebras key: ")
+			if key != "" {
+				if looks, verr := api.ValidateCerebrasKey(key); verr != nil {
+					fmt.Fprintf(os.Stderr, "  That doesn't look like an API key: %v\n", verr)
+				} else {
+					if !looks {
+						fmt.Println("  Note: key doesn't start with \"csk-\" — saving anyway.")
+					}
+					appConfig.CerebrasKey = key
+					if err := api.SaveCerebrasKey(key); err == nil {
+						fmt.Println("  Saved to OS keychain.")
+					}
+				}
+			}
+		}
+		if appConfig.CerebrasKey == "" {
+			fmt.Fprintln(os.Stderr, "\nError: Cerebras API key required for backend=cerebras.")
+			fmt.Fprintln(os.Stderr, "  export CEREBRAS_API_KEY=csk-...")
+			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
+			os.Exit(1)
+		}
+		anthropicKey = "__cerebras_mode__" // skip Anthropic key gate below
 	}
 
 	// If connected but missing Anthropic key, prompt for it (skipped in CLI backend modes).
@@ -343,7 +374,11 @@ func main() {
 	})
 	ag.AppConfig = appConfig
 	ag.Ollama = agent.NewOllamaClient(appConfig)
-	if ag.Ollama != nil {
+	// Cerebras backend takes precedence: when selected it owns every turn
+	// (native function calling over the full tool set), so leave Ollama mode off.
+	if appConfig.Backend == "cerebras" {
+		ag.Cerebras = agent.NewCerebrasClient(appConfig)
+	} else if ag.Ollama != nil {
 		ag.Mode = agent.OllamaModeFull // default to full when configured
 	}
 
@@ -395,6 +430,19 @@ func main() {
 			term := tui.NewTerminal()
 			defer term.Close()
 			_, err := cliAgent.Run(prompt, term)
+			return err
+		}
+		if ag.Cerebras != nil {
+			// Cerebras runs the full native tool loop, streaming UI to a Terminal.
+			// repl.Run owns the Logger in interactive mode; create one here so the
+			// one-shot tool loop (which logs each tool call) doesn't nil-panic.
+			if ag.Logger == nil {
+				ag.Logger = sysutil.NewLogger("oneshot")
+				defer ag.Logger.Close()
+			}
+			term := tui.NewTerminal()
+			defer term.Close()
+			_, err := ag.RunStreaming(prompt, term)
 			return err
 		}
 		// Direct-API path: non-streaming. Print the returned text ourselves.

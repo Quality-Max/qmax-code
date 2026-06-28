@@ -2,8 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
 )
 
 // Config holds persistent user preferences for qmax-code.
@@ -26,11 +29,24 @@ type Config struct {
 	OllamaModel      string `json:"ollama_model,omitempty"`       // e.g. "gemma3:4b-it-q4_K_M" (chat)
 	OllamaAgentModel string `json:"ollama_agent_model,omitempty"` // e.g. "gemma3:12b-it-q4_K_M" (tools, heavier tasks)
 
+	// Cerebras integration — drive the native agent loop (full tool set) through
+	// Cerebras's OpenAI-compatible inference, which is fast and low-cost. Selected
+	// via backend="cerebras". Unlike the Ollama path (prompt-based dispatch over a
+	// handful of actions), Cerebras uses native function-calling against the full
+	// qmax tool set, so it can handle all coding tasks directly.
+	// The API key is stored in the OS keychain, never in JSON.
+	CerebrasKey     string `json:"-"`
+	CerebrasModel   string `json:"cerebras_model,omitempty"`    // default "gpt-oss-120b"
+	CerebrasBaseURL string `json:"cerebras_base_url,omitempty"` // default "https://api.cerebras.ai/v1"
+
 	// Backend selects the LLM inference backend.
 	//   ""  / "api" → Anthropic API directly (default, requires ANTHROPIC_API_KEY)
 	//   "cc"        → Claude Code CLI subprocess (no QM API key; `claude --print`
 	//                 uses the user's Agent SDK credit starting 2026-06-15)
 	//   "codex"     → OpenAI Codex CLI subprocess (uses OpenAI subscription, no API key needed)
+	//   "cerebras"  → Cerebras OpenAI-compatible API (requires CEREBRAS_API_KEY).
+	//                 Drives the native qmax agent loop with the full tool set via
+	//                 native function calling — fast and low-cost.
 	// In both CLI modes qmax tools are served to the CLI via an embedded MCP server.
 	Backend string `json:"backend,omitempty"`
 
@@ -102,6 +118,11 @@ func LoadQMaxCodeConfig() *Config {
 		cfg.AnthropicKey = key
 	}
 
+	// Load Cerebras key from OS keychain (never stored in JSON)
+	if key, err := LoadFromKeychain("cerebras_key"); err == nil && key != "" {
+		cfg.CerebrasKey = key
+	}
+
 	// Env vars override config file for Ollama (useful for Railway/CI)
 	if url := os.Getenv("OLLAMA_BASE_URL"); url != "" {
 		cfg.OllamaURL = url
@@ -110,12 +131,50 @@ func LoadQMaxCodeConfig() *Config {
 		cfg.OllamaModel = model
 	}
 
+	// Env vars override config/keychain for Cerebras (useful for Railway/CI)
+	if key := os.Getenv("CEREBRAS_API_KEY"); key != "" {
+		cfg.CerebrasKey = key
+	}
+	if base := os.Getenv("CEREBRAS_API_BASE"); base != "" {
+		cfg.CerebrasBaseURL = base
+	}
+	if model := os.Getenv("CEREBRAS_MODEL"); model != "" {
+		cfg.CerebrasModel = model
+	}
+
 	return cfg
 }
 
 // SaveAnthropicKey securely stores the Anthropic API key in the OS keychain.
 func SaveAnthropicKey(key string) error {
 	return SaveToKeychain("anthropic_key", key)
+}
+
+// SaveCerebrasKey securely stores the Cerebras API key in the OS keychain.
+func SaveCerebrasKey(key string) error {
+	return SaveToKeychain("cerebras_key", key)
+}
+
+// ValidateCerebrasKey sanity-checks a Cerebras API key before it's saved.
+// It catches the common no-echo paste mistakes (an empty value, or a whole
+// shell command / multi-token paste landing in the hidden prompt) by rejecting
+// anything containing whitespace or non-printable bytes. The expected key is a
+// single opaque token (Cerebras keys start with "csk-"); a missing prefix is a
+// soft signal returned via the bool, not a hard error, so future key formats
+// keep working.
+func ValidateCerebrasKey(key string) (looksLikeKey bool, err error) {
+	if key == "" {
+		return false, fmt.Errorf("key is empty")
+	}
+	for _, r := range key {
+		if unicode.IsSpace(r) {
+			return false, fmt.Errorf("key contains whitespace — looks like a pasted command or multiple values, not a single API key")
+		}
+		if !unicode.IsPrint(r) {
+			return false, fmt.Errorf("key contains a non-printable character")
+		}
+	}
+	return strings.HasPrefix(key, "csk-"), nil
 }
 
 // Save persists the config to ~/.qmax-code/config.json.

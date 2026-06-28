@@ -1,0 +1,280 @@
+package agent
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/qualitymax/qmax-code/internal/api"
+)
+
+// Cerebras integration — drive the full native agent loop through Cerebras's
+// OpenAI-compatible /v1/chat/completions endpoint using native function
+// calling. Unlike the Ollama path (prompt-based dispatch over ~10 actions),
+// this exposes the complete qmax tool set, so Cerebras can handle all coding
+// tasks directly.
+
+// CerebrasClient wraps HTTP calls to a Cerebras (OpenAI-compatible) endpoint.
+type CerebrasClient struct {
+	BaseURL string // e.g. "https://api.cerebras.ai/v1"
+	Model   string // e.g. "gpt-oss-120b"
+	APIKey  string
+	HTTP    *http.Client
+}
+
+// NewCerebrasClient builds a client from config, or returns nil if no API key
+// is configured. Base URL and model fall back to the package defaults.
+func NewCerebrasClient(cfg *api.Config) *CerebrasClient {
+	if cfg == nil || cfg.CerebrasKey == "" {
+		return nil
+	}
+	base := cfg.CerebrasBaseURL
+	if base == "" {
+		base = api.CerebrasAPIBase
+	}
+	model := cfg.CerebrasModel
+	if model == "" {
+		model = api.CerebrasDefaultModel
+	}
+	return &CerebrasClient{
+		BaseURL: strings.TrimRight(base, "/"),
+		Model:   model,
+		APIKey:  cfg.CerebrasKey,
+		HTTP:    &http.Client{Timeout: 300 * time.Second},
+	}
+}
+
+// ── OpenAI-compatible wire types ──────────────────────────────────────────
+
+type oaiTool struct {
+	Type     string      `json:"type"` // always "function"
+	Function oaiFunction `json:"function"`
+}
+
+type oaiFunction struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
+type oaiToolCallFn struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // JSON-encoded string
+}
+
+type oaiToolCall struct {
+	ID       string        `json:"id"`
+	Type     string        `json:"type"` // "function"
+	Function oaiToolCallFn `json:"function"`
+}
+
+type oaiMessage struct {
+	Role       string        `json:"role"` // system | user | assistant | tool
+	Content    string        `json:"content"`
+	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"` // for role="tool"
+}
+
+type oaiChatRequest struct {
+	Model       string       `json:"model"`
+	Messages    []oaiMessage `json:"messages"`
+	Tools       []oaiTool    `json:"tools,omitempty"`
+	MaxTokens   int          `json:"max_tokens,omitempty"`
+	Temperature float64      `json:"temperature"`
+	Stream      bool         `json:"stream"`
+}
+
+type oaiChatResponse struct {
+	Choices []struct {
+		Message struct {
+			Content   string        `json:"content"`
+			ToolCalls []oaiToolCall `json:"tool_calls"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
+}
+
+// Chat performs a single non-streaming chat completion. Cerebras is fast
+// enough (~1000+ tok/s) that non-streaming keeps the tool loop simple and the
+// tool-call parsing reliable.
+func (c *CerebrasClient) Chat(ctx context.Context, msgs []oaiMessage, tools []oaiTool) (*oaiChatResponse, error) {
+	reqBody := oaiChatRequest{
+		Model:       c.Model,
+		Messages:    msgs,
+		Tools:       tools,
+		MaxTokens:   8192,
+		Temperature: 0,
+		Stream:      false,
+	}
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cerebras request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("cerebras error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var out oaiChatResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &out, nil
+}
+
+// toolDefsToOpenAI converts qmax tool definitions (Anthropic-shaped:
+// name/description/input_schema) into OpenAI function-calling tools.
+func toolDefsToOpenAI(defs []api.ToolDef) []oaiTool {
+	out := make([]oaiTool, 0, len(defs))
+	for _, d := range defs {
+		params := d.InputSchema
+		if params == nil {
+			params = map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			}
+		}
+		out = append(out, oaiTool{
+			Type: "function",
+			Function: oaiFunction{
+				Name:        d.Name,
+				Description: d.Description,
+				Parameters:  params,
+			},
+		})
+	}
+	return out
+}
+
+// normalizeContent flattens a message Content (string, []api.ContentBlock, or
+// []interface{} after a JSON round-trip) into typed blocks. The bool return is
+// true when the content was a plain string (text returned in the string).
+func normalizeContent(content interface{}) ([]api.ContentBlock, string, bool) {
+	switch v := content.(type) {
+	case string:
+		return nil, v, true
+	case []api.ContentBlock:
+		return v, "", false
+	case []interface{}:
+		blocks := make([]api.ContentBlock, 0, len(v))
+		for _, raw := range v {
+			m, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			b := api.ContentBlock{}
+			b.Type, _ = m["type"].(string)
+			b.Text, _ = m["text"].(string)
+			b.ID, _ = m["id"].(string)
+			b.Name, _ = m["name"].(string)
+			b.ToolUseID, _ = m["tool_use_id"].(string)
+			b.Content, _ = m["content"].(string)
+			if in, ok := m["input"]; ok {
+				b.Input = in
+			}
+			blocks = append(blocks, b)
+		}
+		return blocks, "", false
+	case nil:
+		return nil, "", true
+	}
+	return nil, "", true
+}
+
+// historyToOpenAI converts qmax conversation history (Anthropic Messages
+// shape) into OpenAI chat messages, mapping tool_use → assistant tool_calls
+// and tool_result → role:"tool" messages. Images are dropped (text-only
+// models); callers that need vision should select a multimodal Cerebras model
+// and a future content-array path.
+func historyToOpenAI(system string, history []api.Message) []oaiMessage {
+	msgs := make([]oaiMessage, 0, len(history)+1)
+	if system != "" {
+		msgs = append(msgs, oaiMessage{Role: "system", Content: system})
+	}
+
+	for _, m := range history {
+		blocks, plain, isString := normalizeContent(m.Content)
+		if isString {
+			msgs = append(msgs, oaiMessage{Role: m.Role, Content: plain})
+			continue
+		}
+
+		switch m.Role {
+		case "assistant":
+			var text strings.Builder
+			var toolCalls []oaiToolCall
+			for _, b := range blocks {
+				switch b.Type {
+				case "text":
+					text.WriteString(b.Text)
+				case "tool_use":
+					args := "{}"
+					if b.Input != nil {
+						if raw, err := json.Marshal(b.Input); err == nil {
+							args = string(raw)
+						}
+					}
+					toolCalls = append(toolCalls, oaiToolCall{
+						ID:       b.ID,
+						Type:     "function",
+						Function: oaiToolCallFn{Name: b.Name, Arguments: args},
+					})
+				}
+			}
+			msgs = append(msgs, oaiMessage{
+				Role:      "assistant",
+				Content:   text.String(),
+				ToolCalls: toolCalls,
+			})
+
+		default: // user (and any other role with block content)
+			var hasToolResult bool
+			for _, b := range blocks {
+				if b.Type == "tool_result" {
+					hasToolResult = true
+					msgs = append(msgs, oaiMessage{
+						Role:       "tool",
+						ToolCallID: b.ToolUseID,
+						Content:    b.Content,
+					})
+				}
+			}
+			if !hasToolResult {
+				var text strings.Builder
+				for _, b := range blocks {
+					if b.Type == "text" {
+						text.WriteString(b.Text)
+					}
+				}
+				msgs = append(msgs, oaiMessage{Role: m.Role, Content: text.String()})
+			}
+		}
+	}
+	return msgs
+}

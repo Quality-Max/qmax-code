@@ -42,6 +42,44 @@ func TestSetConfigField_DefaultFrameworkRejectsBadValues(t *testing.T) {
 	}
 }
 
+func TestSetConfigField_BackendValidation(t *testing.T) {
+	withTempHome(t)
+
+	for _, b := range []string{"api", "cc", "codex", "cerebras", ""} {
+		if err := setConfigField("backend", b); err != nil {
+			t.Errorf("backend %q should be accepted: %v", b, err)
+		}
+	}
+	if err := setConfigField("backend", "gpt"); err == nil {
+		t.Error("expected error for unknown backend")
+	}
+
+	if err := setConfigField("backend", "cerebras"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if loaded := api.LoadQMaxCodeConfig(); loaded.Backend != "cerebras" {
+		t.Errorf("Backend: got %q, want cerebras", loaded.Backend)
+	}
+}
+
+func TestSetConfigField_CerebrasModelAndBaseURL(t *testing.T) {
+	withTempHome(t)
+
+	if err := setConfigField("cerebras_model", "zai-glm-4.7"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := setConfigField("cerebras_base_url", "https://proxy.internal/v1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	loaded := api.LoadQMaxCodeConfig()
+	if loaded.CerebrasModel != "zai-glm-4.7" {
+		t.Errorf("CerebrasModel: got %q, want zai-glm-4.7", loaded.CerebrasModel)
+	}
+	if loaded.CerebrasBaseURL != "https://proxy.internal/v1" {
+		t.Errorf("CerebrasBaseURL: got %q", loaded.CerebrasBaseURL)
+	}
+}
+
 func TestSetConfigField_DefaultModelValidation(t *testing.T) {
 	withTempHome(t)
 

@@ -44,6 +44,9 @@ var (
 	pickerIconOllama = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("71")) // green — Ollama ⬡
 
+	pickerIconCerebras = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("208")) // orange — Cerebras ◆
+
 	pickerDotGreen = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 	pickerDotRed   = lipgloss.NewStyle().Foreground(lipgloss.Color("160"))
 
@@ -147,6 +150,15 @@ var apiModels = []pickerEntry{
 	{backend: "", modelID: api.ModelHaiku, label: "Haiku 4.5"},
 }
 
+// cerebrasModels are run through Cerebras's OpenAI-compatible API (native
+// function calling, full tool set). external=↗ marks them as a third-party
+// hosted provider.
+var cerebrasModels = []pickerEntry{
+	{backend: "cerebras", modelID: "gpt-oss-120b", label: "GPT-OSS 120B", subLabel: "fast", isFav: true, external: true},
+	{backend: "cerebras", modelID: "zai-glm-4.7", label: "GLM 4.7", subLabel: "premium", external: true},
+	{backend: "cerebras", modelID: "gemma-4-31b", label: "Gemma 4 31B", subLabel: "vision · preview", external: true},
+}
+
 var effortLevels = []string{"low", "medium", "high"}
 
 // probeOllamaReachable returns true if the Ollama base URL responds within 2s.
@@ -200,15 +212,19 @@ type modelPickerModel struct {
 	ollamaURL       string
 	ollamaReachable bool
 
+	// Cerebras metadata
+	cerebrasKeySet bool
+
 	cancelled bool
 	chosen    *pickerEntry
 }
 
-func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string, ccInstalled, codexInstalled bool) modelPickerModel {
-	entries := make([]pickerEntry, 0, len(ccModels)+len(codexModels)+len(apiModels)+1)
+func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string, ccInstalled, codexInstalled, cerebrasKeySet bool) modelPickerModel {
+	entries := make([]pickerEntry, 0, len(ccModels)+len(codexModels)+len(apiModels)+len(cerebrasModels)+1)
 	entries = append(entries, ccModels...)
 	entries = append(entries, codexModels...)
 	entries = append(entries, apiModels...)
+	entries = append(entries, cerebrasModels...)
 
 	// Append Ollama entry if configured.
 	if ollamaURL != "" && ollamaModel != "" {
@@ -245,6 +261,7 @@ func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, olla
 		ollamaURL:      ollamaURL,
 		ccInstalled:    ccInstalled,
 		codexInstalled: codexInstalled,
+		cerebrasKeySet: cerebrasKeySet,
 	}
 }
 
@@ -388,6 +405,27 @@ func (m modelPickerModel) View() string {
 		b.WriteByte('\n')
 	}
 
+	// ── Cerebras section ─────────────────────────────────────────────
+	b.WriteString(pickerDivider.Render(strings.Repeat("─", 52)))
+	b.WriteByte('\n')
+	cerebrasDot := pickerDotRed.Render("●")
+	cerebrasStatus := "no key — will prompt"
+	if m.cerebrasKeySet {
+		cerebrasDot = pickerDotGreen.Render("●")
+		cerebrasStatus = "key set"
+	}
+	sectionLabelCerebras := fmt.Sprintf("%s  Cerebras  %s %s",
+		pickerIconCerebras.Render("◆"), cerebrasDot, pickerBadgeExt.Render(cerebrasStatus))
+	b.WriteString(pickerSectionHeader.Render(sectionLabelCerebras))
+	b.WriteByte('\n')
+	for i, e := range m.allEntries {
+		if e.backend != "cerebras" {
+			continue
+		}
+		b.WriteString(m.renderRow(i, e, "cerebras"))
+		b.WriteByte('\n')
+	}
+
 	// ── Ollama section ───────────────────────────────────────────────
 	hasOllama := false
 	for _, e := range m.allEntries {
@@ -454,6 +492,8 @@ func (m modelPickerModel) renderRow(idx int, e pickerEntry, backend string) stri
 		icon = pickerIconCodex.Render("⊗")
 	case "ollama":
 		icon = pickerIconOllama.Render("⬡")
+	case "cerebras":
+		icon = pickerIconCerebras.Render("◆")
 	default:
 		icon = pickerIconAPI.Render("○")
 	}
@@ -537,6 +577,8 @@ func (m modelPickerModel) renderStatusBar() string {
 		icon = pickerStatusIconCodex.Render("⊗")
 	case "ollama":
 		icon = pickerStatusBar.Render("⬡")
+	case "cerebras":
+		icon = pickerStatusBar.Render("◆")
 	default:
 		icon = pickerStatusIcon.Render("○")
 	}
@@ -686,19 +728,20 @@ func ShowThemePicker(currentTheme string) (string, bool) {
 // break, and so the boolean flags don't read as mystery true/false at the
 // call site.
 type ModelPickerOpts struct {
-	CurrentBackend string // "" | "cc" | "codex" | "ollama" — drives initial cursor position
+	CurrentBackend string // "" | "cc" | "codex" | "ollama" | "cerebras" — drives initial cursor position
 	CurrentModelID string // specific model ID currently active, or ""
 	Effort         string // "low" | "medium" | "high"; empty defaults to "high"
 	OllamaURL      string // currently configured Ollama endpoint; "" hides the section
 	OllamaModel    string // currently configured Ollama model; "" hides the section
 	CCInstalled    bool   // pre-resolved (don't shell out from picker.View per frame)
 	CodexInstalled bool
+	CerebrasKeySet bool // true when a Cerebras API key is configured (drives the section status dot)
 }
 
 // ShowModelPicker opens the unified model + effort TUI.
 // Returns the result; Confirmed=false means the user cancelled.
 func ShowModelPicker(opts ModelPickerOpts) ModelPickerResult {
-	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled)
+	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled, opts.CerebrasKeySet)
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {
