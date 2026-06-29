@@ -575,7 +575,7 @@ func (c *APIClient) CreateTestCase(ctx context.Context, projectID int, title, de
 		body["category"] = category
 	}
 	if priority != "" {
-		body["priority"] = priority
+		body["priority"] = parseTestCasePriority(priority)
 	}
 	return c.post(ctx, "/api/test-cases/", body)
 }
@@ -592,12 +592,38 @@ func (c *APIClient) UpdateTestCase(ctx context.Context, testCaseID int, title, d
 		body["category"] = category
 	}
 	if priority != "" {
-		body["priority"] = priority
+		body["priority"] = parseTestCasePriority(priority)
 	}
 	if status != "" {
 		body["status"] = status
 	}
 	return c.put(ctx, fmt.Sprintf("/api/test-cases/%d", testCaseID), body)
+}
+
+func parseTestCasePriority(value string) int {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "critical":
+		return 1
+	case "high":
+		return 2
+	case "medium", "":
+		return 3
+	case "low":
+		return 4
+	case "trivial", "very low", "very-low", "very_low":
+		return 5
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 3
+	}
+	if n < 1 {
+		return 1
+	}
+	if n > 5 {
+		return 5
+	}
+	return n
 }
 
 func (c *APIClient) DeleteTestCase(ctx context.Context, testCaseID int) string {

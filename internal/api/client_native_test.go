@@ -206,6 +206,83 @@ func TestGenerateTestCode_RejectsInvalidFramework(t *testing.T) {
 	}
 }
 
+// ---- Test Cases ----
+
+func TestCreateTestCase_MapsPriorityNamesToIntegers(t *testing.T) {
+	var gotPath, gotMethod string
+	var gotBody map[string]interface{}
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		_, _ = w.Write([]byte(`{"id":123}`))
+	})
+
+	client.CreateTestCase(context.Background(), 242, "Login", "Verify login", "functional", "critical")
+
+	if gotMethod != "POST" {
+		t.Errorf("method: got %q, want POST", gotMethod)
+	}
+	if gotPath != "/api/test-cases/" {
+		t.Errorf("path: got %q, want /api/test-cases/", gotPath)
+	}
+	if gotBody["project_id"].(float64) != 242 {
+		t.Errorf("project_id: got %v, want 242", gotBody["project_id"])
+	}
+	if gotBody["priority"].(float64) != 1 {
+		t.Errorf("priority: got %v, want 1 for critical", gotBody["priority"])
+	}
+}
+
+func TestUpdateTestCase_MapsPriorityNamesToIntegers(t *testing.T) {
+	var gotPath, gotMethod string
+	var gotBody map[string]interface{}
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		_, _ = w.Write([]byte(`{"id":123}`))
+	})
+
+	client.UpdateTestCase(context.Background(), 123, "", "", "", "low", "")
+
+	if gotMethod != "PUT" {
+		t.Errorf("method: got %q, want PUT", gotMethod)
+	}
+	if gotPath != "/api/test-cases/123" {
+		t.Errorf("path: got %q, want /api/test-cases/123", gotPath)
+	}
+	if gotBody["priority"].(float64) != 4 {
+		t.Errorf("priority: got %v, want 4 for low", gotBody["priority"])
+	}
+}
+
+func TestParseTestCasePriority(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{"critical", 1},
+		{"High", 2},
+		{" medium ", 3},
+		{"low", 4},
+		{"trivial", 5},
+		{"very low", 5},
+		{"1", 1},
+		{"5", 5},
+		{"0", 1},
+		{"99", 5},
+		{"unexpected", 3},
+	}
+	for _, tc := range cases {
+		if got := parseTestCasePriority(tc.in); got != tc.want {
+			t.Errorf("parseTestCasePriority(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
 // ---- ImportRepo ----
 
 func TestImportRepo_OmitsTrainingConsentByDefault(t *testing.T) {

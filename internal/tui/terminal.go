@@ -90,32 +90,18 @@ var toolIcons = map[string]string{
 // spinnerFrames is the braille animation cycle.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// spinnerMessages are shown next to the spinner while Claude is thinking.
+// spinnerMessages are shown next to the spinner while the agent is working.
 var spinnerMessages = []string{
-	"drinking cat milk",
-	"watching the dog's tail",
-	"scaring the bugs",
-	"feeding the kitten",
-	"knocking tests off the table",
-	"chasing the cursor",
-	"napping on the keyboard",
-	"consulting with senior cat",
-	"pawing at the error logs",
-	"sitting on the warm server",
-	"demanding treats from the API",
-	"judging your code silently",
-	"batting at floating variables",
-	"ignoring the flaky tests",
-	"dreaming about tuna endpoints",
-	"staring at a wall suspiciously",
-	"filing a bug against gravity",
-	"debugging with paws",
-	"sniffing the dependency tree",
-	"meowing at the CI pipeline",
-	"questioning life choices",
-	"blaming the last commit",
-	"checking if tests pass by vibes",
-	"doing absolutely nothing (probably)",
+	"thinking",
+	"checking context",
+	"planning next step",
+	"reading tool results",
+	"preparing request",
+	"waiting for model",
+	"reviewing response",
+	"running tool loop",
+	"checking test status",
+	"validating output",
 }
 
 // spinner is a running thinking animation.
