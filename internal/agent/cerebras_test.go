@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/qualitymax/qmax-code/internal/api"
@@ -67,6 +68,132 @@ func TestNewCerebrasClientOverrides(t *testing.T) {
 	}
 	if c.BaseURL != "https://proxy.internal/v1" {
 		t.Errorf("BaseURL = %q, want trailing slash trimmed", c.BaseURL)
+	}
+}
+
+func TestNewCerebrasClientResolvesGemmaAlias(t *testing.T) {
+	c := NewCerebrasClient(&api.Config{
+		CerebrasKey:   "csk-test",
+		CerebrasModel: "gemma", // alias must resolve to the full model ID
+	})
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if c.Model != api.CerebrasGemma4Model {
+		t.Errorf("Model = %q, want %q (alias resolved)", c.Model, api.CerebrasGemma4Model)
+	}
+}
+
+func TestNewCerebrasClientPropagatesReasoningEffort(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"medium", "medium"},
+		{"High", "high"}, // case-insensitive
+		{"none", "none"},
+		{"", ""},
+		{"bogus", ""}, // invalid → omitted (off)
+	}
+	for _, tc := range cases {
+		c := NewCerebrasClient(&api.Config{
+			CerebrasKey:             "csk-test",
+			CerebrasModel:           api.CerebrasGemma4Model,
+			CerebrasReasoningEffort: tc.in,
+		})
+		if c.ReasoningEffort != tc.want {
+			t.Errorf("ReasoningEffort(%q) = %q, want %q", tc.in, c.ReasoningEffort, tc.want)
+		}
+	}
+}
+
+func TestReasoningEffortOmittedWhenEmpty(t *testing.T) {
+	// Empty effort must not serialize reasoning_effort (Cerebras default = off).
+	c := NewCerebrasClient(&api.Config{CerebrasKey: "csk-test"})
+	body, err := json.Marshal(c.chatRequest(nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "reasoning_effort") {
+		t.Errorf("empty effort should be omitted; got %s", body)
+	}
+
+	// "none" is stored as an explicit user choice but omitted from the API
+	// request, matching Cerebras's default thinking-off behavior.
+	c2 := NewCerebrasClient(&api.Config{
+		CerebrasKey:             "csk-test",
+		CerebrasModel:           api.CerebrasGemma4Model,
+		CerebrasReasoningEffort: "none",
+	})
+	body2, err := json.Marshal(c2.chatRequest(nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body2), "reasoning_effort") {
+		t.Errorf("none effort should be omitted; got %s", body2)
+	}
+
+	// "high" must serialize for Gemma 4.
+	c3 := NewCerebrasClient(&api.Config{
+		CerebrasKey:             "csk-test",
+		CerebrasModel:           api.CerebrasGemma4Model,
+		CerebrasReasoningEffort: "high",
+	})
+	body3, err := json.Marshal(c3.chatRequest(nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body3), `"reasoning_effort":"high"`) {
+		t.Errorf("high effort should serialize for Gemma; got %s", body3)
+	}
+
+	// Non-Gemma Cerebras models should not receive Gemma-only reasoning params.
+	c4 := NewCerebrasClient(&api.Config{
+		CerebrasKey:             "csk-test",
+		CerebrasModel:           api.CerebrasDefaultModel,
+		CerebrasReasoningEffort: "high",
+	})
+	body4, err := json.Marshal(c4.chatRequest(nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body4), "reasoning_effort") {
+		t.Errorf("non-Gemma effort should be omitted; got %s", body4)
+	}
+}
+
+func TestCerebrasTokensPerSecond(t *testing.T) {
+	cases := []struct {
+		name string
+		ti   map[string]interface{}
+		want float64
+	}{
+		{"nil", nil, 0},
+		{"empty", map[string]interface{}{}, 0},
+		{"tokens_per_second", map[string]interface{}{"tokens_per_second": 2150.4}, 2150.4},
+		{"tps fallback", map[string]interface{}{"tps": float64(990)}, 990},
+		{"int value", map[string]interface{}{"output_tokens_per_second": 1800}, 1800},
+		{"zero ignored", map[string]interface{}{"tokens_per_second": 0.0}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CerebrasTokensPerSecond(tc.ti); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCerebrasTTFTSec(t *testing.T) {
+	if got := CerebrasTTFTSec(nil); got != 0 {
+		t.Errorf("nil → %v, want 0", got)
+	}
+	if got := CerebrasTTFTSec(map[string]interface{}{"time_to_first_token_sec": 0.08}); got != 0.08 {
+		t.Errorf("sec → %v, want 0.08", got)
+	}
+	// ms field converts to seconds.
+	if got := CerebrasTTFTSec(map[string]interface{}{"time_to_first_token_ms": 80.0}); got < 0.079 || got > 0.081 {
+		t.Errorf("ms → %v, want ~0.08", got)
 	}
 }
 

@@ -1104,6 +1104,16 @@ Always state your confidence: "Confidence: HIGH — the button selector changed 
 For any multi-step task (e.g. generate→run→heal, gap analysis across cases, CI/CD setup), call update_plan FIRST to lay out your steps, then update it as you go — mark a step "in_progress" when you start it and "done" when you finish, always passing the COMPLETE ordered list. Skip it for single-step questions; don't narrate the plan in prose when the tool already shows it.
 `
 
+	// Vision guidance — only appended when Cerebras is driving (the Gemma 4
+	// multimodal path). Routes image attachments straight to test generation,
+	// so the demo flow is: paste a screenshot → Playwright test → run it.
+	if a.Cerebras != nil && api.IsCerebrasGemma4Model(a.Cerebras.Model) {
+		prompt += `
+## Vision (multimodal — Gemma 4 on Cerebras)
+You have vision. When the user attaches a screenshot or image of a web page or UI: read the pixels. Identify the page, visible headings, buttons, links, form fields, navigation, and the primary user flow shown. Then call generate_test_code to produce a Playwright e2e test that covers that flow, and run it to verify (run_test). Treat the image as the spec — only ask for a URL if the image is clearly not a web page. After running, summarize pass/fail concisely. This is the signature capability: a picture in, a passing test out.
+`
+	}
+
 	// Dashboard URLs
 	cloudURL := a.Cfg.Context.QMaxCfg.CloudURL
 	if cloudURL != "" {

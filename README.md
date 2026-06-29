@@ -116,6 +116,34 @@ Get your QualityMax API key at: https://app.qualitymax.io/settings
 
 **Local:** read_file, write_file, run_command, run_local_test
 
+## Gemma 4 on Cerebras (multimodal, ultra-fast)
+
+qmax-code can drive its entire agent loop through **Google DeepMind's Gemma 4 31B** hosted on **Cerebras** — multimodal vision, native function-calling over the full tool set, and optional reasoning, at Cerebras inference speed. Every response surfaces the live `tokens/sec` and time-to-first-token straight from Cerebras's `time_info`, so the speed advantage is visible in the terminal.
+
+```bash
+# One-shot activation inside the REPL
+> /gemma                 # backend→Cerebras, model→gemma-4-31b, reasoning: low
+> /gemma high            # max thinking
+> /gemma none            # fastest (reasoning off) — best for a pure speed demo
+> /gemma off             # back to the Anthropic API
+
+# Or pre-configure:
+qmax-code config set backend cerebras
+qmax-code config set cerebras_model gemma             # resolves to gemma-4-31b
+qmax-code config set cerebras_reasoning_effort medium
+```
+
+**Signature demo — screenshot → Playwright test:** paste a picture of a web page and Gemma 4 reads the pixels (buttons, forms, navigation, the primary user flow) and generates a runnable Playwright e2e test, then runs it.
+
+```
+> /gemma
+> /screenshot            # capture any web page → Gemma 4 generates + verifies a test
+# or
+> /paste                 # paste an image from clipboard
+```
+
+The multimodal path works because qmax converts image attachments into OpenAI `image_url` base64 data-URI parts (`internal/agent/cerebras.go`), which is exactly the format Cerebras accepts for Gemma 4. Env overrides: `CEREBRAS_API_KEY`, `CEREBRAS_MODEL`, `CEREBRAS_REASONING_EFFORT`.
+
 ## Requirements
 
 - Go 1.24+ (for building from source)

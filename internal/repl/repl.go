@@ -371,10 +371,19 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			if ag.Mode == agent.OllamaModeFull {
 				currentBackend = "ollama"
 			}
+			currentModelID := cfg.ModelOverride
+			currentEffort := cfg.Effort
+			if currentBackend == "cerebras" {
+				currentModelID = api.ResolveCerebrasModel(cfg.CerebrasModel)
+				currentEffort = api.NormalizeCerebrasReasoningEffort(cfg.CerebrasReasoningEffort)
+				if currentEffort == "" || currentEffort == "none" {
+					currentEffort = "low"
+				}
+			}
 			result := tui.ShowModelPicker(tui.ModelPickerOpts{
 				CurrentBackend: currentBackend,
-				CurrentModelID: cfg.ModelOverride,
-				Effort:         cfg.Effort,
+				CurrentModelID: currentModelID,
+				Effort:         currentEffort,
 				OllamaURL:      cfg.OllamaURL,
 				OllamaModel:    cfg.OllamaModel,
 				CCInstalled:    agent.FindClaudeCode() != "",
@@ -443,7 +452,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				}
 				// Apply the chosen Cerebras model.
 				if result.ModelID != "" {
-					cfg.CerebrasModel = result.ModelID
+					cfg.CerebrasModel = api.ResolveCerebrasModel(result.ModelID)
+				}
+				if api.IsCerebrasGemma4Model(cfg.CerebrasModel) {
+					cfg.CerebrasReasoningEffort = api.NormalizeCerebrasReasoningEffort(result.Effort)
 				}
 				// Tear down any active CLI agent / Ollama mode.
 				if cliAgent != nil {
@@ -455,7 +467,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				cfg.Backend = "cerebras"
 				ag.Cfg.Context.Backend = "cerebras"
 				_ = cfg.Save()
-				term.PrintSystem(fmt.Sprintf("Backend: Cerebras  model: %s", cfg.CerebrasModel))
+				if api.IsCerebrasGemma4Model(cfg.CerebrasModel) {
+					term.PrintSystem(fmt.Sprintf("Backend: Cerebras  model: %s  reasoning: %s", cfg.CerebrasModel, cfg.CerebrasReasoningEffort))
+				} else {
+					term.PrintSystem(fmt.Sprintf("Backend: Cerebras  model: %s", cfg.CerebrasModel))
+				}
 				continue
 			}
 
@@ -656,6 +672,84 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintSystem("Backend → Anthropic API (direct)")
 			}
 			ag.Cfg.Context.Backend = cfg.Backend
+			continue
+
+		case input == "/gemma" || strings.HasPrefix(input, "/gemma "):
+			// Activate Gemma 4 31B on Cerebras in one shot — the Cerebras +
+			// Gemma 4 hackathon entrypoint. Selects the multimodal model,
+			// sets reasoning_effort, and flips the live backend. Optional
+			// argument: none|low|medium|high (default low). "/gemma off"
+			// returns to the direct Anthropic API backend.
+			cfg := ag.AppConfig
+			if cfg == nil {
+				term.PrintError("api.Config not loaded.")
+				continue
+			}
+			arg := strings.TrimSpace(strings.TrimPrefix(input, "/gemma"))
+
+			if strings.EqualFold(arg, "off") || strings.EqualFold(arg, "api") {
+				deactivateEmbeddedBackends(ag)
+				if cliAgent != nil {
+					cliAgent.Cleanup()
+					cliAgent = nil
+				}
+				cfg.Backend = ""
+				ag.Cfg.Context.Backend = ""
+				_ = cfg.Save()
+				term.PrintSystem("Gemma disabled → Anthropic API (direct)")
+				continue
+			}
+
+			effort := "low" // default: thinking on, but fast
+			if arg != "" {
+				if !api.ValidCerebrasReasoningEffort(arg) {
+					term.PrintError(fmt.Sprintf("Usage: /gemma [none|low|medium|high|off]; %q is invalid.", arg))
+					continue
+				}
+				effort = api.NormalizeCerebrasReasoningEffort(arg)
+			}
+
+			if cfg.CerebrasKey == "" {
+				term.PrintSystem("Cerebras needs an API key (get one at https://cloud.cerebras.ai).")
+				key := setup.ReadSecret("  Paste your Cerebras key (blank to cancel): ")
+				if key == "" {
+					term.PrintSystem("No key entered — Gemma not activated.")
+					continue
+				}
+				looks, verr := api.ValidateCerebrasKey(key)
+				if verr != nil {
+					term.PrintError(fmt.Sprintf("That doesn't look like an API key (%v). Gemma not activated.", verr))
+					continue
+				}
+				if !looks {
+					term.PrintSystem("  Note: key doesn't start with \"csk-\" — saving anyway.")
+				}
+				if err := api.SaveCerebrasKey(key); err != nil {
+					term.PrintError(fmt.Sprintf("Could not save key: %v", err))
+					continue
+				}
+				cfg.CerebrasKey = key
+				term.PrintSystem("  Saved to OS keychain.")
+			}
+
+			cfg.CerebrasModel = api.CerebrasGemma4Model
+			cfg.CerebrasReasoningEffort = effort
+			if cliAgent != nil {
+				cliAgent.Cleanup()
+				cliAgent = nil
+			}
+			ag.Mode = agent.OllamaModeOff
+			ag.Cerebras = agent.NewCerebrasClient(cfg)
+			cfg.Backend = "cerebras"
+			ag.Cfg.Context.Backend = "cerebras"
+			_ = cfg.Save()
+
+			reasoningLabel := "reasoning off"
+			if effort == "low" || effort == "medium" || effort == "high" {
+				reasoningLabel = "reasoning: " + effort
+			}
+			term.PrintSystem(fmt.Sprintf("Backend: Cerebras · model: %s · %s", cfg.CerebrasModel, reasoningLabel))
+			term.PrintSystem("Multimodal: /screenshot or /paste a page → Gemma 4 reads it and generates a Playwright test.")
 			continue
 
 		case input == "/ollama":
@@ -1205,10 +1299,12 @@ Commands:
   /orch          Cycle orchestration backend: off → CC → Codex → off
   /theme         Live-preview color scheme picker
   /cloudsync     Toggle cloud session sync (enabled/disabled)
-  /cc            Switch to Claude Code backend (no QM API key; Agent SDK credit)
-  /codex         Switch to Codex CLI backend (OpenAI subscription, no API tokens)
-  /api           Switch back to direct Anthropic API
-  /ollama        Toggle Ollama on/off (self-hosted LLM for chat)
+   /cc            Switch to Claude Code backend (no QM API key; Agent SDK credit)
+   /codex         Switch to Codex CLI backend (OpenAI subscription, no API tokens)
+   /api           Switch back to direct Anthropic API
+   /gemma [none|low|medium|high|off]
+                  Activate Gemma 4 31B on Cerebras (multimodal + reasoning)
+   /ollama        Toggle Ollama on/off (self-hosted LLM for chat)
   /set output_verbose true|false
                  Toggle compact vs detailed Codex/CC answers
   /config        Show current config settings
@@ -1331,7 +1427,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 	parts := strings.Fields(input)
 	if len(parts) < 3 {
 		term.PrintError("Usage: /set <key> <value>")
-		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, theme")
+		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme")
 		return
 	}
 	key := strings.ToLower(parts[1])
@@ -1504,9 +1600,36 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 			cfg.Backend = ""
 			term.PrintSystem("Backend set to Anthropic API. Restart or use /api to switch live.")
 		default:
-			term.PrintError("Valid backends: cc, codex, api")
+			term.PrintError("Valid backends: cc, codex, api (use /gemma for cerebras)")
 			return
 		}
+
+	case "cerebras_model", "cerebras-model":
+		cfg.CerebrasModel = api.ResolveCerebrasModel(value)
+		// Apply live if Cerebras is the active backend.
+		if ag.Cerebras != nil {
+			ag.Cerebras.Model = api.ResolveCerebrasModel(value)
+		}
+		term.PrintSystem(fmt.Sprintf("Cerebras model set to: %s", cfg.CerebrasModel))
+
+	case "cerebras_reasoning_effort", "cerebras-reasoning-effort":
+		if value == "" {
+			cfg.CerebrasReasoningEffort = ""
+		} else {
+			if !api.ValidCerebrasReasoningEffort(value) {
+				term.PrintError(fmt.Sprintf("Invalid value %q; allowed: none, low, medium, high", value))
+				return
+			}
+			cfg.CerebrasReasoningEffort = api.NormalizeCerebrasReasoningEffort(value)
+		}
+		if ag.Cerebras != nil {
+			ag.Cerebras.ReasoningEffort = cfg.CerebrasReasoningEffort
+		}
+		label := cfg.CerebrasReasoningEffort
+		if label == "" {
+			label = "none (off)"
+		}
+		term.PrintSystem(fmt.Sprintf("Cerebras reasoning_effort set to: %s", label))
 
 	case "theme":
 		valid := tui.ThemeNames()
@@ -1538,7 +1661,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, theme")
+		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme")
 		return
 	}
 

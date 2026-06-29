@@ -21,10 +21,11 @@ import (
 
 // CerebrasClient wraps HTTP calls to a Cerebras (OpenAI-compatible) endpoint.
 type CerebrasClient struct {
-	BaseURL string // e.g. "https://api.cerebras.ai/v1"
-	Model   string // e.g. "gpt-oss-120b"
-	APIKey  string
-	HTTP    *http.Client
+	BaseURL         string // e.g. "https://api.cerebras.ai/v1"
+	Model           string // e.g. "gpt-oss-120b" or "gemma-4-31b"
+	APIKey          string
+	ReasoningEffort string // "", "none", "low", "medium", "high" (Gemma 4 thinking)
+	HTTP            *http.Client
 }
 
 // NewCerebrasClient builds a client from config, or returns nil if no API key
@@ -37,15 +38,13 @@ func NewCerebrasClient(cfg *api.Config) *CerebrasClient {
 	if base == "" {
 		base = api.CerebrasAPIBase
 	}
-	model := cfg.CerebrasModel
-	if model == "" {
-		model = api.CerebrasDefaultModel
-	}
+	model := api.ResolveCerebrasModel(cfg.CerebrasModel)
 	return &CerebrasClient{
-		BaseURL: strings.TrimRight(base, "/"),
-		Model:   model,
-		APIKey:  cfg.CerebrasKey,
-		HTTP:    &http.Client{Timeout: 300 * time.Second},
+		BaseURL:         strings.TrimRight(base, "/"),
+		Model:           model,
+		APIKey:          cfg.CerebrasKey,
+		ReasoningEffort: api.NormalizeCerebrasReasoningEffort(cfg.CerebrasReasoningEffort),
+		HTTP:            &http.Client{Timeout: 300 * time.Second},
 	}
 }
 
@@ -91,12 +90,13 @@ type oaiImageURL struct {
 }
 
 type oaiChatRequest struct {
-	Model       string       `json:"model"`
-	Messages    []oaiMessage `json:"messages"`
-	Tools       []oaiTool    `json:"tools,omitempty"`
-	MaxTokens   int          `json:"max_tokens,omitempty"`
-	Temperature float64      `json:"temperature"`
-	Stream      bool         `json:"stream"`
+	Model           string       `json:"model"`
+	Messages        []oaiMessage `json:"messages"`
+	Tools           []oaiTool    `json:"tools,omitempty"`
+	MaxTokens       int          `json:"max_tokens,omitempty"`
+	Temperature     float64      `json:"temperature"`
+	Stream          bool         `json:"stream"`
+	ReasoningEffort string       `json:"reasoning_effort,omitempty"` // Gemma 4 thinking: low|medium|high (none omitted)
 }
 
 type oaiChatResponse struct {
@@ -111,20 +111,97 @@ type oaiChatResponse struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 	} `json:"usage"`
+	// TimeInfo carries Cerebras-specific request timing (tokens/sec, TTFT,
+	// total time). Parsed loosely as a map so key-name changes don't break us.
+	TimeInfo map[string]interface{} `json:"time_info,omitempty"`
+}
+
+// reasoningEffortIsOn reports whether the configured effort will actually
+// engage Gemma 4 thinking (i.e. one of low/medium/high).
+func reasoningEffortIsOn(effort string) bool {
+	switch effort {
+	case "low", "medium", "high":
+		return true
+	}
+	return false
+}
+
+func effectiveCerebrasReasoningEffort(model, effort string) string {
+	effort = api.NormalizeCerebrasReasoningEffort(effort)
+	if !api.IsCerebrasGemma4Model(model) || !reasoningEffortIsOn(effort) {
+		return ""
+	}
+	return effort
+}
+
+// CerebrasTokensPerSecond pulls a tokens/sec figure from a Cerebras
+// time_info object, trying common key names. Returns 0 if unavailable.
+func CerebrasTokensPerSecond(ti map[string]interface{}) float64 {
+	if ti == nil {
+		return 0
+	}
+	for _, k := range []string{
+		"tokens_per_second",
+		"output_tokens_per_second",
+		"completion_tokens_per_second",
+		"generation_tokens_per_second",
+		"tps",
+	} {
+		if v, ok := ti[k]; ok {
+			if f, ok := toFloat64(v); ok && f > 0 {
+				return f
+			}
+		}
+	}
+	return 0
+}
+
+// CerebrasTTFTSec pulls time-to-first-token (in seconds) from time_info if present.
+func CerebrasTTFTSec(ti map[string]interface{}) float64 {
+	if ti == nil {
+		return 0
+	}
+	for _, k := range []string{"time_to_first_token_sec", "ttft_sec", "time_to_first_token"} {
+		if v, ok := ti[k]; ok {
+			if f, ok := toFloat64(v); ok && f >= 0 {
+				return f
+			}
+		}
+	}
+	// Some responses report TTFT in milliseconds.
+	for _, k := range []string{"time_to_first_token_ms", "ttft_ms"} {
+		if v, ok := ti[k]; ok {
+			if f, ok := toFloat64(v); ok && f > 0 {
+				return f / 1000.0
+			}
+		}
+	}
+	return 0
+}
+
+func toFloat64(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		if f, err := n.Float64(); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
 }
 
 // Chat performs a single non-streaming chat completion. Cerebras is fast
 // enough (~1000+ tok/s) that non-streaming keeps the tool loop simple and the
 // tool-call parsing reliable.
 func (c *CerebrasClient) Chat(ctx context.Context, msgs []oaiMessage, tools []oaiTool) (*oaiChatResponse, error) {
-	reqBody := oaiChatRequest{
-		Model:       c.Model,
-		Messages:    msgs,
-		Tools:       tools,
-		MaxTokens:   8192,
-		Temperature: 0,
-		Stream:      false,
-	}
+	reqBody := c.chatRequest(msgs, tools)
 	data, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -156,6 +233,26 @@ func (c *CerebrasClient) Chat(ctx context.Context, msgs []oaiMessage, tools []oa
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &out, nil
+}
+
+func (c *CerebrasClient) chatRequest(msgs []oaiMessage, tools []oaiTool) oaiChatRequest {
+	reasoningEffort := effectiveCerebrasReasoningEffort(c.Model, c.ReasoningEffort)
+	// Gemma 4 thinking consumes output tokens; give the model more room when
+	// reasoning is engaged so high-effort answers don't truncate. The hackathon
+	// grants a 32K completion cap, so 16K is a safe default for reasoning turns.
+	maxTokens := 8192
+	if reasoningEffortIsOn(reasoningEffort) {
+		maxTokens = 16384
+	}
+	return oaiChatRequest{
+		Model:           c.Model,
+		Messages:        msgs,
+		Tools:           tools,
+		MaxTokens:       maxTokens,
+		Temperature:     0,
+		Stream:          false,
+		ReasoningEffort: reasoningEffort,
+	}
 }
 
 // toolDefsToOpenAI converts qmax tool definitions (Anthropic-shaped:
