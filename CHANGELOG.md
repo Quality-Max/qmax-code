@@ -4,6 +4,19 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-06-29
+
+### Fixed
+- Cerebras/native backend can now perform real local coding work: the system
+  prompt explicitly treats local code inspection, edits, PR review, and local
+  tests as first-class workflows.
+- Added a targeted `edit_file` local tool for exact text replacements, so the
+  Cerebras backend no longer has to rely on blocked shell redirects/heredocs or
+  risky whole-file rewrites for source edits.
+- `run_command` now allows `gh` and `rg`, enabling GitHub PR inspection and
+  fast repository search from the Cerebras tool loop while preserving the
+  existing shell-control-token restrictions.
+
 ## [1.20.0] - 2026-06-28
 
 ### Added
