@@ -197,6 +197,8 @@ func TestValidateCommandAllowsSimpleKnownCommands(t *testing.T) {
 		"go test ./...",
 		"python3 -m pytest",
 		"qmax projects --json",
+		"gh api repos/Quality-Max/qamax-rag-app/pulls/1126",
+		"rg -n Cerebras internal",
 	} {
 		if got := ValidateCommand(cmd); got != "" {
 			t.Errorf("ValidateCommand(%q) = %q, want allowed", cmd, got)

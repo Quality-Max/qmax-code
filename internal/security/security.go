@@ -293,6 +293,8 @@ var allowedCommands = map[string]bool{
 	"wc":      true,
 	"find":    true,
 	"grep":    true,
+	"rg":      true,
+	"gh":      true,
 	"npm":     true,
 	"npx":     true,
 	"node":    true,
@@ -369,7 +371,7 @@ func ValidateCommand(cmd string) string {
 		return "empty command"
 	}
 	if !allowedCommands[fields[0]] {
-		return "command not in allowlist. Allowed: git, ls, cat, npm, npx, node, go, python, qmax, etc."
+		return "command not in allowlist. Allowed: git, gh, rg, ls, cat, npm, npx, node, go, python, qmax, etc."
 	}
 
 	return "" // safe

@@ -110,6 +110,76 @@ func boolVal(input map[string]interface{}, key string) bool {
 	return false
 }
 
+func localWorkspacePath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(cwd, absPath)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("local file operations are restricted to the current directory")
+	}
+	return absPath, nil
+}
+
+func editLocalFile(input map[string]interface{}) string {
+	path := strVal(input, "path")
+	oldText := strVal(input, "old_text")
+	newText := strVal(input, "new_text")
+	replaceAll := boolVal(input, "replace_all")
+
+	if oldText == "" {
+		return jsonError("old_text is required")
+	}
+
+	absPath, err := localWorkspacePath(path)
+	if err != nil {
+		return jsonError(err.Error())
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return jsonError(err.Error())
+	}
+	content := string(data)
+	count := strings.Count(content, oldText)
+	if count == 0 {
+		return jsonError("old_text not found in file")
+	}
+	if count > 1 && !replaceAll {
+		return jsonError(fmt.Sprintf("old_text matched %d times; pass replace_all=true or choose a more specific block", count))
+	}
+
+	updated := strings.Replace(content, oldText, newText, 1)
+	if replaceAll {
+		updated = strings.ReplaceAll(content, oldText, newText)
+	}
+	if updated == content {
+		return jsonError("replacement produced no change")
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return jsonError(err.Error())
+	}
+	if err := os.WriteFile(absPath, []byte(updated), info.Mode().Perm()); err != nil {
+		return jsonError(err.Error())
+	}
+	return fmt.Sprintf(`{"success": true, "path": %q, "replacements": %d, "bytes": %d}`, path, count, len(updated))
+}
+
 // experimentalToolNames lists tools that are gated behind QMAX_EXPERIMENTAL=1.
 // These surfaces work but lack public docs / support guarantees, per
 // OPEN_SOURCE_SCOPE.md Phase 2. Set QMAX_EXPERIMENTAL=1 to expose them to the
@@ -665,14 +735,24 @@ func buildAllToolDefs() []api.ToolDef {
 		},
 		{
 			Name:        "run_command",
-			Description: "Run a shell command locally. Use for git operations, npm commands, checking project structure, etc.",
+			Description: "Run one allowlisted shell command locally. Use for git/gh operations, rg searches, package-manager commands, and tests. Do not use shell chaining, pipes, redirects, heredocs, or command substitution; call this tool multiple times instead.",
 			InputSchema: obj(props(
 				prop("command", "string", "Shell command to execute", true),
 			)),
 		},
 		{
+			Name:        "edit_file",
+			Description: "Edit a local file by replacing an exact text block. Read the file first, then provide old_text copied exactly from the file and new_text with the replacement. Use this for code changes; use write_file only for new files or full rewrites.",
+			InputSchema: obj(props(
+				prop("path", "string", "File path to edit", true),
+				prop("old_text", "string", "Exact text block to replace", true),
+				prop("new_text", "string", "Replacement text", true),
+				prop("replace_all", "boolean", "Replace every occurrence instead of requiring exactly one match", false),
+			)),
+		},
+		{
 			Name:        "write_file",
-			Description: "Write content to a local file. Use for creating test files, configs, etc.",
+			Description: "Write content to a local file. Use for creating new files or deliberate full-file rewrites. Prefer edit_file for modifying existing source files.",
 			InputSchema: obj(props(
 				prop("path", "string", "File path to write", true),
 				prop("content", "string", "File content to write", true),
@@ -1465,21 +1545,19 @@ func executeToolViaQMax(name string, rawInput interface{}, sctx *api.SessionCont
 		}
 		return runShell(ctx, "sh", "-c", cmd)
 
+	case "edit_file":
+		return editLocalFile(input)
+
 	case "write_file":
 		path := fmt.Sprintf("%v", input["path"])
 		content := fmt.Sprintf("%v", input["content"])
 
-		// Security: restrict to current directory
-		absPath, err := filepath.Abs(path)
+		absPath, err := localWorkspacePath(path)
 		if err != nil {
 			return fmt.Sprintf(`{"error": %q}`, err.Error())
 		}
-		cwd, _ := os.Getwd()
-		if !strings.HasPrefix(absPath, cwd) {
-			return `{"error": "write_file restricted to current directory for security"}`
-		}
 
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
 			return fmt.Sprintf(`{"error": %q}`, err.Error())
 		}
 		return fmt.Sprintf(`{"success": true, "path": %q, "bytes": %d}`, path, len(content))
@@ -1624,8 +1702,8 @@ func ToolCost(name string) string {
 	switch name {
 	case "list_projects", "list_test_cases", "list_scripts", "check_test_status",
 		"crawl_status", "crawl_results", "list_crawl_jobs", "list_repos",
-		"repo_coverage", "repo_quality", "read_file", "run_command", "write_file",
-		"get_script", "update_plan":
+		"repo_coverage", "repo_quality", "read_file", "run_command", "edit_file",
+		"write_file", "get_script", "update_plan":
 		return "free" // read-only or local, no cost
 	case "generate_test_code":
 		return "low" // AI generation, small cost
