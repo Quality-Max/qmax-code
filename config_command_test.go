@@ -80,6 +80,46 @@ func TestSetConfigField_CerebrasModelAndBaseURL(t *testing.T) {
 	}
 }
 
+func TestSetConfigField_CerebrasModelResolvesGemmaAlias(t *testing.T) {
+	withTempHome(t)
+
+	if err := setConfigField("cerebras_model", "gemma"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	loaded := api.LoadQMaxCodeConfig()
+	if loaded.CerebrasModel != api.CerebrasGemma4Model {
+		t.Errorf("CerebrasModel: got %q, want %q (alias resolved)", loaded.CerebrasModel, api.CerebrasGemma4Model)
+	}
+}
+
+func TestSetConfigField_CerebrasReasoningEffort(t *testing.T) {
+	withTempHome(t)
+
+	// Valid values normalize to canonical lowercase.
+	for _, in := range []string{"none", "low", "Medium", " HIGH "} {
+		if err := setConfigField("cerebras_reasoning_effort", in); err != nil {
+			t.Fatalf("unexpected error for %q: %v", in, err)
+		}
+	}
+	loaded := api.LoadQMaxCodeConfig()
+	if loaded.CerebrasReasoningEffort != "high" {
+		t.Errorf("last value: got %q, want high", loaded.CerebrasReasoningEffort)
+	}
+
+	// Invalid value rejected.
+	if err := setConfigField("cerebras_reasoning_effort", "turbo"); err == nil {
+		t.Error("expected error for invalid reasoning_effort")
+	}
+
+	// Empty clears it.
+	if err := setConfigField("cerebras_reasoning_effort", ""); err != nil {
+		t.Fatalf("unexpected error clearing: %v", err)
+	}
+	if loaded := api.LoadQMaxCodeConfig(); loaded.CerebrasReasoningEffort != "" {
+		t.Errorf("expected empty after clear, got %q", loaded.CerebrasReasoningEffort)
+	}
+}
+
 func TestConfigSetDisplayValueRedactsCerebrasKey(t *testing.T) {
 	secret := "csk-vv52c6kwywjmejmnp8xd8c2p4"
 	got := configSetDisplayValue("cerebras_key", secret)

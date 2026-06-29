@@ -99,6 +99,7 @@ func (a *Agent) RunCerebrasAgent(term *tui.Terminal) (string, bool) {
 				// would silently drop the text.
 				term.PrintAssistant(choice.Message.Content)
 			}
+			printCerebrasSpeed(term, resp, a.Cerebras.Model)
 
 			var toolUse []api.ContentBlock
 			for _, b := range blocks {
@@ -126,8 +127,36 @@ func (a *Agent) RunCerebrasAgent(term *tui.Terminal) (string, bool) {
 		// Final answer. PrintAssistant renders unconditionally (non-streaming path).
 		term.PrintAssistant(choice.Message.Content)
 		term.PrintTokenUsage(a.Usage)
+		printCerebrasSpeed(term, resp, a.Cerebras.Model)
 		return choice.Message.Content, true
 	}
 
 	return "", false
+}
+
+// printCerebrasSpeed surfaces the live Cerebras inference rate from a
+// response's time_info object. This is the headline "Speed in Action" signal
+// for the Cerebras + Gemma 4 demo — seeing ~2000+ tok/s in the terminal makes
+// the latency advantage tangible. No-op when time_info is absent.
+func printCerebrasSpeed(term *tui.Terminal, resp *oaiChatResponse, model string) {
+	if resp == nil {
+		return
+	}
+	tps := CerebrasTokensPerSecond(resp.TimeInfo)
+	ttft := CerebrasTTFTSec(resp.TimeInfo)
+	if tps <= 0 && ttft <= 0 {
+		return
+	}
+	modelLabel := model
+	if modelLabel == "" {
+		modelLabel = "cerebras"
+	}
+	switch {
+	case tps > 0 && ttft > 0:
+		term.PrintSystem(fmt.Sprintf("⚡ %s on Cerebras: %.0f tok/s · TTFT %.2fs", modelLabel, tps, ttft))
+	case tps > 0:
+		term.PrintSystem(fmt.Sprintf("⚡ %s on Cerebras: %.0f tok/s", modelLabel, tps))
+	default:
+		term.PrintSystem(fmt.Sprintf("⚡ %s on Cerebras: TTFT %.2fs", modelLabel, ttft))
+	}
 }

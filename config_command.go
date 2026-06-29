@@ -114,6 +114,11 @@ func printConfig() {
 		cerebrasBase = api.CerebrasAPIBase + " (default)"
 	}
 	fmt.Printf("    cerebras_base_url = %q\n", cerebrasBase)
+	cerebrasReasoning := cfg.CerebrasReasoningEffort
+	if cerebrasReasoning == "" {
+		cerebrasReasoning = "none (default — Gemma 4 thinking off)"
+	}
+	fmt.Printf("    cerebras_reasoning_effort = %q\n", cerebrasReasoning)
 	backend := cfg.Backend
 	if backend == "" {
 		backend = "api"
@@ -251,10 +256,22 @@ func setConfigField(key, value string) error {
 		return api.SaveCerebrasKey(value)
 
 	case "cerebras_model":
-		cfg.CerebrasModel = value
+		// Resolve aliases (e.g. "gemma" → "gemma-4-31b"); unknown values pass
+		// through unchanged so raw model IDs keep working.
+		cfg.CerebrasModel = api.ResolveCerebrasModel(value)
 
 	case "cerebras_base_url":
 		cfg.CerebrasBaseURL = value
+
+	case "cerebras_reasoning_effort", "cerebras-reasoning-effort":
+		if value == "" {
+			cfg.CerebrasReasoningEffort = ""
+			break
+		}
+		if !api.ValidCerebrasReasoningEffort(value) {
+			return fmt.Errorf("invalid cerebras_reasoning_effort %q; allowed: none, low, medium, high", value)
+		}
+		cfg.CerebrasReasoningEffort = api.NormalizeCerebrasReasoningEffort(value)
 
 	case "theme":
 		return tui.SaveTheme(cfg, value)

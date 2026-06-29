@@ -36,8 +36,13 @@ type Config struct {
 	// qmax tool set, so it can handle all coding tasks directly.
 	// The API key is stored in the OS keychain, never in JSON.
 	CerebrasKey     string `json:"-"`
-	CerebrasModel   string `json:"cerebras_model,omitempty"`    // default "gpt-oss-120b"
+	CerebrasModel   string `json:"cerebras_model,omitempty"`    // default "gpt-oss-120b"; "gemma-4-31b" for Gemma 4
 	CerebrasBaseURL string `json:"cerebras_base_url,omitempty"` // default "https://api.cerebras.ai/v1"
+	// CerebrasReasoningEffort toggles Gemma 4 thinking on Cerebras. Empty or
+	// "none" keeps reasoning off (fastest, the Cerebras default). "low" /
+	// "medium" / "high" turn it on, trading latency for more thorough answers.
+	// Maps to the top-level reasoning_effort Chat Completions parameter.
+	CerebrasReasoningEffort string `json:"cerebras_reasoning_effort,omitempty"`
 
 	// Backend selects the LLM inference backend.
 	//   ""  / "api" → Anthropic API directly (default, requires ANTHROPIC_API_KEY)
@@ -140,6 +145,9 @@ func LoadQMaxCodeConfig() *Config {
 	}
 	if model := os.Getenv("CEREBRAS_MODEL"); model != "" {
 		cfg.CerebrasModel = model
+	}
+	if re := os.Getenv("CEREBRAS_REASONING_EFFORT"); re != "" {
+		cfg.CerebrasReasoningEffort = re
 	}
 
 	return cfg
