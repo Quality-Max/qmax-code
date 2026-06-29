@@ -4,6 +4,21 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.20.2] - 2026-06-29
+
+### Added
+- Gemma 4 31B is now a first-class Cerebras model with `reasoning_effort`
+  support, a `/gemma` activation shortcut, and `/orch` picker routing for the
+  existing Cerebras backend.
+- Cerebras responses now surface live speed metrics from `time_info`, and Gemma
+  vision turns include screenshot-to-Playwright-test guidance.
+
+### Fixed
+- QualityMax test-case tool calls now send numeric priorities expected by the
+  API while still accepting model-friendly labels like `critical`, `high`,
+  `medium`, and `low`.
+- Replaced novelty thinking-spinner messages with neutral agent status text.
+
 ## [1.20.1] - 2026-06-29
 
 ### Fixed
