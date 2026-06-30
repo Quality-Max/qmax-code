@@ -1,10 +1,10 @@
 #!/bin/bash
 # QualityMax Code Agent Installer
-# Usage: curl -sL https://raw.githubusercontent.com/Quality-Max/qmax-code/main/install.sh | bash
+# Usage: curl -sL https://qualitymax.io/static/install-qmax-code.txt | bash
 
 set -e
 
-REPO="Quality-Max/qmax-code"
+REPO="Quality-Max/qmax-code-releases"
 BINARY="qmax-code"
 
 echo "QualityMax Code Agent Installer"
@@ -82,9 +82,11 @@ chmod +x "$INSTALL_DIR/$BINARY"
 echo "Installed to: $INSTALL_DIR/$BINARY"
 
 # Symlink to /usr/local/bin
+RUN_CMD="$INSTALL_DIR/$BINARY"
 if [ -w /usr/local/bin ]; then
     ln -sf "$INSTALL_DIR/$BINARY" /usr/local/bin/$BINARY
     echo "Linked: /usr/local/bin/$BINARY"
+    RUN_CMD="$BINARY"
 else
     echo ""
     echo "To make '$BINARY' available globally:"
@@ -96,18 +98,32 @@ fi
 
 echo ""
 
-# Check for API key
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-    echo "Setup:"
-    echo "  1. Set your Anthropic API key:"
-    echo "     export ANTHROPIC_API_KEY=sk-ant-..."
-    echo "  2. Login to QualityMax:"
-    echo "     qmax login"
-    echo "  3. Start the agent:"
-    echo "     qmax-code"
+INSTALLED_VERSION="$("$INSTALL_DIR/$BINARY" --version 2>/dev/null | awk '{print $NF}' || true)"
+if [ -n "$INSTALLED_VERSION" ]; then
+    echo "Installed version: $INSTALLED_VERSION"
 else
-    echo "Ready! Run: qmax-code"
+    echo "Installed version: unknown"
+fi
+if [ -n "$VERSION" ]; then
+    echo "Release: https://github.com/$REPO/releases/tag/$VERSION"
+else
+    echo "Release: https://github.com/$REPO/releases/latest"
 fi
 
+echo ""
+echo "qmax CLI is not required. qmax-code works standalone with the QualityMax API."
+echo ""
+echo "Next steps:"
+echo "  1. Start qmax-code and finish interactive setup:"
+echo "     $RUN_CMD"
+echo "  2. Optional: connect QualityMax now:"
+echo "     $RUN_CMD login"
+echo "  3. Optional: attach Codex for QualityMax mobile runs:"
+echo "     $RUN_CMD codex connect"
+echo ""
+echo "Auth options:"
+echo "  - Browser login: $RUN_CMD login"
+echo "  - API key:       $RUN_CMD login --api-key qm-YOUR-API-KEY"
+echo "  - Anthropic:     set ANTHROPIC_API_KEY or save it when prompted"
 echo ""
 echo "Docs: https://qualitymax.io/docs/qmax-code"
