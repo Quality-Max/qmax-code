@@ -4,6 +4,19 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.20.3] - 2026-06-30
+
+### Fixed
+- MCP server mode now reserves stdout exclusively for JSON-RPC responses,
+  redirecting stray tool/TUI output to stderr so Codex and Claude Code rmcp
+  transports are not killed by non-JSON output.
+- MCP tool dispatch panics now return JSON-RPC internal errors instead of
+  crashing the subprocess and closing the transport.
+
+### Tests
+- Added regression coverage for clean MCP JSON-RPC output and RunServer stdout
+  redirection.
+
 ## [1.20.2] - 2026-06-29
 
 ### Added
