@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"strconv"
 
@@ -48,8 +50,31 @@ func RunServer(version string) {
 		sctx.LiveFeed = true
 	}
 
-	encoder := json.NewEncoder(os.Stdout)
-	scanner := bufio.NewScanner(os.Stdin)
+	// Pin the real stdout for exclusive use by the JSON-RPC encoder, then
+	// repoint the process-level os.Stdout at stderr. Tool handlers — and
+	// the TUI helpers they call (progress bars, browser animations,
+	// banners in internal/tui) — freely fmt.Print to os.Stdout. In MCP
+	// mode those writes corrupt the newline-delimited JSON-RPC stream the
+	// client (Codex/CC rmcp) reads: an empty line from fmt.Println()
+	// deserializes to nothing (serde "line: 0, column: 0") and a progress
+	// bar deserializes to garbage, either of which kills the transport
+	// worker with "data did not match any variant of untagged enum
+	// JsonRpcMessage". Redirecting os.Stdout to stderr sends every stray
+	// write to diagnostics instead of the wire the parser reads.
+	realStdout := os.Stdout
+	os.Stdout = os.Stderr
+	defer func() { os.Stdout = realStdout }()
+
+	serveMCP(os.Stdin, realStdout, sctx, version)
+}
+
+// serveMCP runs the newline-delimited JSON-RPC read/respond loop against the
+// given reader (client stdin) and writer (client stdout). Extracted from
+// RunServer so the output contract — only valid JSON-RPC lines on out — can be
+// tested without swapping global os.Stdin/os.Stdout.
+func serveMCP(in io.Reader, out io.Writer, sctx *api.SessionContext, version string) {
+	encoder := json.NewEncoder(out)
+	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20) // 1 MiB — tool results can be verbose
 
 	for scanner.Scan() {
@@ -119,7 +144,18 @@ type callParams struct {
 
 // --- Request dispatcher ---
 
-func dispatch(req request, sctx *api.SessionContext, version string) response {
+// dispatch routes a parsed JSON-RPC request to the appropriate handler. A
+// deferred recover ensures a panicking tool handler (nil deref, index out of
+// range, etc.) yields a JSON-RPC error response rather than crashing the
+// server process — a crash would EOF stdout and kill the client's transport
+// worker the same way stray stdout writes do.
+func dispatch(req request, sctx *api.SessionContext, version string) (resp response) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = errResp(req.ID, -32603, fmt.Sprintf("internal error: %v", r))
+		}
+	}()
+
 	switch req.Method {
 	case "initialize":
 		return okResp(req.ID, map[string]interface{}{
