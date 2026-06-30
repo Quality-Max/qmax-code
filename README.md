@@ -24,7 +24,10 @@
 
 **AI-powered terminal agent for QualityMax.** Named after Max, the real cat who inspired it all.
 
-qmax-code is the LLM brain that orchestrates the open-source [`qmax`](https://github.com/Quality-Max/qmax-local-agent) CLI. It connects to the Claude API, understands your testing intent in natural language, and translates it into structured CLI operations — crawling sites, generating tests, running scripts, reviewing repos.
+qmax-code is a standalone terminal agent for QualityMax. It connects directly to
+the QualityMax API, understands testing intent in natural language, and runs
+structured workflows for crawling sites, generating tests, running scripts, and
+reviewing repos. No separate `qmax` CLI is required.
 
 > **License:** Source-available under the [Functional Source License (FSL-1.1-ALv2)](LICENSE) — created by [Sentry](https://fsl.software). Free for any non-competing use (internal use, modifications, contributions, education, research, professional services). Two years after each release, the code automatically converts to plain Apache 2.0. The "Other" tag GitHub shows in the sidebar is a quirk of its licensee detector — FSL isn't on the SPDX list.
 
@@ -33,12 +36,12 @@ qmax-code is the LLM brain that orchestrates the open-source [`qmax`](https://gi
 ```
   You  →  "test the login flow on staging"
                     │
-              qmax-code (Claude API)
+              qmax-code
                     │
           ┌─────────┼─────────┐
           ▼         ▼         ▼
-     qmax crawl  qmax test  qmax test
-       start      generate     run
+      crawl     generate     run
+      site        tests      scripts
 ```
 
 Claude picks the right tools, chains them together, and reports back — all in a colorful terminal with cat personality.
@@ -53,7 +56,7 @@ Claude picks the right tools, chains them together, and reports back — all in 
 ## Install
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Quality-Max/qmax-code/main/install.sh | bash
+curl -sL https://qualitymax.io/static/install-qmax-code.txt | bash
 ```
 
 ## Quick start

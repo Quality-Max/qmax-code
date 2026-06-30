@@ -4,6 +4,10 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Fixed
+- Updated the installer flow to remove stale qmax CLI guidance, show the
+  installed qmax-code version, and point users at standalone setup commands.
+
 ## [1.20.3] - 2026-06-30
 
 ### Fixed
