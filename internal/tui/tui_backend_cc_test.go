@@ -23,6 +23,9 @@ func TestPickerIncludesClaudeCodeFableAndSonnet5(t *testing.T) {
 	if fable.label != "Fable 5" {
 		t.Errorf("Fable label = %q, want Fable 5", fable.label)
 	}
+	if fable.subLabel != "1M ctx · long agents" {
+		t.Errorf("Fable subLabel = %q, want 1M ctx · long agents", fable.subLabel)
+	}
 
 	sonnet, ok := seen[api.ModelSonnet5]
 	if !ok {

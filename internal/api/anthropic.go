@@ -9,5 +9,6 @@ const (
 	ModelSonnet5         = "claude-sonnet-5"
 	ModelSonnet          = "claude-sonnet-4-6"
 	ModelOpus            = "claude-opus-4-8" // latest Opus; the "opus" shorthand resolves here
+	ModelOpus1M          = ModelOpus + "[1m]" // Claude Code 1M-context selector
 	ModelOpus47          = "claude-opus-4-7" // prior Opus, still selectable by full ID
 )

@@ -144,8 +144,8 @@ func TestSetConfigField_DefaultModelValidation(t *testing.T) {
 		t.Fatalf("expected shorthand model to be accepted: %v", err)
 	}
 	loaded := api.LoadQMaxCodeConfig()
-	if loaded.DefaultModel != api.ModelSonnet {
-		t.Errorf("DefaultModel: got %q, want %q", loaded.DefaultModel, api.ModelSonnet)
+	if loaded.DefaultModel != api.ModelSonnet5 {
+		t.Errorf("DefaultModel: got %q, want %q", loaded.DefaultModel, api.ModelSonnet5)
 	}
 
 	if err := setConfigField("default_model", "claude-future-model-9-0"); err == nil {

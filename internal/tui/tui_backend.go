@@ -128,11 +128,11 @@ type pickerEntry struct {
 }
 
 var ccModels = []pickerEntry{
-	{backend: "cc", modelID: api.ModelFable, label: "Fable 5", subLabel: "long agents", isNew: true, shortcut: '1'},
+	{backend: "cc", modelID: api.ModelFable, label: "Fable 5", subLabel: "1M ctx · long agents", isNew: true, shortcut: '1'},
 	{backend: "cc", modelID: api.ModelSonnet5, label: "Sonnet 5", subLabel: "1M ctx", isNew: true, isFav: true, shortcut: '2'},
-	{backend: "cc", modelID: "claude-opus-4-8[1m]", label: "Opus 4.8", subLabel: "1M ctx", isNew: true, shortcut: '3'},
-	{backend: "cc", modelID: "claude-opus-4-8", label: "Opus 4.8", isNew: true, shortcut: '4'},
-	{backend: "cc", modelID: "claude-opus-4-7", label: "Opus 4.7", subLabel: "1M ctx", shortcut: '5'},
+	{backend: "cc", modelID: api.ModelOpus1M, label: "Opus 4.8", subLabel: "1M ctx", shortcut: '3'},
+	{backend: "cc", modelID: api.ModelOpus, label: "Opus 4.8", shortcut: '4'},
+	{backend: "cc", modelID: api.ModelOpus47, label: "Opus 4.7", subLabel: "1M ctx", shortcut: '5'},
 	{backend: "cc", modelID: api.ModelSonnet, label: "Sonnet 4.6"},
 	{backend: "cc", modelID: api.ModelHaiku, label: "Haiku 4.5"},
 }

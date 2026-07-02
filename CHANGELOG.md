@@ -6,7 +6,14 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ### Added
 - Added Claude Fable 5 and Claude Sonnet 5 to the Claude Code `/orch` model
-  picker, with Sonnet 5 as the default Claude Code row.
+  picker, with Sonnet 5 as the default Claude Code row. Direct API picker
+  unchanged; CC number shortcuts 1–5 now map to Fable 5, Sonnet 5, and Opus
+  variants (Sonnet 4.6 and Haiku 4.5 remain selectable without shortcuts).
+
+### Changed
+- `sonnet` shorthand and `-model claude-sonnet-5` / `claude-fable-5` now
+  resolve through the shared model registry; Sonnet 5 intro pricing ($2/$10
+  MTok through Aug 31, 2026) is reflected in `/cost` and `/status`.
 
 ## [1.20.4] - 2026-06-30
 

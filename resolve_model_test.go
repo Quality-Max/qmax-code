@@ -9,7 +9,7 @@ import (
 func TestResolveModelUsesCentralModelConstants(t *testing.T) {
 	cases := map[string]string{
 		"haiku":  api.ModelHaiku,
-		"sonnet": api.ModelSonnet,
+		"sonnet": api.ModelSonnet5,
 		"opus":   api.ModelOpus,
 		"custom": "custom",
 	}
