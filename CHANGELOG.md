@@ -4,6 +4,8 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.20.5] - 2026-07-02
+
 ### Added
 - Added Claude Fable 5 and Claude Sonnet 5 to the Claude Code `/orch` model
   picker, with Sonnet 5 as the default Claude Code row. Direct API picker
