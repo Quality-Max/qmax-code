@@ -74,20 +74,36 @@ func (u *TokenUsage) TotalTokens() int {
 
 // EstimatedCost returns estimated cost in USD, based on standard per-MTok API
 // rates (https://platform.claude.com/docs/en/about-claude/pricing). The 1M
-// context window bills at these same standard rates — there is no >200K
-// premium tier for Opus 4.6+/Sonnet 4.6 — so a flat rate per model is correct.
-// Pricing: Opus 4.6/4.7/4.8 input=$5/MTok output=$25/MTok, Sonnet 4.6 input=$3/MTok output=$15/MTok, Haiku 4.5 input=$1/MTok output=$5/MTok
+// context window bills at these same standard rates, so a flat rate per model
+// is correct. Pricing: Fable 5 input=$10/MTok output=$50/MTok,
+// Opus 4.6/4.7/4.8 input=$5/MTok output=$25/MTok, Sonnet 4.6 input=$3/MTok
+// output=$15/MTok, Sonnet 5 intro $2/$10 through Aug 31 2026 then $3/$15,
+// Haiku 4.5 input=$1/MTok output=$5/MTok.
 func (u *TokenUsage) EstimatedCost(model string) float64 {
+	return u.estimatedCostAt(model, time.Now())
+}
+
+func (u *TokenUsage) estimatedCostAt(model string, now time.Time) float64 {
 	var inputRate, outputRate float64
 	switch {
+	case strings.Contains(model, "fable"):
+		inputRate, outputRate = 10.0, 50.0
 	case strings.Contains(model, "opus"):
 		inputRate, outputRate = 5.0, 25.0
 	case strings.Contains(model, "haiku"):
 		inputRate, outputRate = 1.0, 5.0
 	default: // sonnet
-		inputRate, outputRate = 3.0, 15.0
+		inputRate, outputRate = sonnetCostRates(model, now)
 	}
 	return (float64(u.InputTokens)/1_000_000)*inputRate + (float64(u.OutputTokens)/1_000_000)*outputRate
+}
+
+func sonnetCostRates(model string, now time.Time) (inputRate, outputRate float64) {
+	inputRate, outputRate = 3.0, 15.0
+	if strings.Contains(model, "sonnet-5") && now.Before(sonnet5StandardPricingStart) {
+		inputRate, outputRate = 2.0, 10.0
+	}
+	return inputRate, outputRate
 }
 
 // LoadQMaxConfig reads the qmax CLI config file.
