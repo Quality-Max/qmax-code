@@ -4,12 +4,18 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.20.6] - 2026-07-11
+
 ### Added
 - Added GPT-5.6 Terra, Sol, and Luna to the Codex `/orch` model picker, ahead
   of GPT-5.5. Codex number shortcuts 6–0 now map to Terra, Sol, Luna, GPT-5.5,
   and o4-mini (o3, o3-mini, and GPT-4o remain selectable without shortcuts);
   o4-mini stays the default Codex row. Confirmed Claude Fable 5 and Sonnet 5
   (1M ctx) from #138 are already present in the Claude Code picker.
+
+### Fixed
+- Cerebras request failures now print their underlying error details instead of
+  only the generic fallback message.
 
 ## [1.20.5] - 2026-07-02
 
