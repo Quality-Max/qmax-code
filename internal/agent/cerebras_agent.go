@@ -42,13 +42,17 @@ func (a *Agent) RunCerebrasAgent(term *tui.Terminal) (string, bool) {
 		resp, err := a.Cerebras.Chat(ctx, msgs, tools)
 		term.StopThinking()
 
+		// Capture before the cleanup cancel() below, which would otherwise mark
+		// ctx as done unconditionally and make every real failure look "interrupted".
+		interrupted := ctx.Err() != nil
+
 		a.cancelMu.Lock()
 		a.cancel = nil
 		a.cancelMu.Unlock()
 		cancel()
 
 		if err != nil {
-			if ctx.Err() != nil {
+			if interrupted {
 				return "", false // interrupted
 			}
 			if a.Logger != nil {
