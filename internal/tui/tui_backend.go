@@ -138,11 +138,14 @@ var ccModels = []pickerEntry{
 }
 
 var codexModels = []pickerEntry{
-	{backend: "codex", modelID: "gpt-5.5", label: "GPT-5.5", isNew: true, external: true, shortcut: '6'},
-	{backend: "codex", modelID: "o4-mini", label: "o4-mini", external: true, isFav: true, shortcut: '7'},
-	{backend: "codex", modelID: "o3", label: "o3", external: true, shortcut: '8'},
-	{backend: "codex", modelID: "o3-mini", label: "o3-mini", external: true, shortcut: '9'},
-	{backend: "codex", modelID: "gpt-4o", label: "GPT-4o", external: true, shortcut: '0'},
+	{backend: "codex", modelID: "gpt-5.6-terra", label: "GPT-5.6 Terra", isNew: true, external: true, shortcut: '6'},
+	{backend: "codex", modelID: "gpt-5.6-sol", label: "GPT-5.6 Sol", isNew: true, external: true, shortcut: '7'},
+	{backend: "codex", modelID: "gpt-5.6-luna", label: "GPT-5.6 Luna", isNew: true, external: true, shortcut: '8'},
+	{backend: "codex", modelID: "gpt-5.5", label: "GPT-5.5", external: true, shortcut: '9'},
+	{backend: "codex", modelID: "o4-mini", label: "o4-mini", external: true, isFav: true, shortcut: '0'},
+	{backend: "codex", modelID: "o3", label: "o3", external: true},
+	{backend: "codex", modelID: "o3-mini", label: "o3-mini", external: true},
+	{backend: "codex", modelID: "gpt-4o", label: "GPT-4o", external: true},
 }
 
 var apiModels = []pickerEntry{
