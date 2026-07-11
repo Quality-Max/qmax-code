@@ -23,7 +23,7 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	os.Stdout = w
-	defer func() { os.Stdout = orig }()
+	t.Cleanup(func() { os.Stdout = orig })
 
 	fn()
 
@@ -45,7 +45,7 @@ func captureStdout(t *testing.T, fn func()) string {
 func TestRunCerebrasAgentSurfacesRequestErrorDetail(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":{"message":"invalid model gpt-oss-120b"}}`))
+		_, _ = w.Write([]byte(`{"error":{"message":"invalid model gpt-oss-120b"}}`))
 	}))
 	defer srv.Close()
 
