@@ -432,8 +432,11 @@ func main() {
 	// crash mid-run still leaves a partial session file behind.
 	oneShotSessionID := session.GenerateSessionID()
 	saveOneShotSession := func() {
-		if shouldSaveOneShotSession(appConfig.AutoSave, ag.History) {
-			_ = session.SaveSession(oneShotSessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model)
+		if !shouldSaveOneShotSession(appConfig.AutoSave, ag.History) {
+			return
+		}
+		if err := session.SaveSession(oneShotSessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to save session: %v\n", err)
 		}
 	}
 
