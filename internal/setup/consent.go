@@ -29,6 +29,10 @@ func PromptOrchConsent(cfg *api.Config, backend string) ConsentResult {
 		cliName = "Codex"
 		globalConfigPath = "~/.codex/config.toml"
 	}
+	if backend == "opencode" {
+		cliName = "opencode"
+		globalConfigPath = "~/.qmax-code/opencode.json"
+	}
 
 	res := ConsentResult{
 		PermissionMode: cfg.OrchPermissionMode,
@@ -77,8 +81,10 @@ func PromptOrchConsent(cfg *api.Config, backend string) ConsentResult {
 		}
 	}
 
-	// Second prompt: global install. Only ask if not previously consented and not already done.
-	if !res.GlobalInstall && !IsOrchInstalled(backend) {
+	// Second prompt: global install. Only ask if not previously consented and not
+	// already done. Skipped for opencode: qmax manages its own opencode config
+	// (~/.qmax-code/opencode.json) directly, so there is no external global install.
+	if backend != "opencode" && !res.GlobalInstall && !IsOrchInstalled(backend) {
 		fmt.Println()
 		fmt.Printf("  Optional: register qmax tools globally in %s\n", globalConfigPath)
 		fmt.Printf("  so they appear in every `%s` session, not just qmax-code.\n", strings.ToLower(cliName))

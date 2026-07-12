@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/qualitymax/qmax-code/internal/agent"
 	"github.com/qualitymax/qmax-code/internal/api"
@@ -158,8 +159,17 @@ func printConfig() {
 		} else {
 			fmt.Print("  (WARNING: CEREBRAS_API_KEY not set)")
 		}
+	case "opencode":
+		if bin := agent.FindOpenCode(); bin != "" {
+			fmt.Printf("  (opencode found: %s; model: %s)", bin, cfg.ModelOverride)
+		} else {
+			fmt.Print("  (WARNING: opencode binary not found in PATH)")
+		}
 	}
 	fmt.Println()
+	if len(cfg.EnabledProviders) > 0 {
+		fmt.Printf("    providers         = %s  (opencode; manage with /providers)\n", strings.Join(cfg.EnabledProviders, ", "))
+	}
 }
 
 // setConfigField writes the given value into the Config. Empty value
@@ -236,10 +246,10 @@ func setConfigField(key, value string) error {
 
 	case "backend":
 		switch value {
-		case "", "api", "cc", "codex", "cerebras":
+		case "", "api", "cc", "codex", "cerebras", "opencode":
 			cfg.Backend = value
 		default:
-			return fmt.Errorf("invalid backend %q; allowed: api, cc, codex, cerebras", value)
+			return fmt.Errorf("invalid backend %q; allowed: api, cc, codex, cerebras, opencode", value)
 		}
 
 	case "cerebras_key":

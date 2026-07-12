@@ -36,7 +36,7 @@ func main() {
 	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
 	quiet := flag.Bool("q", false, "Quiet mode — no banner, minimal output (for CI)")
 	showVersion := flag.Bool("version", false, "Show version")
-	backendFlag := flag.String("backend", "", "Orchestration backend: cc, codex, cerebras, or api (overrides saved config)")
+	backendFlag := flag.String("backend", "", "Orchestration backend: cc, codex, cerebras, opencode, or api (overrides saved config)")
 	flag.Parse()
 	_ = quiet // reserved for future CI mode
 
@@ -157,14 +157,14 @@ func main() {
 	// --backend flag overrides saved config for this session only.
 	if *backendFlag != "" {
 		switch *backendFlag {
-		case "cc", "codex", "cerebras", "api", "":
+		case "cc", "codex", "cerebras", "opencode", "api", "":
 			if *backendFlag == "api" {
 				appConfig.Backend = ""
 			} else {
 				appConfig.Backend = *backendFlag
 			}
 		default:
-			fmt.Fprintf(os.Stderr, "Error: --backend must be cc, codex, cerebras, or api\n")
+			fmt.Fprintf(os.Stderr, "Error: --backend must be cc, codex, cerebras, opencode, or api\n")
 			os.Exit(2)
 		}
 	}
@@ -300,6 +300,24 @@ func main() {
 			os.Exit(1)
 		}
 		anthropicKey = "__cerebras_mode__" // skip Anthropic key gate below
+	} else if cliBackend == "opencode" {
+		openCodeBin := agent.FindOpenCode()
+		if openCodeBin == "" {
+			fmt.Fprintln(os.Stderr, "\nError: backend=opencode but 'opencode' CLI was not found.")
+			fmt.Fprintln(os.Stderr, "  Install opencode: https://opencode.ai  (curl -fsSL https://opencode.ai/install | bash)")
+			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
+			os.Exit(1)
+		}
+		consent := setup.PromptOrchConsent(appConfig, "opencode")
+		if !consent.Proceed {
+			fmt.Fprintln(os.Stderr, "  opencode backend not activated. Falling back to direct API.")
+			cliBackend = ""
+			appConfig.Backend = ""
+		} else {
+			appConfig.OrchPermissionMode = consent.PermissionMode
+			_ = appConfig.Save()
+			anthropicKey = "__opencode_mode__" // skip Anthropic key gate below
+		}
 	}
 
 	// If connected but missing Anthropic key, prompt for it (skipped in CLI backend modes).
@@ -413,6 +431,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Warning: could not write Codex MCP config: %v\n", err)
 		}
 		cliAgent = ca
+	case "opencode":
+		oc := agent.NewOpenCodeAgent(agent.FindOpenCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, appConfig, ctx)
+		if _, err := agent.WriteOpenCodeConfig(appConfig, ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not write opencode config: %v\n", err)
+		}
+		cliAgent = oc
 	}
 
 	// One-shot mode and positional-arg mode honour the configured CLI backend.

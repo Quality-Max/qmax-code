@@ -52,8 +52,19 @@ type Config struct {
 	//   "cerebras"  → Cerebras OpenAI-compatible API (requires CEREBRAS_API_KEY).
 	//                 Drives the native qmax agent loop with the full tool set via
 	//                 native function calling — fast and low-cost.
-	// In both CLI modes qmax tools are served to the CLI via an embedded MCP server.
+	//   "opencode"  → opencode CLI subprocess. Inherits opencode's broad provider
+	//                 support (Z.AI, Groq, OpenRouter, …); the specific model is
+	//                 ModelOverride in "provider/model" form. Providers are opted
+	//                 into per-user via EnabledProviders + the /providers command.
+	// In the CLI modes (cc/codex/opencode) qmax tools are served via an embedded MCP server.
 	Backend string `json:"backend,omitempty"`
+
+	// EnabledProviders is the per-user opt-in set of opencode provider IDs
+	// (e.g. "zai-coding-plan", "groq", "openrouter"). Empty by default —
+	// nothing is enabled for everyone. A provider only appears in this user's
+	// model picker once they turn it on via /providers and supply a key. See
+	// internal/api/providers.go for the registry and the entitlement seam.
+	EnabledProviders []string `json:"enabled_providers,omitempty"`
 
 	// ModelOverride is the specific model ID selected via the /orch TUI picker.
 	// Empty means "let the CLI pick its default". Used with CC and Codex backends.
