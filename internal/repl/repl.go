@@ -59,14 +59,23 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
 			return
 		}
-		tracker.Start(api, projectID, ag.Cfg.Model)
+		tracker.StartWithHistory(api, projectID, ag.Cfg.Model, len(ag.History), ag.Usage.TotalTokens())
 	}
 	completeCloudSession := func() {
 		cfg := ag.AppConfig
 		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
 			return
 		}
-		tracker.Complete(ag.Cfg.Context.API, ag.Usage.TotalTokens(), session.SummaryFor(ag.History), ag.History)
+		tracker.CompleteCurrent(ag.Cfg.Context.API, ag.Usage.TotalTokens(), ag.History)
+	}
+	switchCloudProject := func(projectID int) bool {
+		cfg := ag.AppConfig
+		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
+			return false
+		}
+		return tracker.SwitchProject(
+			ag.Cfg.Context.API, projectID, ag.Cfg.Model, ag.Usage.TotalTokens(), ag.History,
+		)
 	}
 
 	// Graceful interrupt handling
@@ -214,8 +223,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			id := strings.TrimPrefix(input, "/project ")
 			var pid int
 			if _, err := fmt.Sscanf(id, "%d", &pid); err == nil {
+				movedCloudSession := switchCloudProject(pid)
 				ag.Cfg.Context.ProjectID = pid
 				term.PrintSystem(fmt.Sprintf("Project set to #%d", pid))
+				if movedCloudSession {
+					term.PrintSystem(fmt.Sprintf("Cloud session moved to project #%d", pid))
+				}
 			} else {
 				term.PrintError("Invalid project ID")
 			}
