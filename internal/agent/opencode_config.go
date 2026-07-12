@@ -29,14 +29,45 @@ func OpenCodeConfigPath() string {
 	return filepath.Join(home, api.QmaxCodeConfigDir, "opencode.json")
 }
 
+// openCodeStandardPermission is the permission policy written into the managed
+// config for "standard" mode. opencode runs are launched with --auto (which
+// auto-approves anything NOT explicitly denied), so denying file edits and
+// destructive shell here reproduces the intent of CC's standard allowlist:
+// reads / search / test runners run freely, but the model cannot mutate files
+// or run destructive commands. This is a coarser model than CC's default-deny
+// allowlist (unknown non-destructive bash still auto-approves), which is why
+// Unattended remains the mode for full autonomy.
+func openCodeStandardPermission() map[string]interface{} {
+	return map[string]interface{}{
+		"edit":     "deny", // covers edit/write/patch — no file mutation in standard
+		"webfetch": "allow",
+		"bash": map[string]interface{}{
+			"*":          "allow",
+			"rm":         "deny",
+			"rm *":       "deny",
+			"rmdir *":    "deny",
+			"sudo *":     "deny",
+			"chmod *":    "deny",
+			"chown *":    "deny",
+			"dd *":       "deny",
+			"mkfs*":      "deny",
+			"git push*":  "deny",
+			"git reset*": "deny",
+			"git clean*": "deny",
+			"> *":        "deny",
+		},
+	}
+}
+
 // WriteOpenCodeConfig regenerates the managed opencode config from the user's
-// enabled providers plus the qmax MCP server entry, and returns its path.
+// enabled providers, the qmax MCP server entry, and the permission policy for
+// permissionMode ("standard" | "unattended"), and returns its path.
 //
 // Secrets never land in this file: custom providers reference their key via
 // opencode's "{env:VAR}" substitution, and the real key is injected into the
 // subprocess environment at launch (see OpenCodeProviderEnv). The file is
 // therefore safe to sync while no plaintext key touches disk.
-func WriteOpenCodeConfig(cfg *api.Config, sctx *api.SessionContext) (string, error) {
+func WriteOpenCodeConfig(cfg *api.Config, sctx *api.SessionContext, permissionMode string) (string, error) {
 	self, err := os.Executable()
 	if err != nil {
 		self = QmaxMCPCommand
@@ -101,6 +132,13 @@ func WriteOpenCodeConfig(cfg *api.Config, sctx *api.SessionContext) (string, err
 		root["provider"] = providers
 	}
 
+	// Standard mode gets an explicit deny policy (see openCodeStandardPermission).
+	// Unattended relies on --auto with no denies. Anything else (e.g. listing-only
+	// regen with "") writes no policy.
+	if permissionMode == "standard" {
+		root["permission"] = openCodeStandardPermission()
+	}
+
 	data, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return "", err
@@ -138,8 +176,12 @@ func OpenCodeProviderEnv(cfg *api.Config) map[string]string {
 // OpenCodeModels lists the models opencode exposes for one provider, as
 // "provider/model" strings. It shells out to `opencode models <providerID>`
 // with OPENCODE_CONFIG pointed at the managed config so custom providers
-// (whose models come from our seeded block) resolve too. Returns nil on error.
-func OpenCodeModels(bin, configPath, providerID string) []string {
+// (whose models come from our seeded block) resolve too. providerEnv MUST carry
+// the provider API keys (from OpenCodeProviderEnv): opencode 1.17 reports
+// "Provider not found" for known providers like groq/openrouter when their key
+// env var is absent, so without it those providers would never reach the
+// picker. Returns nil on error.
+func OpenCodeModels(bin, configPath string, providerEnv map[string]string, providerID string) []string {
 	if bin == "" || providerID == "" {
 		return nil
 	}
@@ -148,6 +190,9 @@ func OpenCodeModels(bin, configPath, providerID string) []string {
 
 	cmd := exec.CommandContext(ctx, bin, "models", providerID)
 	cmd.Env = append(os.Environ(), "OPENCODE_CONFIG="+configPath)
+	for k, v := range providerEnv {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {

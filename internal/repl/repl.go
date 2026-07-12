@@ -546,7 +546,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintSystem(fmt.Sprintf("Backend: Codex  model: %s  effort: %s", result.ModelID, result.Effort))
 			case "opencode":
 				oc := agent.NewOpenCodeAgent(agent.FindOpenCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg, ag.Cfg.Context)
-				if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context); err != nil {
+				if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context, cfg.OrchPermissionMode); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: opencode config: %v", err))
 				}
 				cliAgent = oc
@@ -630,6 +630,35 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				wantBackend = ""
 			}
 
+			// opencode pre-flight — validate BEFORE tearing down the active agent
+			// so a failed switch leaves the current backend intact. Also resolves
+			// a valid provider/model: the global ModelOverride may hold a model
+			// from a different backend (e.g. gpt-5.6 from Codex), which must never
+			// be passed to opencode.
+			if wantBackend == "opencode" {
+				if agent.FindOpenCode() == "" {
+					term.PrintError("'opencode' CLI not found.")
+					term.PrintSystem("  curl -fsSL https://opencode.ai/install | bash")
+					continue
+				}
+				if len(cfg.ActiveProviders()) == 0 {
+					term.PrintSystem("No opencode providers enabled yet. Turn one on with /providers, then pick a model in /orch.")
+					continue
+				}
+				model, ok := resolveOpenCodeModelOverride(cfg, ag.Cfg.Context)
+				if !ok {
+					term.PrintError("No opencode models available for your enabled providers. Check keys with /providers or pick a model in /orch.")
+					continue
+				}
+				consent := setup.PromptOrchConsent(cfg, "opencode")
+				if !consent.Proceed {
+					term.PrintSystem("Backend not changed.")
+					continue
+				}
+				cfg.OrchPermissionMode = consent.PermissionMode
+				cfg.ModelOverride = model
+			}
+
 			// Tear down current CLI agent.
 			if cliAgent != nil {
 				cliAgent.Cleanup()
@@ -693,30 +722,17 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintSystem(fmt.Sprintf("Backend → Codex (%s) · %s mode", bin, cfg.OrchPermissionMode))
 
 			case "opencode":
+				// Pre-flight above already validated the CLI, providers, model, and
+				// consent (and set cfg.ModelOverride / cfg.OrchPermissionMode).
 				bin := agent.FindOpenCode()
-				if bin == "" {
-					term.PrintError("'opencode' CLI not found.")
-					term.PrintSystem("  curl -fsSL https://opencode.ai/install | bash")
-					continue
-				}
-				if len(cfg.ActiveProviders()) == 0 {
-					term.PrintSystem("No opencode providers enabled yet. Turn one on with /providers, then pick a model in /orch.")
-					continue
-				}
-				consent := setup.PromptOrchConsent(cfg, "opencode")
-				if !consent.Proceed {
-					term.PrintSystem("Backend not changed.")
-					continue
-				}
-				cfg.OrchPermissionMode = consent.PermissionMode
 				oc := agent.NewOpenCodeAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg, ag.Cfg.Context)
-				if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context); err != nil {
+				if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context, cfg.OrchPermissionMode); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: opencode config: %v", err))
 				}
 				cliAgent = oc
 				cfg.Backend = "opencode"
 				_ = cfg.Save()
-				term.PrintSystem(fmt.Sprintf("Backend → opencode (%s) · %s mode. Pick a model in /orch if needed.", bin, cfg.OrchPermissionMode))
+				term.PrintSystem(fmt.Sprintf("Backend → opencode (%s) · %s · model %s", bin, cfg.OrchPermissionMode, cfg.ModelOverride))
 
 			default:
 				cfg.Backend = ""
@@ -1781,13 +1797,16 @@ func buildOpenCodeModelEntries(cfg *api.Config, sctx *api.SessionContext) []tui.
 	if len(active) == 0 {
 		return nil
 	}
-	path, err := agent.WriteOpenCodeConfig(cfg, sctx)
+	path, err := agent.WriteOpenCodeConfig(cfg, sctx, cfg.OrchPermissionMode)
 	if err != nil {
 		return nil
 	}
+	// Provider keys must be present in the env or `opencode models <provider>`
+	// reports "Provider not found" for known providers (groq/openrouter).
+	env := agent.OpenCodeProviderEnv(cfg)
 	var entries []tui.OpenCodeModelEntry
 	for _, p := range active {
-		for _, full := range agent.OpenCodeModels(bin, path, p.ID) {
+		for _, full := range agent.OpenCodeModels(bin, path, env, p.ID) {
 			label := full
 			if i := strings.Index(full, "/"); i >= 0 {
 				label = full[i+1:]
@@ -1801,6 +1820,24 @@ func buildOpenCodeModelEntries(cfg *api.Config, sctx *api.SessionContext) []tui.
 		}
 	}
 	return entries
+}
+
+// resolveOpenCodeModelOverride returns a valid "provider/model" for the current
+// enabled providers. It keeps the existing ModelOverride if it's a real opencode
+// model for an active provider; otherwise it falls back to the first available
+// model (so a stale override from another backend is never sent to opencode).
+// Returns false when no models are available at all.
+func resolveOpenCodeModelOverride(cfg *api.Config, sctx *api.SessionContext) (string, bool) {
+	entries := buildOpenCodeModelEntries(cfg, sctx)
+	if len(entries) == 0 {
+		return "", false
+	}
+	for _, e := range entries {
+		if e.ModelID == cfg.ModelOverride {
+			return cfg.ModelOverride, true
+		}
+	}
+	return entries[0].ModelID, true
 }
 
 // handleProviders implements the /providers command: list opt-in opencode
@@ -1891,7 +1928,7 @@ func enableProvider(cfg *api.Config, id string, ag *agent.Agent, term *tui.Termi
 		term.PrintError(fmt.Sprintf("Could not save config: %v", err))
 		return
 	}
-	if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context); err != nil {
+	if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context, cfg.OrchPermissionMode); err != nil {
 		term.PrintSystem(fmt.Sprintf("Warning: opencode config: %v", err))
 	}
 	term.PrintSystem(fmt.Sprintf("Enabled %s. Pick a model in /orch (opencode section).", p.DisplayName))
@@ -1910,7 +1947,7 @@ func disableProvider(cfg *api.Config, id string, ag *agent.Agent, term *tui.Term
 		term.PrintError(fmt.Sprintf("Could not save config: %v", err))
 		return
 	}
-	if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context); err != nil {
+	if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context, cfg.OrchPermissionMode); err != nil {
 		term.PrintSystem(fmt.Sprintf("Warning: opencode config: %v", err))
 	}
 	term.PrintSystem(fmt.Sprintf("Disabled %s. (Its key stays in the keychain; re-enable to reuse.)", id))

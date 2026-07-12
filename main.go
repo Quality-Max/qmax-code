@@ -433,7 +433,7 @@ func main() {
 		cliAgent = ca
 	case "opencode":
 		oc := agent.NewOpenCodeAgent(agent.FindOpenCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, appConfig, ctx)
-		if _, err := agent.WriteOpenCodeConfig(appConfig, ctx); err != nil {
+		if _, err := agent.WriteOpenCodeConfig(appConfig, ctx, appConfig.OrchPermissionMode); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not write opencode config: %v\n", err)
 		}
 		cliAgent = oc

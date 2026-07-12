@@ -110,8 +110,8 @@ func validOpenCodeSessionID(id string) bool {
 // Run executes one conversation turn through an opencode subprocess.
 func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	// Regenerate the managed config each turn so newly enabled/disabled
-	// providers take effect without a restart.
-	configPath, err := WriteOpenCodeConfig(a.cfg, a.sctx)
+	// providers (and the permission policy) take effect without a restart.
+	configPath, err := WriteOpenCodeConfig(a.cfg, a.sctx, a.permissionMode)
 	if err != nil {
 		return "", fmt.Errorf("opencode config: %w", err)
 	}
@@ -137,9 +137,12 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 	if a.modelID != "" {
 		args = append(args, "--model", a.modelID)
 	}
-	if a.permissionMode == "unattended" {
-		args = append(args, "--auto")
-	}
+	// --auto auto-approves anything not explicitly denied. In standard mode the
+	// managed config denies edits + destructive shell (openCodeStandardPermission),
+	// so --auto is safe there too; unattended has no denies (full autonomy). Both
+	// need --auto because `opencode run` is non-interactive — without it, tools
+	// that would prompt simply block.
+	args = append(args, "--auto")
 	if sessionID != "" && validOpenCodeSessionID(sessionID) {
 		args = append(args, "--session", sessionID)
 	}
