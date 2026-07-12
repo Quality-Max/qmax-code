@@ -1935,6 +1935,13 @@ func enableProvider(cfg *api.Config, id string, ag *agent.Agent, term *tui.Termi
 	if agent.FindOpenCode() == "" {
 		term.PrintSystem("  Heads-up: the opencode CLI isn't installed yet — curl -fsSL https://opencode.ai/install | bash")
 	}
+	// qmax now holds this provider's key in the OS keychain and injects it at
+	// launch. If the user's own opencode config still has a plaintext key, it's
+	// live and redundant — flag it so they can rotate/remove it.
+	if path, found := agent.PlaintextKeyInUserOpenCodeConfig(); found {
+		term.PrintSystem(fmt.Sprintf("  Security: a plaintext API key is still in %s.", path))
+		term.PrintSystem("    qmax keeps provider keys in your OS keychain — consider rotating that key and removing the literal value (use \"{env:...}\" instead).")
+	}
 }
 
 func disableProvider(cfg *api.Config, id string, ag *agent.Agent, term *tui.Terminal) {

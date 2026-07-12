@@ -9,12 +9,61 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
+
+// userOpenCodeConfigDir returns the directory opencode reads its own global
+// config from. opencode uses $XDG_CONFIG_HOME/opencode (falling back to
+// ~/.config/opencode) on every OS — NOT os.UserConfigDir(), which differs on
+// macOS. This is the user's own file, separate from qmax's managed config.
+func userOpenCodeConfigDir() string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		base = filepath.Join(home, ".config")
+	}
+	return filepath.Join(base, "opencode")
+}
+
+// literalAPIKeyRe matches an "apiKey": "<value>" pair. A value referencing
+// opencode's {env:...} / {file:...} substitution is safe; any other non-empty
+// literal is a plaintext key sitting on disk.
+var literalAPIKeyRe = regexp.MustCompile(`"apiKey"\s*:\s*"([^"]*)"`)
+
+// PlaintextKeyInUserOpenCodeConfig reports whether the user's OWN opencode
+// config files contain a plaintext apiKey (not an {env:}/{file:} reference),
+// and the path where one was found. Used to warn a user — when they move a
+// provider under qmax's keychain-backed management — that a live key is still
+// sitting in cleartext in their opencode config and should be rotated/removed.
+func PlaintextKeyInUserOpenCodeConfig() (path string, found bool) {
+	dir := userOpenCodeConfigDir()
+	if dir == "" {
+		return "", false
+	}
+	for _, name := range []string{"opencode.jsonc", "opencode.json", "config.json"} {
+		p := filepath.Join(dir, name)
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		for _, m := range literalAPIKeyRe.FindAllStringSubmatch(string(data), -1) {
+			v := strings.TrimSpace(m[1])
+			if v == "" || strings.HasPrefix(v, "{env:") || strings.HasPrefix(v, "{file:") {
+				continue
+			}
+			return p, true
+		}
+	}
+	return "", false
+}
 
 // OpenCodeConfigPath is the qmax-managed opencode config file. It is pointed at
 // the opencode subprocess via the OPENCODE_CONFIG env var, which opencode MERGES

@@ -131,6 +131,42 @@ func TestOpenCodeProviderEnvInjectsKeys(t *testing.T) {
 	}
 }
 
+func TestPlaintextKeyInUserOpenCodeConfig(t *testing.T) {
+	tmp := t.TempDir()
+	cfgDir := filepath.Join(tmp, "opencode")
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	// No config → nothing found.
+	if _, found := PlaintextKeyInUserOpenCodeConfig(); found {
+		t.Fatal("no config should mean no plaintext key")
+	}
+
+	// {env:...} reference is safe → not flagged.
+	safe := `{ "provider": { "zai": { "options": { "apiKey": "{env:QMAX_PC_ZAI}" } } } }`
+	if err := os.WriteFile(filepath.Join(cfgDir, "opencode.jsonc"), []byte(safe), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := PlaintextKeyInUserOpenCodeConfig(); found {
+		t.Fatal("{env:...} reference must not be flagged as plaintext")
+	}
+
+	// Literal key → flagged, with the path.
+	leak := `{ "provider": { "zai": { "options": { "apiKey": "sk-literal-secret" } } } }`
+	if err := os.WriteFile(filepath.Join(cfgDir, "opencode.jsonc"), []byte(leak), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path, found := PlaintextKeyInUserOpenCodeConfig()
+	if !found {
+		t.Fatal("literal apiKey should be flagged")
+	}
+	if path == "" {
+		t.Error("should return the offending file path")
+	}
+}
+
 func contains(haystack, needle string) bool {
 	for i := 0; i+len(needle) <= len(haystack); i++ {
 		if haystack[i:i+len(needle)] == needle {
