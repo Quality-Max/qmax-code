@@ -1500,7 +1500,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 			return
 		}
 
-	case "cloudsync":
+	case "cloud_sync", "cloudsync":
 		switch strings.ToLower(value) {
 		case "true", "1", "yes", "on":
 			v := true
