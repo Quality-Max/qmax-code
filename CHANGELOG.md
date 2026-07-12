@@ -4,6 +4,19 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.20.7] - 2026-07-12
+
+### Fixed
+- `--save-session` (and a persisted `auto_save=true`) now also persists
+  one-shot (`-p` / positional-arg) sessions to disk. Previously the flag
+  only set an in-memory config field that the one-shot dispatch path never
+  read, so scripted/CI single-prompt runs were silently never saved.
+- MCP mode (`serve --mcp`) now redirects raw fd 1 writes, not just Go's
+  `os.Stdout` variable, to stderr on Unix. Subprocess/library writes below
+  the Go runtime could otherwise still corrupt the JSON-RPC stdout stream.
+- `/set cloud_sync` (the documented key) now works; previously only the
+  undocumented `cloudsync` alias was recognized.
+
 ## [1.20.6] - 2026-07-11
 
 ### Added
