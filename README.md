@@ -159,6 +159,7 @@ The multimodal path works because qmax converts image attachments into OpenAI `i
 - Anthropic: set `ANTHROPIC_API_KEY`, pass `--anthropic-api-key`, or save it through the interactive key prompt.
 - QualityMax: run `qmax-code login` for browser login, or `qmax-code login --api-key qm-YOUR-API-KEY`.
 - QualityMax credentials are stored in `~/.qmax-code/auth.json` with `0600` permissions. Run `/disconnect` in the REPL to remove saved QualityMax auth.
+- Use `qmax-code --save-session` to force saving the current session for that run, even if auto-save is disabled in the config — this applies to interactive REPL sessions as well as one-shot `-p` / positional-arg runs (so a scripted invocation can still be resumed later with `--resume last`). Not applicable to the `cc`/`codex` CLI backends, which manage their own native session/resume state.
 - Anthropic keys saved by the prompt are stored in the OS keychain under the `qmax-code` service; remove them with your platform keychain tool, or use `ANTHROPIC_API_KEY` for session-only auth.
 - Known credential patterns are redacted from API errors, command output, local test output, and optional telemetry before display or reporting.
 

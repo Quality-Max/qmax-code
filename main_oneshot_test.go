@@ -2,20 +2,90 @@ package main
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/qualitymax/qmax-code/internal/agent"
+	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/session"
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
+
+func TestSaveSessionFlagOverridesAutoSaveWithoutChangingOtherConfig(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.AutoSave = false
+	applySaveSessionFlag(cfg, true)
+	if !cfg.AutoSave {
+		t.Fatal("--save-session should enable auto-save for the current run")
+	}
+}
+
+func TestSaveSessionFlagDoesNotChangeDisabledConfigWhenAbsent(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.AutoSave = false
+	applySaveSessionFlag(cfg, false)
+	if cfg.AutoSave {
+		t.Fatal("auto-save should remain disabled when --save-session is absent")
+	}
+}
+
+func TestShouldSaveOneShotSession(t *testing.T) {
+	history := []api.Message{{Role: "user", Content: "hi"}}
+	if shouldSaveOneShotSession(false, history) {
+		t.Error("must not save when auto-save is off")
+	}
+	if shouldSaveOneShotSession(true, nil) {
+		t.Error("must not save an empty history")
+	}
+	if !shouldSaveOneShotSession(true, history) {
+		t.Error("must save when auto-save is on and history is non-empty")
+	}
+}
+
+// TestOneShotSessionPersistsToDisk is the regression test for the gap where
+// --save-session (or a persisted auto_save=true) only flipped a config field
+// that the one-shot path (-p / positional-arg mode) never consulted, so
+// `qmax-code -p "..."` never wrote a session file for /resume to find. This
+// exercises the same shouldSaveOneShotSession + session.SaveSession pair that
+// runOneShot's saveOneShotSession closure calls.
+func TestOneShotSessionPersistsToDisk(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	os.Setenv("HOME", t.TempDir())
+
+	sessionID := session.GenerateSessionID()
+	history := []api.Message{
+		{Role: "user", Content: "test the login flow"},
+		{Role: "assistant", Content: "done"},
+	}
+
+	if !shouldSaveOneShotSession(true /* autoSave */, history) {
+		t.Fatal("expected gate to allow saving")
+	}
+	if err := session.SaveSession(sessionID, history, 7, api.TokenUsage{}, "sonnet"); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+
+	loaded, err := session.LoadSession(sessionID)
+	if err != nil {
+		t.Fatalf("expected one-shot session to be persisted, LoadSession failed: %v", err)
+	}
+	if len(loaded.Messages) != len(history) {
+		t.Errorf("loaded %d messages, want %d", len(loaded.Messages), len(history))
+	}
+	if loaded.ProjectID != 7 {
+		t.Errorf("loaded ProjectID = %d, want 7", loaded.ProjectID)
+	}
+}
 
 // fakeCLIAgent is a tiny CLIAgent implementation that records whether its
 // Run method was called. Used to verify the QUA-576 dispatch fix without
 // needing a real claude/codex binary.
 type fakeCLIAgent struct {
-	called  bool
-	prompt  string
-	result  string
-	runErr  error
+	called bool
+	prompt string
+	result string
+	runErr error
 }
 
 func (f *fakeCLIAgent) Run(userMsg string, _ *tui.Terminal) (string, error) {
@@ -23,9 +93,9 @@ func (f *fakeCLIAgent) Run(userMsg string, _ *tui.Terminal) (string, error) {
 	f.prompt = userMsg
 	return f.result, f.runErr
 }
-func (f *fakeCLIAgent) Cancel()                {}
-func (f *fakeCLIAgent) Cleanup()               {}
-func (f *fakeCLIAgent) SetOutputVerbose(bool)  {}
+func (f *fakeCLIAgent) Cancel()               {}
+func (f *fakeCLIAgent) Cleanup()              {}
+func (f *fakeCLIAgent) SetOutputVerbose(bool) {}
 
 // dispatchForTest mirrors the dispatch logic in main.go's `runOneShot`
 // closure. Keeping it in sync with that closure is the regression contract

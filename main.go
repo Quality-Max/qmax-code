@@ -32,6 +32,7 @@ func main() {
 	oneShot := flag.String("p", "", "Run a single prompt and exit (non-interactive)")
 	resumeID := flag.String("resume", "", "Resume a previous session by ID (or 'last')")
 	listSessions := flag.Bool("list-sessions", false, "List recent sessions and exit")
+	saveSession := flag.Bool("save-session", false, "Save this session on exit (overrides auto-save setting)")
 	verbose := flag.Bool("verbose", false, "Show tool calls and raw responses")
 	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
 	quiet := flag.Bool("q", false, "Quiet mode — no banner, minimal output (for CI)")
@@ -145,6 +146,9 @@ func main() {
 
 	// Load persistent user config
 	appConfig := api.LoadQMaxCodeConfig()
+	// --save-session is an explicit per-run opt-in. It must override a
+	// persisted auto_save=false setting without changing that setting on disk.
+	applySaveSessionFlag(appConfig, *saveSession)
 
 	// Apply color theme before constructing any UI components.
 	tui.ApplyTheme(tui.ThemeByName(appConfig.Theme))
@@ -421,6 +425,18 @@ func main() {
 	// scripting / cloud-session invocation bypassed the cc backend and hit the
 	// Anthropic API. Now we route through cliAgent when configured, falling
 	// back to the API agent only when no CLI backend is active.
+	// One-shot sessions only accumulate into ag.History via the Cerebras and
+	// direct-API branches below (cliAgent runs cc/codex as a separate process
+	// and manages its own native --resume state, so there's nothing here for
+	// qmax-code's session store to persist). Generate the ID up front so a
+	// crash mid-run still leaves a partial session file behind.
+	oneShotSessionID := session.GenerateSessionID()
+	saveOneShotSession := func() {
+		if shouldSaveOneShotSession(appConfig.AutoSave, ag.History) {
+			_ = session.SaveSession(oneShotSessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model)
+		}
+	}
+
 	runOneShot := func(prompt string) error {
 		if cliAgent != nil {
 			// CLI backends stream their own output (tool icons, glamour-rendered
@@ -443,10 +459,12 @@ func main() {
 			term := tui.NewTerminal()
 			defer term.Close()
 			_, err := ag.RunStreaming(prompt, term)
+			saveOneShotSession()
 			return err
 		}
 		// Direct-API path: non-streaming. Print the returned text ourselves.
 		result, err := ag.Run(prompt)
+		saveOneShotSession()
 		if err != nil {
 			return err
 		}
@@ -507,6 +525,22 @@ func main() {
 // resolveModel expands shorthand model names to full model IDs.
 func resolveModel(m string) string {
 	return api.ResolveClaudeModel(m)
+}
+
+// applySaveSessionFlag applies the explicit per-run save-session override.
+// Keeping this separate makes the flag behavior testable without starting the
+// interactive terminal or loading credentials.
+func applySaveSessionFlag(cfg *api.Config, enabled bool) {
+	if enabled {
+		cfg.AutoSave = true
+	}
+}
+
+// shouldSaveOneShotSession gates the one-shot session write: only persist
+// when auto-save is on (--save-session forces this via applySaveSessionFlag)
+// and there's actually a conversation to save.
+func shouldSaveOneShotSession(autoSave bool, history []api.Message) bool {
+	return autoSave && len(history) > 0
 }
 
 // isValidModelName reports whether m is a recognized model identifier.
