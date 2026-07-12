@@ -50,22 +50,19 @@ func RunServer(version string) {
 		sctx.LiveFeed = true
 	}
 
-	// Pin the real stdout for exclusive use by the JSON-RPC encoder, then
-	// repoint the process-level os.Stdout at stderr. Tool handlers — and
-	// the TUI helpers they call (progress bars, browser animations,
-	// banners in internal/tui) — freely fmt.Print to os.Stdout. In MCP
-	// mode those writes corrupt the newline-delimited JSON-RPC stream the
-	// client (Codex/CC rmcp) reads: an empty line from fmt.Println()
-	// deserializes to nothing (serde "line: 0, column: 0") and a progress
-	// bar deserializes to garbage, either of which kills the transport
-	// worker with "data did not match any variant of untagged enum
-	// JsonRpcMessage". Redirecting os.Stdout to stderr sends every stray
-	// write to diagnostics instead of the wire the parser reads.
-	realStdout := os.Stdout
-	os.Stdout = os.Stderr
-	defer func() { os.Stdout = realStdout }()
+	// Reserve the original stdout stream for JSON-RPC only, then route every
+	// other stdout write to stderr. Reassigning os.Stdout protects normal Go
+	// fmt.Print calls, but not lower-level fd 1 writes from subprocesses or
+	// libraries. redirectStdoutForMCP duplicates the original stdout for the
+	// encoder and, on Unix, also redirects the actual fd 1 to stderr.
+	jsonOut, restoreStdout, err := redirectStdoutForMCP()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "qmax-code MCP stdout isolation failed: %v\n", err)
+		return
+	}
+	defer restoreStdout()
 
-	serveMCP(os.Stdin, realStdout, sctx, version)
+	serveMCP(os.Stdin, jsonOut, sctx, version)
 }
 
 // serveMCP runs the newline-delimited JSON-RPC read/respond loop against the
