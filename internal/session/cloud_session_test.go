@@ -319,3 +319,100 @@ func TestCloudTracker_Complete_SkipsUploadWhenNoMessages(t *testing.T) {
 		t.Errorf("expected 1 HTTP call (PATCH only), got %d", calls)
 	}
 }
+
+func TestCloudTracker_CompleteCurrent_SkipsHistoryBeforeTruncatedSession(t *testing.T) {
+	calls := 0
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	tracker := CloudSessionTracker{
+		cloudID:      "cloud-xyz",
+		historyStart: 5,
+	}
+	// A /load can replace the local conversation with a shorter one. None of
+	// those loaded messages belong to the active cloud session.
+	messages := []api.Message{
+		{Role: "user", Content: "loaded conversation"},
+		{Role: "assistant", Content: "loaded response"},
+	}
+	tracker.CompleteCurrent(client, 100, messages)
+
+	// Complete may PATCH the session, but must not upload loaded messages.
+	if calls != 1 {
+		t.Errorf("expected 1 HTTP call (PATCH only), got %d", calls)
+	}
+}
+
+func TestCloudTracker_SwitchProject_FinalizesOldSessionAndScopesNewHistory(t *testing.T) {
+	var createdProjects []int
+	var patchedIDs []string
+	var uploadedEventCounts []int
+	var patchedTokens []int
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/agent-sessions":
+			var body struct {
+				ProjectID int `json:"project_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode create request: %v", err)
+			}
+			createdProjects = append(createdProjects, body.ProjectID)
+			_, _ = w.Write([]byte("{\"session_id\":\"cloud-" + string(rune('a'+len(createdProjects)-1)) + "\"}"))
+		case r.Method == http.MethodPatch:
+			var body struct {
+				TotalTokens int `json:"total_tokens"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode finalize request: %v", err)
+			}
+			patchedIDs = append(patchedIDs, r.URL.Path)
+			patchedTokens = append(patchedTokens, body.TotalTokens)
+			_, _ = w.Write([]byte("{}"))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/agent-sessions/cloud-a/events":
+			fallthrough
+		case r.Method == http.MethodPost && r.URL.Path == "/api/agent-sessions/cloud-b/events":
+			var body struct {
+				Events []json.RawMessage `json:"events"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode events request: %v", err)
+			}
+			uploadedEventCounts = append(uploadedEventCounts, len(body.Events))
+			_, _ = w.Write([]byte("{}"))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+
+	initialMessages := []api.Message{
+		{Role: "user", Content: "test project one"},
+		{Role: "assistant", Content: "project one response"},
+	}
+	var tracker CloudSessionTracker
+	tracker.StartWithHistory(client, 1, "claude-sonnet-4-6", 0, 0)
+	if !tracker.SwitchProject(client, 2, "claude-sonnet-4-6", 100, initialMessages) {
+		t.Fatal("expected a project switch to move the cloud session")
+	}
+
+	messages := append(initialMessages,
+		api.Message{Role: "user", Content: "test project two"},
+		api.Message{Role: "assistant", Content: "project two response"},
+	)
+	tracker.CompleteCurrent(client, 150, messages)
+
+	if len(createdProjects) != 2 || createdProjects[0] != 1 || createdProjects[1] != 2 {
+		t.Errorf("created projects: got %v, want [1 2]", createdProjects)
+	}
+	if len(patchedIDs) != 2 || patchedIDs[0] != "/api/agent-sessions/cloud-a" || patchedIDs[1] != "/api/agent-sessions/cloud-b" {
+		t.Errorf("patched sessions: got %v", patchedIDs)
+	}
+	if len(patchedTokens) != 2 || patchedTokens[0] != 100 || patchedTokens[1] != 50 {
+		t.Errorf("per-project token totals: got %v, want [100 50]", patchedTokens)
+	}
+	if len(uploadedEventCounts) != 2 || uploadedEventCounts[0] != 2 || uploadedEventCounts[1] != 2 {
+		t.Errorf("uploaded event counts: got %v, want [2 2]", uploadedEventCounts)
+	}
+}
