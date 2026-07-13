@@ -7,7 +7,7 @@ import (
 )
 
 func TestPickerIncludesClaudeCodeFableAndSonnet5(t *testing.T) {
-	m := newModelPickerModel("cc", "", "high", "", "", true, true, false)
+	m := newModelPickerModel("cc", "", "high", "", "", true, true, false, false, nil)
 
 	seen := map[string]pickerEntry{}
 	for _, e := range m.allEntries {
@@ -40,7 +40,7 @@ func TestPickerIncludesClaudeCodeFableAndSonnet5(t *testing.T) {
 }
 
 func TestPickerClaudeCodeDefaultCursorOnSonnet5(t *testing.T) {
-	m := newModelPickerModel("cc", "", "high", "", "", true, true, false)
+	m := newModelPickerModel("cc", "", "high", "", "", true, true, false, false, nil)
 	cur := m.allEntries[m.cursor]
 	if cur.backend != "cc" || cur.modelID != api.ModelSonnet5 {
 		t.Errorf("cursor on %s/%s, want cc/%s", cur.backend, cur.modelID, api.ModelSonnet5)
@@ -48,7 +48,7 @@ func TestPickerClaudeCodeDefaultCursorOnSonnet5(t *testing.T) {
 }
 
 func TestPickerIncludesCodexGPT56Variants(t *testing.T) {
-	m := newModelPickerModel("codex", "", "high", "", "", true, true, false)
+	m := newModelPickerModel("codex", "", "high", "", "", true, true, false, false, nil)
 
 	seen := map[string]pickerEntry{}
 	for _, e := range m.allEntries {

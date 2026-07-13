@@ -47,6 +47,9 @@ var (
 	pickerIconCerebras = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("208")) // orange — Cerebras ◆
 
+	pickerIconOpenCode = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("170")) // magenta — opencode ◈
+
 	pickerDotGreen = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 	pickerDotRed   = lipgloss.NewStyle().Foreground(lipgloss.Color("160"))
 
@@ -164,6 +167,17 @@ var cerebrasModels = []pickerEntry{
 	{backend: "cerebras", modelID: "gemma-4-31b", label: "Gemma 4 31B", subLabel: "vision · preview", external: true},
 }
 
+// OpenCodeModelEntry is one model offered by an enabled opencode provider. The
+// caller resolves these dynamically (via `opencode models <provider>`) and
+// passes only enabled+entitled providers, so the picker shows exactly what the
+// user opted into — never the full opencode catalogue.
+type OpenCodeModelEntry struct {
+	ProviderID   string // e.g. "groq"
+	ProviderName string // e.g. "Groq"
+	ModelID      string // full "provider/model" passed via --model
+	Label        string // display name (model portion)
+}
+
 var effortLevels = []string{"low", "medium", "high"}
 
 // probeOllamaReachable returns true if the Ollama base URL responds within 2s.
@@ -210,8 +224,12 @@ type modelPickerModel struct {
 
 	// Backend availability (resolved by caller before constructing picker so
 	// the View doesn't shell out to LookPath on every frame).
-	ccInstalled    bool
-	codexInstalled bool
+	ccInstalled       bool
+	codexInstalled    bool
+	openCodeInstalled bool
+
+	// hasOpenCode is true when at least one enabled provider contributed a model.
+	hasOpenCode bool
 
 	// Ollama metadata
 	ollamaURL       string
@@ -224,12 +242,23 @@ type modelPickerModel struct {
 	chosen    *pickerEntry
 }
 
-func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string, ccInstalled, codexInstalled, cerebrasKeySet bool) modelPickerModel {
-	entries := make([]pickerEntry, 0, len(ccModels)+len(codexModels)+len(apiModels)+len(cerebrasModels)+1)
+func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string, ccInstalled, codexInstalled, cerebrasKeySet, openCodeInstalled bool, openCodeModels []OpenCodeModelEntry) modelPickerModel {
+	entries := make([]pickerEntry, 0, len(ccModels)+len(codexModels)+len(apiModels)+len(cerebrasModels)+len(openCodeModels)+1)
 	entries = append(entries, ccModels...)
 	entries = append(entries, codexModels...)
 	entries = append(entries, apiModels...)
 	entries = append(entries, cerebrasModels...)
+
+	// Append opencode entries (one per enabled-provider model) after Cerebras.
+	for _, m := range openCodeModels {
+		entries = append(entries, pickerEntry{
+			backend:  "opencode",
+			modelID:  m.ModelID,
+			label:    m.Label,
+			subLabel: m.ProviderName,
+			external: true,
+		})
+	}
 
 	// Append Ollama entry if configured.
 	if ollamaURL != "" && ollamaModel != "" {
@@ -258,15 +287,17 @@ func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, olla
 	}
 
 	return modelPickerModel{
-		allEntries:     entries,
-		cursor:         cursor,
-		effort:         effort,
-		currentBackend: currentBackend,
-		currentModelID: currentModelID,
-		ollamaURL:      ollamaURL,
-		ccInstalled:    ccInstalled,
-		codexInstalled: codexInstalled,
-		cerebrasKeySet: cerebrasKeySet,
+		allEntries:        entries,
+		cursor:            cursor,
+		effort:            effort,
+		currentBackend:    currentBackend,
+		currentModelID:    currentModelID,
+		ollamaURL:         ollamaURL,
+		ccInstalled:       ccInstalled,
+		codexInstalled:    codexInstalled,
+		cerebrasKeySet:    cerebrasKeySet,
+		openCodeInstalled: openCodeInstalled,
+		hasOpenCode:       len(openCodeModels) > 0,
 	}
 }
 
@@ -431,6 +462,29 @@ func (m modelPickerModel) View() string {
 		b.WriteByte('\n')
 	}
 
+	// ── opencode section ─────────────────────────────────────────────
+	if m.hasOpenCode {
+		b.WriteString(pickerDivider.Render(strings.Repeat("─", 52)))
+		b.WriteByte('\n')
+		ocDot := pickerDotGreen.Render("●")
+		ocStatus := "enabled providers"
+		if !m.openCodeInstalled {
+			ocDot = pickerDotRed.Render("●")
+			ocStatus = "opencode not installed"
+		}
+		sectionLabelOC := fmt.Sprintf("%s  opencode  %s %s",
+			pickerIconOpenCode.Render("◈"), ocDot, pickerBadgeExt.Render(ocStatus))
+		b.WriteString(pickerSectionHeader.Render(sectionLabelOC))
+		b.WriteByte('\n')
+		for i, e := range m.allEntries {
+			if e.backend != "opencode" {
+				continue
+			}
+			b.WriteString(m.renderRow(i, e, "opencode"))
+			b.WriteByte('\n')
+		}
+	}
+
 	// ── Ollama section ───────────────────────────────────────────────
 	hasOllama := false
 	for _, e := range m.allEntries {
@@ -499,6 +553,8 @@ func (m modelPickerModel) renderRow(idx int, e pickerEntry, backend string) stri
 		icon = pickerIconOllama.Render("⬡")
 	case "cerebras":
 		icon = pickerIconCerebras.Render("◆")
+	case "opencode":
+		icon = pickerIconOpenCode.Render("◈")
 	default:
 		icon = pickerIconAPI.Render("○")
 	}
@@ -584,6 +640,8 @@ func (m modelPickerModel) renderStatusBar() string {
 		icon = pickerStatusBar.Render("⬡")
 	case "cerebras":
 		icon = pickerStatusBar.Render("◆")
+	case "opencode":
+		icon = pickerStatusBar.Render("◈")
 	default:
 		icon = pickerStatusIcon.Render("○")
 	}
@@ -741,12 +799,15 @@ type ModelPickerOpts struct {
 	CCInstalled    bool   // pre-resolved (don't shell out from picker.View per frame)
 	CodexInstalled bool
 	CerebrasKeySet bool // true when a Cerebras API key is configured (drives the section status dot)
+
+	OpenCodeInstalled bool                 // true when the opencode CLI is present
+	OpenCodeModels    []OpenCodeModelEntry // models from enabled+entitled providers; empty hides the section
 }
 
 // ShowModelPicker opens the unified model + effort TUI.
 // Returns the result; Confirmed=false means the user cancelled.
 func ShowModelPicker(opts ModelPickerOpts) ModelPickerResult {
-	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled, opts.CerebrasKeySet)
+	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled, opts.CerebrasKeySet, opts.OpenCodeInstalled, opts.OpenCodeModels)
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {
