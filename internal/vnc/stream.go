@@ -1,8 +1,17 @@
 package vnc
 
+// EGRESS CARVE-OUT (QUA-1316): this package is the sole non-httpx egress path
+// in qmax-code. It opens a WebSocket (coder/websocket) to the cloud-sandbox
+// noVNC endpoint to stream the live browser framebuffer. This traffic carries
+// rendered pixels (screenshots), never source code, prompts, or API keys, so it
+// is outside the Exposure Receipt's content-accountability scope. The static
+// egress guard (internal/httpx/guard_test.go) allowlists this package
+// explicitly — any *new* WebSocket or raw-socket egress must be reviewed and
+// added to the carve-out list, not silently merged.
+//
 // Minimal RFB 3.8 client over WebSocket, tailored for QM Cloud Sandbox
 // noVNC endpoints. Decodes Raw + CopyRect into a 32-bit BGRX framebuffer
-// so the renderer can emit ANSI half-blocks. Keeps the dependency surface
+// so the renderer can emit ANSI half blocks. Keeps the dependency surface
 // to one websocket library — RFB framing is small enough to roll by hand
 // and lets us pin the wire format we want from the server.
 

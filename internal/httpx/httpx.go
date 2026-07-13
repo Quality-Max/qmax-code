@@ -128,6 +128,12 @@ func (t *receiptTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	resp, err := t.base.RoundTrip(req)
 
+	// Read the accumulated hash/size after RoundTrip returns. This is accurate
+	// because every current endpoint (Anthropic, Cerebras, Ollama, cloud REST)
+	// reads the full request body before sending response headers — so the
+	// transport has fully drained hashingBody by the time we get here. An
+	// early-responding server (rare; HTTP/2 with a 4xx before body drain) would
+	// see a partial count; acceptable given the no-buffering design constraint.
 	entry.ReqBytes = hb.n
 	entry.ReqSHA256 = hex.EncodeToString(hb.h.Sum(nil))
 	if err != nil {

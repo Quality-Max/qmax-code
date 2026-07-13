@@ -35,6 +35,7 @@ func TestNoEgressOutsideHttpx(t *testing.T) {
 	forbiddenImports := []string{
 		"go-resty", "levigross/grequests", "h2non/gentleman",
 		"valyala/fasthttp", "imroc/req", "jmcvetta/napping",
+		"coder/websocket",
 	}
 
 	root := filepath.Join("..", "..") // module root: qmax-code/
@@ -45,10 +46,13 @@ func TestNoEgressOutsideHttpx(t *testing.T) {
 			return err
 		}
 		if info.IsDir() {
-			// Skip this package (the sanctioned chokepoint), build output, and
-			// hidden/vendor dirs.
+			// Skip sanctioned carve-outs, build output, and hidden/vendor dirs.
+			//   httpx — the chokepoint itself (creates the clients).
+			//   vnc  — documented WebSocket carve-out (see internal/vnc/stream.go
+			//          package doc): live-browser screen streaming carries pixels,
+			//          never source/prompts. Reviewed and accepted on QUA-1316.
 			name := info.Name()
-			if name == "httpx" || name == "vendor" || name == "build" || strings.HasPrefix(name, ".") {
+			if name == "httpx" || name == "vnc" || name == "vendor" || name == "build" || strings.HasPrefix(name, ".") {
 				if path != root {
 					return filepath.SkipDir
 				}
