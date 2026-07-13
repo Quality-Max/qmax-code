@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/BourgeoisBear/rasterm v1.1.2
+	github.com/Quality-Max/qmax-receipt v0.1.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.8.0
 	github.com/charmbracelet/lipgloss v1.1.0

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/httpx"
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
@@ -78,7 +79,7 @@ func NewOllamaClient(cfg *api.Config) *OllamaClient {
 		BaseURL:         strings.TrimRight(cfg.OllamaURL, "/"),
 		Model:           cfg.OllamaModel,
 		AgentModel:      agentModel,
-		HTTP:            &http.Client{Timeout: 120 * time.Second},
+		HTTP:            httpx.NewClient(120 * time.Second),
 		cooldownSeconds: ollamaCooldownSec,
 	}
 }
@@ -172,7 +173,7 @@ func (o *OllamaClient) ChatStreaming(ctx context.Context, system string, history
 	}
 
 	reqURL := o.BaseURL + "/v1/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(data))
+	req, err := httpx.NewRequest(httpx.WithModel(ctx, o.Model), "POST", reqURL, bytes.NewReader(data))
 	if err != nil {
 		return "", err
 	}

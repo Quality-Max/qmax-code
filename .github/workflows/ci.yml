@@ -28,3 +28,10 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      # Runs the unit suite AND the static egress guard
+      # (internal/httpx/guard_test.go), which fails the build if any package
+      # outside internal/httpx constructs a raw http.Client / http.NewRequest —
+      # so un-receipted egress can't merge.
+      - name: Test
+        run: go test ./...

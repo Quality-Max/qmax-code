@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/httpx"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
 
@@ -192,7 +192,7 @@ func probeOllamaReachable(rawURL string) bool {
 	// Strip credentials before logging; keep them for the actual request.
 	probe := *u
 	probe.Path = "/api/tags"
-	c := &http.Client{Timeout: 2 * time.Second}
+	c := httpx.NewClient(2 * time.Second)
 	resp, err := c.Get(probe.String())
 	if err != nil {
 		return false

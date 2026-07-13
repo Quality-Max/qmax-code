@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/httpx"
 )
 
 // Cerebras integration — drive the full native agent loop through Cerebras's
@@ -44,7 +45,7 @@ func NewCerebrasClient(cfg *api.Config) *CerebrasClient {
 		Model:           model,
 		APIKey:          cfg.CerebrasKey,
 		ReasoningEffort: api.NormalizeCerebrasReasoningEffort(cfg.CerebrasReasoningEffort),
-		HTTP:            &http.Client{Timeout: 300 * time.Second},
+		HTTP:            httpx.NewClient(300 * time.Second),
 	}
 }
 
@@ -207,7 +208,7 @@ func (c *CerebrasClient) Chat(ctx context.Context, msgs []oaiMessage, tools []oa
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewReader(data))
+	req, err := httpx.NewRequest(httpx.WithModel(ctx, c.Model), "POST", c.BaseURL+"/chat/completions", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}

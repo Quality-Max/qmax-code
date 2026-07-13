@@ -26,8 +26,10 @@ import (
 )
 
 // Run is the REPL entrypoint. version is the qmax-code build version,
-// surfaced in the welcome banner.
-func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version string) {
+// surfaced in the welcome banner. finalizeReceipt is called inside saveAndExit
+// so that signal-based exits (Ctrl+C x2, SIGTERM — which call os.Exit and
+// bypass main's deferred finalizer) still write the Exposure Receipt.
+func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version string, finalizeReceipt func()) {
 	term := tui.NewTerminal()
 	defer term.Close()
 	if cliAgent != nil {
@@ -93,6 +95,9 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 	saveAndExit := func() {
 		_ = session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model)
 		completeCloudSession()
+		if finalizeReceipt != nil {
+			finalizeReceipt()
+		}
 		fmt.Fprintf(os.Stderr, "Session %s saved.\n", sessionID)
 	}
 

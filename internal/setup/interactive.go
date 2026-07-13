@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/httpx"
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
@@ -58,10 +58,10 @@ func LoginViaBrowser() (*api.AuthConfig, error) {
 	if cloudURL == "" {
 		cloudURL = api.DefaultCloudURL
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpx.NewClient(10 * time.Second)
 
 	// Step 1: Get a CLI auth code
-	req, err := http.NewRequest("POST", cloudURL+"/api/auth/cli-login", nil)
+	req, err := httpx.NewRequest(context.Background(), "POST", cloudURL+"/api/auth/cli-login", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -103,7 +103,7 @@ func LoginViaBrowser() (*api.AuthConfig, error) {
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
 
-		pollReq, _ := http.NewRequest("GET", pollURL, nil)
+		pollReq, _ := httpx.NewRequest(context.Background(), "GET", pollURL, nil)
 		pollResp, err := client.Do(pollReq)
 		if err != nil {
 			// Network hiccup — keep trying

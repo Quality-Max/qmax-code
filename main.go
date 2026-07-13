@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	xterm "golang.org/x/term"
 
@@ -50,6 +51,28 @@ func main() {
 	sysutil.InitErrorReporting(Version)
 	defer sysutil.FlushErrorReporting()
 	defer sysutil.RecoverPanic()
+
+	// Exposure Receipt: record every outbound request this session makes (LLM
+	// prompts, cloud-API calls, integration connects) into a signed, offline-
+	// verifiable manifest under ~/.qmax-code/receipts/. Installed before any
+	// subcommand dispatch so MCP-serve, login, cc/codex and the interactive flow
+	// are all covered; written at exit only if the session actually egressed.
+	initReceiptPaths()
+	sessionRec := beginSessionReceipt(receiptKind(os.Args))
+	// sync.Once makes the finalizer idempotent: signal-based exits call it via
+	// repl.Run's saveAndExit (before os.Exit), normal exits call it via this
+	// defer — whichever fires first wins, the other is a no-op.
+	var receiptOnce sync.Once
+	finalizeReceipt := func() {
+		receiptOnce.Do(func() { finalizeSessionReceipt(sessionRec) })
+	}
+	defer finalizeReceipt()
+
+	// `receipt` inspects prior manifests offline and does no egress of its own.
+	if len(os.Args) > 1 && os.Args[1] == "receipt" {
+		handleReceiptCommand(os.Args[2:])
+		return
+	}
 
 	// Handle "serve --mcp" subcommand: start MCP server for Claude Code integration.
 	// CC spawns this automatically when qmax-code is listed as an MCP server.
@@ -552,7 +575,7 @@ func main() {
 	agent.CleanupStaleMCPConfigs()
 
 	// Interactive REPL
-	repl.Run(ag, cliAgent, *quiet, Version)
+	repl.Run(ag, cliAgent, *quiet, Version, finalizeReceipt)
 }
 
 // resolveModel expands shorthand model names to full model IDs.

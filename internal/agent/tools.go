@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/httpx"
 	"github.com/qualitymax/qmax-code/internal/security"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/tui"
@@ -2277,13 +2277,13 @@ func fetchScriptCode(sctx *api.SessionContext, ctx context.Context, scriptID str
 	}
 
 	url := fmt.Sprintf("%s/api/automation/scripts/%s", apiURL, scriptID)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := httpx.NewRequest(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := httpx.NewClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
@@ -2311,14 +2311,14 @@ func updateScriptCode(sctx *api.SessionContext, ctx context.Context, scriptID, n
 		"code": code,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewReader(payload))
+	req, err := httpx.NewRequest(ctx, "PUT", url, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := httpx.NewClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Sprintf(`{"error": %q}`, security.RedactSensitive(err.Error()))
@@ -2647,7 +2647,7 @@ func callVisionAnalysis(sctx *api.SessionContext, imageURL, prompt string) strin
 	}
 
 	data, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", api.AnthropicMessagesURL, bytes.NewReader(data))
+	req, err := httpx.NewRequest(httpx.WithModel(context.Background(), api.ModelHaiku), "POST", api.AnthropicMessagesURL, bytes.NewReader(data))
 	if err != nil {
 		return jsonError("Failed to create vision request: " + err.Error())
 	}
@@ -2655,7 +2655,7 @@ func callVisionAnalysis(sctx *api.SessionContext, imageURL, prompt string) strin
 	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", api.AnthropicVersion)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := httpx.NewClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return jsonError("Vision API request failed: " + err.Error())

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/qualitymax/qmax-code/internal/httpx"
 	"github.com/qualitymax/qmax-code/internal/security"
 )
 
@@ -27,7 +28,7 @@ func (c *APIClient) ConnectClaudeCode(ctx context.Context, authJSON string) (*Cl
 		return nil, fmt.Errorf("encode Claude Code credentials: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(
+	req, err := httpx.NewRequest(
 		ctx,
 		http.MethodPost,
 		c.BaseURL+"/api/integrations/claude-code/connect",
