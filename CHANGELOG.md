@@ -4,6 +4,16 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.20.9] - 2026-07-13
+
+### Fixed
+- Activating the OpenCode backend no longer aborts skill install with
+  `skills: unknown backend "opencode"`. OpenCode is now a first-class skills
+  backend: the QA skill catalog materializes into `~/.config/opencode/skills/`
+  (name + description frontmatter, matching OpenCode's recognized schema) on
+  activation and on every launch, alongside Claude Code and Codex. `/skills`
+  status and `/skills install` now cover the OpenCode (`oc`) backend too.
+
 ## [1.20.8] - 2026-07-13
 
 ### Added
