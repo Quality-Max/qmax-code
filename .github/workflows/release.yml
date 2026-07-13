@@ -29,7 +29,9 @@ jobs:
         run: |
           mkdir -p build
           VERSION="${GITHUB_REF_NAME#v}"
-          LDFLAGS="-s -w -X main.Version=${VERSION}"
+          # Stamp the build SHA into the Exposure Receipt so a receipt names the
+          # exact binary that produced it (agent_build_sha).
+          LDFLAGS="-s -w -X main.Version=${VERSION} -X github.com/Quality-Max/qmax-receipt.BuildSHA=${GITHUB_SHA}"
           GOOS=darwin  GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o build/qmax-code-darwin-amd64 .
           GOOS=darwin  GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o build/qmax-code-darwin-arm64 .
           GOOS=linux   GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o build/qmax-code-linux-amd64 .

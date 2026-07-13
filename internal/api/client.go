@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/qualitymax/qmax-code/internal/httpx"
 	"github.com/qualitymax/qmax-code/internal/security"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
@@ -30,7 +31,7 @@ func NewAPIClient(auth *AuthConfig) *APIClient {
 	return &APIClient{
 		BaseURL: auth.GetCloudURL(),
 		APIKey:  auth.APIKey,
-		HTTP:    &http.Client{Timeout: 120 * time.Second},
+		HTTP:    httpx.NewClient(120 * time.Second),
 	}
 }
 
@@ -764,7 +765,7 @@ func (c *APIClient) CheckBackgroundJob(ctx context.Context, jobID string) string
 // --- Delete helper ---
 
 func (c *APIClient) delete(ctx context.Context, path string) string {
-	req, err := http.NewRequestWithContext(ctx, "DELETE", c.BaseURL+path, nil)
+	req, err := httpx.NewRequest(ctx, "DELETE", c.BaseURL+path, nil)
 	if err != nil {
 		return jsonError(err.Error())
 	}
@@ -774,7 +775,7 @@ func (c *APIClient) delete(ctx context.Context, path string) string {
 // --- HTTP helpers ---
 
 func (c *APIClient) get(ctx context.Context, path string) string {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+path, nil)
+	req, err := httpx.NewRequest(ctx, "GET", c.BaseURL+path, nil)
 	if err != nil {
 		return jsonError(err.Error())
 	}
@@ -787,7 +788,7 @@ func (c *APIClient) post(ctx context.Context, path string, body interface{}) str
 		data, _ := json.Marshal(body)
 		reqBody = bytes.NewReader(data)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+path, reqBody)
+	req, err := httpx.NewRequest(ctx, "POST", c.BaseURL+path, reqBody)
 	if err != nil {
 		return jsonError(err.Error())
 	}
@@ -803,7 +804,7 @@ func (c *APIClient) put(ctx context.Context, path string, body interface{}) stri
 		data, _ := json.Marshal(body)
 		reqBody = bytes.NewReader(data)
 	}
-	req, err := http.NewRequestWithContext(ctx, "PUT", c.BaseURL+path, reqBody)
+	req, err := httpx.NewRequest(ctx, "PUT", c.BaseURL+path, reqBody)
 	if err != nil {
 		return jsonError(err.Error())
 	}
@@ -819,7 +820,7 @@ func (c *APIClient) patch(ctx context.Context, path string, body interface{}) st
 		data, _ := json.Marshal(body)
 		reqBody = bytes.NewReader(data)
 	}
-	req, err := http.NewRequestWithContext(ctx, "PATCH", c.BaseURL+path, reqBody)
+	req, err := httpx.NewRequest(ctx, "PATCH", c.BaseURL+path, reqBody)
 	if err != nil {
 		return jsonError(err.Error())
 	}

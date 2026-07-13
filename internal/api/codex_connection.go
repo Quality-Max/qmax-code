@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/qualitymax/qmax-code/internal/httpx"
 	"github.com/qualitymax/qmax-code/internal/security"
 )
 
@@ -38,7 +39,7 @@ func (c *APIClient) ConnectCodex(ctx context.Context, authJSON string) (*CodexCo
 		return nil, fmt.Errorf("encode Codex credentials: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(
+	req, err := httpx.NewRequest(
 		ctx,
 		http.MethodPost,
 		c.BaseURL+"/api/integrations/codex/connect",

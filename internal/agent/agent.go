@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/httpx"
 	"github.com/qualitymax/qmax-code/internal/session"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/tui"
@@ -118,7 +119,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 		Cfg:     cfg,
 		History: []api.Message{},
 		tools:   BuildToolDefs(),
-		client:  &http.Client{Timeout: 300 * time.Second},
+		client:  httpx.NewClient(300 * time.Second),
 	}
 }
 
@@ -574,8 +575,10 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 		fmt.Printf("[API] Streaming request: %d bytes, %d messages\n", len(data), len(a.History))
 	}
 
+	// Attribute the model on the Exposure Receipt entry for this prompt.
+	ctx = httpx.WithModel(ctx, model)
 	resp, err := doWithRetry(ctx, a.client, func() (*http.Request, error) {
-		req, err := http.NewRequestWithContext(ctx, "POST", api.AnthropicMessagesURL, bytes.NewReader(data))
+		req, err := httpx.NewRequest(ctx, "POST", api.AnthropicMessagesURL, bytes.NewReader(data))
 		if err != nil {
 			return nil, err
 		}
@@ -778,8 +781,9 @@ func (a *Agent) callAPI() (*api.APIResponse, error) {
 		fmt.Printf("[API] Request: %d bytes, %d messages\n", len(data), len(a.History))
 	}
 
-	resp, err := doWithRetry(context.Background(), a.client, func() (*http.Request, error) {
-		req, err := http.NewRequest("POST", api.AnthropicMessagesURL, bytes.NewReader(data))
+	ctx := httpx.WithModel(context.Background(), a.Cfg.Model)
+	resp, err := doWithRetry(ctx, a.client, func() (*http.Request, error) {
+		req, err := httpx.NewRequest(ctx, "POST", api.AnthropicMessagesURL, bytes.NewReader(data))
 		if err != nil {
 			return nil, err
 		}

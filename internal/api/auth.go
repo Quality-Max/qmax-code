@@ -1,14 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/httpx"
 )
 
 // AuthConfig holds QualityMax authentication credentials.
@@ -116,8 +118,8 @@ func LoginWithAPIKey(apiKey string) (*AuthConfig, error) {
 	cloudURL := envOr("QUALITYMAX_URL", DefaultCloudURL)
 
 	// Validate by calling /api/me
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequest("GET", cloudURL+"/api/me", nil)
+	client := httpx.NewClient(10 * time.Second)
+	req, _ := httpx.NewRequest(context.Background(), "GET", cloudURL+"/api/me", nil)
 	req.Header.Set("Authorization", "Bearer "+stripKeyPrefix(apiKey))
 
 	resp, err := client.Do(req)
@@ -156,8 +158,8 @@ func LoginWithAPIKey(apiKey string) (*AuthConfig, error) {
 
 // fetchMe calls /api/me to get user info (email, id) from the API.
 func fetchMe(cfg *AuthConfig) map[string]interface{} {
-	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequest("GET", cfg.GetCloudURL()+"/api/me", nil)
+	client := httpx.NewClient(5 * time.Second)
+	req, err := httpx.NewRequest(context.Background(), "GET", cfg.GetCloudURL()+"/api/me", nil)
 	if err != nil {
 		return nil
 	}

@@ -51,6 +51,21 @@ func main() {
 	defer sysutil.FlushErrorReporting()
 	defer sysutil.RecoverPanic()
 
+	// Exposure Receipt: record every outbound request this session makes (LLM
+	// prompts, cloud-API calls, integration connects) into a signed, offline-
+	// verifiable manifest under ~/.qmax-code/receipts/. Installed before any
+	// subcommand dispatch so MCP-serve, login, cc/codex and the interactive flow
+	// are all covered; written at exit only if the session actually egressed.
+	initReceiptPaths()
+	sessionRec := beginSessionReceipt(receiptKind(os.Args))
+	defer finalizeSessionReceipt(sessionRec)
+
+	// `receipt` inspects prior manifests offline and does no egress of its own.
+	if len(os.Args) > 1 && os.Args[1] == "receipt" {
+		handleReceiptCommand(os.Args[2:])
+		return
+	}
+
 	// Handle "serve --mcp" subcommand: start MCP server for Claude Code integration.
 	// CC spawns this automatically when qmax-code is listed as an MCP server.
 	if len(os.Args) > 1 && os.Args[1] == "serve" {

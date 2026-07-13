@@ -1,5 +1,7 @@
 github.com/BourgeoisBear/rasterm v1.1.2 h1:hWHZBZ45N366uNSqxWFYBV0y19q8fXRXADhPkoLF4Ss=
 github.com/BourgeoisBear/rasterm v1.1.2/go.mod h1:Ifd+To5s/uyUiYx+B4fxhS8lUNwNLSxDBjskmC5pEyw=
+github.com/Quality-Max/qmax-receipt v0.1.0 h1:eHFs+2KhmWxldWWyEz1Tu4Oh+FuUOHt1JYG8IXLgUWw=
+github.com/Quality-Max/qmax-receipt v0.1.0/go.mod h1:1GaT7lO+l9itgDgcVHUKF54pbMxKz5671f74Q1c3rDg=
 github.com/alecthomas/assert/v2 v2.7.0 h1:QtqSACNS3tF7oasA8CU6A6sXZSBDqnm7RfpLl9bZqbE=
 github.com/alecthomas/assert/v2 v2.7.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/chroma/v2 v2.14.0 h1:R3+wzpnUArGcQz7fCETQBzO5n9IMNi13iIs46aU4V9E=
