@@ -320,6 +320,31 @@ func TestCloudTracker_Complete_SkipsUploadWhenNoMessages(t *testing.T) {
 	}
 }
 
+func TestCloudTracker_CompleteCurrent_SkipsHistoryBeforeTruncatedSession(t *testing.T) {
+	calls := 0
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	tracker := CloudSessionTracker{
+		cloudID:      "cloud-xyz",
+		historyStart: 5,
+	}
+	// A /load can replace the local conversation with a shorter one. None of
+	// those loaded messages belong to the active cloud session.
+	messages := []api.Message{
+		{Role: "user", Content: "loaded conversation"},
+		{Role: "assistant", Content: "loaded response"},
+	}
+	tracker.CompleteCurrent(client, 100, messages)
+
+	// Complete may PATCH the session, but must not upload loaded messages.
+	if calls != 1 {
+		t.Errorf("expected 1 HTTP call (PATCH only), got %d", calls)
+	}
+}
+
 func TestCloudTracker_SwitchProject_FinalizesOldSessionAndScopesNewHistory(t *testing.T) {
 	var createdProjects []int
 	var patchedIDs []string

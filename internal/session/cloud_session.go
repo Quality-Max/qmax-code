@@ -116,8 +116,11 @@ func (t *CloudSessionTracker) SwitchProject(
 // of the local history that belongs to its current project.
 func (t *CloudSessionTracker) CompleteCurrent(client *api.APIClient, totalTokens int, messages []api.Message) {
 	start := t.historyStart
-	if start < 0 || start > len(messages) {
+	if start < 0 {
 		start = 0
+	}
+	if start > len(messages) {
+		start = len(messages)
 	}
 	projectMessages := messages[start:]
 	projectTokens := totalTokens - t.tokenStart
