@@ -443,7 +443,9 @@ func main() {
 		// Skills sync every launch (idempotent). opencode has no global-install
 		// prompt — qmax manages its config directly — so this is unconditional,
 		// unlike the OrchGlobalInstall-gated cc/codex sync above.
-		_, _ = setup.InstallSkills("opencode")
+		if _, err := setup.InstallSkills("opencode"); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not install opencode skills: %v\n", err)
+		}
 		cliAgent = oc
 	}
 

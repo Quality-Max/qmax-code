@@ -135,6 +135,45 @@ func TestCatalogNamesAreOpenCodeCompatible(t *testing.T) {
 	}
 }
 
+// TestOpenCodeNameRegexRejectsInvalid confirms the regex itself is correct:
+// opencode bans underscores, leading/trailing/double hyphens, and uppercase.
+func TestOpenCodeNameRegexRejectsInvalid(t *testing.T) {
+	bad := []string{
+		"has_underscore", // underscores not allowed (qmax's own regex permits them)
+		"trailing-",
+		"-leading",
+		"double--dash",
+		"CamelCase",
+		"with space",
+		"",
+	}
+	for _, name := range bad {
+		if opencodeNameRe.MatchString(name) {
+			t.Errorf("opencodeNameRe unexpectedly accepted invalid name %q", name)
+		}
+	}
+}
+
+// TestSkillsDirRejectsUnknownBackend guards the default branch so an invalid
+// backend string fails loudly instead of writing to an arbitrary path.
+func TestSkillsDirRejectsUnknownBackend(t *testing.T) {
+	home := t.TempDir()
+	for _, b := range []Backend{"", "claude", "CC", "open-code", "unknown"} {
+		if _, err := SkillsDir(b, home); err == nil {
+			t.Errorf("SkillsDir(%q): expected error, got nil", b)
+		}
+	}
+	for _, b := range []Backend{BackendCC, BackendCodex, BackendOpenCode} {
+		if _, err := SkillsDir(b, home); err != nil {
+			t.Errorf("SkillsDir(%q): unexpected error: %v", b, err)
+		}
+	}
+	// And Materialize must surface the same error, not write anything.
+	if _, err := Materialize(Backend("bogus"), home); err == nil {
+		t.Fatal("Materialize(bogus): expected error, got nil")
+	}
+}
+
 func TestMaterializeIsIdempotent(t *testing.T) {
 	home := t.TempDir()
 	if _, err := Materialize(BackendCodex, home); err != nil {
