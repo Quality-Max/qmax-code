@@ -179,16 +179,17 @@ func InstallSkillsReport(backend string, term *tui.Terminal) {
 	term.PrintSystem(fmt.Sprintf("Installed %d qmax QA skills into %s", len(res.Written), res.Dir))
 }
 
-// InstallSkillsBoth materializes the catalog into both CLI backends and reports
-// each. Used by the `/skills install` command.
-func InstallSkillsBoth(term *tui.Terminal) {
+// InstallSkillsAll materializes the catalog into every supported CLI backend
+// and reports each. Used by the `/skills install` command.
+func InstallSkillsAll(term *tui.Terminal) {
 	InstallSkillsReport("cc", term)
 	InstallSkillsReport("codex", term)
+	InstallSkillsReport("opencode", term)
 }
 
 // PrintSkillsStatus lists the qmax QA skill catalog and shows, per skill,
-// whether it is currently materialized into the Claude Code and Codex skills
-// directories. Backs the `/skills` command so the catalog is visible from
+// whether it is currently materialized into the Claude Code, Codex, and opencode
+// skills directories. Backs the `/skills` command so the catalog is visible from
 // inside qmax-code, even though the skills themselves run in the CLI backends.
 func PrintSkillsStatus(term *tui.Terminal) {
 	home, err := os.UserHomeDir()
@@ -198,20 +199,22 @@ func PrintSkillsStatus(term *tui.Terminal) {
 	}
 	ccDir, _ := skills.SkillsDir(skills.BackendCC, home)
 	cxDir, _ := skills.SkillsDir(skills.BackendCodex, home)
+	ocDir, _ := skills.SkillsDir(skills.BackendOpenCode, home)
 
 	catalog := skills.SortedCatalog()
-	term.PrintSystem(fmt.Sprintf("qmax QA skills (%d) — installed in:  cc = ~/.claude/skills · codex = ~/.codex/skills", len(catalog)))
+	term.PrintSystem(fmt.Sprintf("qmax QA skills (%d) — installed in:  cc = ~/.claude/skills · codex = ~/.codex/skills · oc = ~/.config/opencode/skills", len(catalog)))
 	for _, sk := range catalog {
 		cc := installMark(filepath.Join(ccDir, sk.Name, "SKILL.md"))
 		cx := installMark(filepath.Join(cxDir, sk.Name, "SKILL.md"))
+		oc := installMark(filepath.Join(ocDir, sk.Name, "SKILL.md"))
 		desc := sk.ShortDescription
 		if desc == "" {
 			desc = sk.Description
 		}
-		fmt.Printf("  cc:%s codex:%s  %s%-22s%s %s\n", cc, cx, tui.ColorBold, sk.Name, tui.ColorReset, desc)
+		fmt.Printf("  cc:%s codex:%s oc:%s  %s%-22s%s %s\n", cc, cx, oc, tui.ColorBold, sk.Name, tui.ColorReset, desc)
 	}
-	term.PrintSystem("Skills load inside Claude Code / Codex sessions — auto-invoked by description, or `$name` in Codex.")
-	term.PrintSystem("Run /skills install to (re)install them into both backends now.")
+	term.PrintSystem("Skills load inside Claude Code / Codex / opencode sessions — auto-invoked by description, or `$name` in Codex.")
+	term.PrintSystem("Run /skills install to (re)install them into all backends now.")
 }
 
 // installMark returns a check or cross depending on whether path exists.

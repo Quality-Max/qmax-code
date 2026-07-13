@@ -1,21 +1,26 @@
 // Package skills defines the backend-neutral catalog of qmax QA skills and
 // materializes them into the native skill directories of each supported CLI
-// backend (Claude Code and Codex).
+// backend (Claude Code, Codex, and opencode).
 //
-// Both Claude Code and Codex load "agent skills" from a folder containing a
-// SKILL.md file with YAML frontmatter (name + description), auto-invoked when a
-// user request matches the description. The two CLIs share that core format but
-// diverge on the optional enrichment they understand:
+// All three CLIs load "agent skills" from a folder containing a SKILL.md file
+// with YAML frontmatter (name + description), auto-invoked when a user request
+// matches the description. They share that core format but diverge on the
+// optional enrichment they understand:
 //
 //   - Claude Code reads an `allowed-tools:` frontmatter key to gate which tools
 //     the skill may call.
 //   - Codex ignores `allowed-tools`; it reads an optional sibling
 //     `agents/openai.yaml` for UI metadata, MCP dependencies, and invocation
 //     policy.
+//   - opencode recognizes only name + description in frontmatter (plus optional
+//     license/compatibility/metadata); it ignores `allowed-tools` and has no
+//     sibling config. (opencode also auto-discovers ~/.claude/skills, but
+//     materializing into its native ~/.config/opencode/skills keeps the catalog
+//     authoritative for opencode-only users.)
 //
 // A single Skill in this catalog is the source of truth. Materialize() emits
 // the right SKILL.md (and, for Codex, openai.yaml) for whichever backend is
-// being installed, so one definition stays in sync across both CLIs.
+// being installed, so one definition stays in sync across all three CLIs.
 package skills
 
 import (

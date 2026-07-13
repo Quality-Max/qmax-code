@@ -440,6 +440,10 @@ func main() {
 		if _, err := agent.WriteOpenCodeConfig(appConfig, ctx, appConfig.OrchPermissionMode); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not write opencode config: %v\n", err)
 		}
+		// Skills sync every launch (idempotent). opencode has no global-install
+		// prompt — qmax manages its config directly — so this is unconditional,
+		// unlike the OrchGlobalInstall-gated cc/codex sync above.
+		_, _ = setup.InstallSkills("opencode")
 		cliAgent = oc
 	}
 

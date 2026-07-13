@@ -338,7 +338,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			setup.PrintSkillsStatus(term)
 			continue
 		case input == "/skills install":
-			setup.InstallSkillsBoth(term)
+			setup.InstallSkillsAll(term)
 			continue
 		case input == "/set":
 			handleSetCommand(input, ag, term)
