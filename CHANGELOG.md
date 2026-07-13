@@ -4,6 +4,25 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.20.8] - 2026-07-13
+
+### Added
+- Added the OpenCode backend. Enable a provider with `/providers enable <id>`,
+  then select an enabled `provider/model` in `/orch` or switch directly with
+  `/opencode`. OpenCode sessions resume natively and receive qmax tools through
+  a managed MCP configuration.
+- Added per-user, opt-in OpenCode providers for Z.AI Coding Plan, Groq, and
+  OpenRouter. Provider keys are kept in the OS keychain; only providers the
+  current user enables are shown in the model picker.
+
+### Fixed
+- OpenCode model discovery now receives the enabled provider's keychain-backed
+  environment variables, so Groq and OpenRouter models appear in `/orch`.
+- Switching to OpenCode now rejects model overrides from other backends and
+  validates setup before replacing the active agent.
+- OpenCode standard permissions now apply a managed policy, and enabling a
+  provider warns when a literal API key remains in the user's OpenCode config.
+
 ## [1.20.7] - 2026-07-12
 
 ### Fixed
