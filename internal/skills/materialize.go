@@ -18,8 +18,9 @@ var skillNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 type Backend string
 
 const (
-	BackendCC    Backend = "cc"
-	BackendCodex Backend = "codex"
+	BackendCC       Backend = "cc"
+	BackendCodex    Backend = "codex"
+	BackendOpenCode Backend = "opencode"
 )
 
 // MaterializeResult reports what Materialize wrote, for display to the user.
@@ -38,6 +39,8 @@ func SkillsDir(backend Backend, home string) (string, error) {
 		return filepath.Join(home, ".claude", "skills"), nil
 	case BackendCodex:
 		return filepath.Join(home, ".codex", "skills"), nil
+	case BackendOpenCode:
+		return filepath.Join(home, ".config", "opencode", "skills"), nil
 	default:
 		return "", fmt.Errorf("skills: unknown backend %q", backend)
 	}
@@ -169,6 +172,10 @@ func renderSkillMD(backend Backend, sk Skill) string {
 			b.WriteString("metadata:\n")
 			b.WriteString("  short-description: " + yamlScalar(sk.ShortDescription) + "\n")
 		}
+	case BackendOpenCode:
+		// opencode recognizes only name + description in frontmatter (plus
+		// optional license/compatibility/metadata); it ignores allowed-tools, so
+		// we emit nothing extra. The body is identical across backends.
 	default:
 		// Materialize validates the backend via SkillsDir before reaching here,
 		// so an unknown value is a programming error, not a runtime condition.

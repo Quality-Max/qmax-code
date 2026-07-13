@@ -3,6 +3,7 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -81,6 +82,95 @@ func TestMaterializeCodexEmitsOpenAIYAML(t *testing.T) {
 	}
 	if strings.Contains(string(md), "allowed-tools:") {
 		t.Errorf("codex SKILL.md should not carry allowed-tools")
+	}
+}
+
+func TestMaterializeOpenCode(t *testing.T) {
+	home := t.TempDir()
+	res, err := Materialize(BackendOpenCode, home)
+	if err != nil {
+		t.Fatalf("Materialize(opencode): %v", err)
+	}
+	if len(res.Written) != len(Catalog) {
+		t.Fatalf("wrote %d skills, want %d", len(res.Written), len(Catalog))
+	}
+
+	for _, sk := range Catalog {
+		md := filepath.Join(home, ".config", "opencode", "skills", sk.Name, "SKILL.md")
+		data, err := os.ReadFile(md)
+		if err != nil {
+			t.Fatalf("read %s: %v", md, err)
+		}
+		text := string(data)
+		if !strings.HasPrefix(text, "---\n") {
+			t.Errorf("%s: missing frontmatter open", sk.Name)
+		}
+		if !strings.Contains(text, "name: "+sk.Name) {
+			t.Errorf("%s: frontmatter missing name", sk.Name)
+		}
+		if !strings.Contains(text, "description:") {
+			t.Errorf("%s: frontmatter missing description", sk.Name)
+		}
+		// opencode ignores allowed-tools; the opencode render omits it so the
+		// frontmatter stays within opencode's recognized schema.
+		if strings.Contains(text, "allowed-tools:") {
+			t.Errorf("%s: opencode SKILL.md should not carry allowed-tools", sk.Name)
+		}
+		// opencode must NOT get Codex's openai.yaml sibling.
+		if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "skills", sk.Name, "agents", "openai.yaml")); err == nil {
+			t.Errorf("%s: opencode backend should not write agents/openai.yaml", sk.Name)
+		}
+	}
+}
+
+// opencode enforces a stricter skill-name regex (^[a-z0-9]+(-[a-z0-9]+)*$ — no
+// underscores). Every catalog name must satisfy it so skills load in opencode.
+var opencodeNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+func TestCatalogNamesAreOpenCodeCompatible(t *testing.T) {
+	for _, sk := range Catalog {
+		if !opencodeNameRe.MatchString(sk.Name) {
+			t.Errorf("catalog skill name %q is not opencode-compatible (underscores/segments rejected)", sk.Name)
+		}
+	}
+}
+
+// TestOpenCodeNameRegexRejectsInvalid confirms the regex itself is correct:
+// opencode bans underscores, leading/trailing/double hyphens, and uppercase.
+func TestOpenCodeNameRegexRejectsInvalid(t *testing.T) {
+	bad := []string{
+		"has_underscore", // underscores not allowed (qmax's own regex permits them)
+		"trailing-",
+		"-leading",
+		"double--dash",
+		"CamelCase",
+		"with space",
+		"",
+	}
+	for _, name := range bad {
+		if opencodeNameRe.MatchString(name) {
+			t.Errorf("opencodeNameRe unexpectedly accepted invalid name %q", name)
+		}
+	}
+}
+
+// TestSkillsDirRejectsUnknownBackend guards the default branch so an invalid
+// backend string fails loudly instead of writing to an arbitrary path.
+func TestSkillsDirRejectsUnknownBackend(t *testing.T) {
+	home := t.TempDir()
+	for _, b := range []Backend{"", "claude", "CC", "open-code", "unknown"} {
+		if _, err := SkillsDir(b, home); err == nil {
+			t.Errorf("SkillsDir(%q): expected error, got nil", b)
+		}
+	}
+	for _, b := range []Backend{BackendCC, BackendCodex, BackendOpenCode} {
+		if _, err := SkillsDir(b, home); err != nil {
+			t.Errorf("SkillsDir(%q): unexpected error: %v", b, err)
+		}
+	}
+	// And Materialize must surface the same error, not write anything.
+	if _, err := Materialize(Backend("bogus"), home); err == nil {
+		t.Fatal("Materialize(bogus): expected error, got nil")
 	}
 }
 

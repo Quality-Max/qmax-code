@@ -338,7 +338,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			setup.PrintSkillsStatus(term)
 			continue
 		case input == "/skills install":
-			setup.InstallSkillsBoth(term)
+			setup.InstallSkillsAll(term)
 			continue
 		case input == "/set":
 			handleSetCommand(input, ag, term)
@@ -534,6 +534,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					if !setup.IsOrchInstalled(result.Backend) {
 						setup.RunOrch(result.Backend, term)
 					}
+				}
+				// opencode manages its config and skills directly: its consent flow
+				// skips the global-install prompt and WriteOpenCodeConfig runs
+				// unconditionally below, so its skills sync on activation regardless
+				// of GlobalInstall — matching the unconditional startup sync in
+				// main.go. cc/codex skills stay behind the explicit opt-in above.
+				if consent.GlobalInstall || result.Backend == "opencode" {
 					setup.InstallSkillsReport(result.Backend, term)
 				}
 			}
