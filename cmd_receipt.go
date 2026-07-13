@@ -62,7 +62,11 @@ func receiptList() {
 
 func receiptShow(idOrLatest string) {
 	r := mustResolveReceipt(idOrLatest)
-	data, _ := json.MarshalIndent(r, "", "  ")
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot marshal receipt: %v\n", err)
+		os.Exit(1)
+	}
 	fmt.Println(string(data))
 }
 
