@@ -119,15 +119,25 @@ func TestOpenCodeModelsPassesProviderEnv(t *testing.T) {
 }
 
 func TestOpenCodeProviderEnvInjectsKeys(t *testing.T) {
-	t.Setenv("QMAX_PC_ZAI_CODING_PLAN", "zai-secret")
-	t.Setenv("GROQ_API_KEY", "gsk_secret")
+	oldLoadProviderKey := loadProviderKey
+	t.Cleanup(func() { loadProviderKey = oldLoadProviderKey })
+	loadProviderKey = func(providerID string) string {
+		switch providerID {
+		case "zai-coding-plan":
+			return "test-zai-key"
+		case "groq":
+			return "test-groq-key"
+		default:
+			return ""
+		}
+	}
 	cfg := &api.Config{EnabledProviders: []string{"zai-coding-plan", "groq"}}
 	env := OpenCodeProviderEnv(cfg)
-	if env["QMAX_PC_ZAI_CODING_PLAN"] != "zai-secret" {
-		t.Errorf("zai env not injected: %v", env)
+	if env["QMAX_PC_ZAI_CODING_PLAN"] != "test-zai-key" {
+		t.Error("zai env not injected")
 	}
-	if env["GROQ_API_KEY"] != "gsk_secret" {
-		t.Errorf("groq env not injected: %v", env)
+	if env["GROQ_API_KEY"] != "test-groq-key" {
+		t.Error("groq env not injected")
 	}
 }
 

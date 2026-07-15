@@ -1,13 +1,9 @@
 package vnc
 
-// EGRESS CARVE-OUT (QUA-1316): this package is the sole non-httpx egress path
-// in qmax-code. It opens a WebSocket (coder/websocket) to the cloud-sandbox
-// noVNC endpoint to stream the live browser framebuffer. This traffic carries
-// rendered pixels (screenshots), never source code, prompts, or API keys, so it
-// is outside the Exposure Receipt's content-accountability scope. The static
-// egress guard (internal/httpx/guard_test.go) allowlists this package
-// explicitly — any *new* WebSocket or raw-socket egress must be reviewed and
-// added to the carve-out list, not silently merged.
+// VNC connects to the cloud-sandbox noVNC endpoint through httpx, which
+// records its WebSocket handshake as vnc-control traffic in the Exposure
+// Receipt. The upgraded channel carries only VNC framing and framebuffer data;
+// no application payload is sent over it by qmax-code.
 //
 // Minimal RFB 3.8 client over WebSocket, tailored for QM Cloud Sandbox
 // noVNC endpoints. Decodes Raw + CopyRect into a 32-bit BGRX framebuffer
@@ -28,6 +24,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/qualitymax/qmax-code/internal/httpx"
 )
 
 // VNCFrame is a snapshot of the framebuffer after one or more updates.
@@ -89,13 +86,13 @@ func DialVNC(ctx context.Context, rawURL string, fps int) (*VNCStream, error) {
 	// dialOnce attempts a single WebSocket upgrade (subprotocol then bare).
 	// Returns the live conn or (nil, err) on hard failure.
 	dialOnce := func(dctx context.Context) (*websocket.Conn, error) {
-		c, _, e := websocket.Dial(dctx, wsURL, &websocket.DialOptions{
+		c, _, e := httpx.DialWebSocket(dctx, wsURL, &websocket.DialOptions{
 			Subprotocols: []string{"binary"},
 		})
 		if e == nil {
 			return c, nil
 		}
-		c, _, e2 := websocket.Dial(dctx, wsURL, nil)
+		c, _, e2 := httpx.DialWebSocket(dctx, wsURL, nil)
 		if e2 == nil {
 			return c, nil
 		}

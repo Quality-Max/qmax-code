@@ -47,11 +47,6 @@ func main() {
 		return
 	}
 
-	// Initialize error reporting only when explicitly enabled.
-	sysutil.InitErrorReporting(Version)
-	defer sysutil.FlushErrorReporting()
-	defer sysutil.RecoverPanic()
-
 	// Exposure Receipt: record every outbound request this session makes (LLM
 	// prompts, cloud-API calls, integration connects) into a signed, offline-
 	// verifiable manifest under ~/.qmax-code/receipts/. Installed before any
@@ -66,7 +61,21 @@ func main() {
 	finalizeReceipt := func() {
 		receiptOnce.Do(func() { finalizeSessionReceipt(sessionRec) })
 	}
+	// The receipt must remain active while telemetry flushes: that flush is an
+	// outbound HTTP request when opt-in error reporting is enabled.
+	finalizeForExit := func() {
+		sysutil.FlushErrorReporting()
+		finalizeReceipt()
+	}
+	configureExitFinalizer(finalizeForExit)
 	defer finalizeReceipt()
+
+	// Initialize error reporting only when explicitly enabled. These defers are
+	// registered after the receipt finalizer, therefore they run first on a
+	// normal return (LIFO) and are included in the session receipt.
+	sysutil.InitErrorReporting(Version)
+	defer sysutil.FlushErrorReporting()
+	defer sysutil.RecoverPanic()
 
 	// `receipt` inspects prior manifests offline and does no egress of its own.
 	if len(os.Args) > 1 && os.Args[1] == "receipt" {
@@ -82,7 +91,7 @@ func main() {
 			return
 		}
 		fmt.Fprintln(os.Stderr, "Usage: qmax-code serve --mcp")
-		os.Exit(2)
+		exitWithReceipt(2)
 	}
 
 	// Handle "config" subcommand — lets users change persisted settings
@@ -100,7 +109,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "codex" {
 		if err := handleCodexCommand(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		return
 	}
@@ -109,7 +118,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "cc" {
 		if err := handleCCCommand(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		return
 	}
@@ -135,7 +144,7 @@ func main() {
 		if err != nil {
 			tui.AnimateMax(tui.MoodSad, "Login failed: "+err.Error())
 			fmt.Fprintf(os.Stderr, "\n  Try: qmax-code login --api-key qm-YOUR-API-KEY\n")
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		tui.AnimateMax(tui.MoodHappy, fmt.Sprintf("Logged in as %s", cfg.Email))
 		return
@@ -145,7 +154,7 @@ func main() {
 		sessions, err := session.ListSessions(20)
 		if err != nil || len(sessions) == 0 {
 			fmt.Println("No sessions found.")
-			os.Exit(0)
+			exitWithReceipt(0)
 		}
 		fmt.Printf("%-10s  %-18s  %-6s  %-8s  %s\n", "ID", "Updated", "Turns", "Tokens", "Project")
 		for _, s := range sessions {
@@ -164,7 +173,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  For non-interactive use, pass a prompt:")
 		fmt.Fprintln(os.Stderr, "      qmax-code -p \"<your prompt>\"")
 		fmt.Fprintln(os.Stderr, "      qmax-code \"<your prompt>\"")
-		os.Exit(2)
+		exitWithReceipt(2)
 	}
 
 	// Load persistent user config
@@ -192,7 +201,7 @@ func main() {
 			}
 		default:
 			fmt.Fprintf(os.Stderr, "Error: --backend must be cc, codex, cerebras, opencode, or api\n")
-			os.Exit(2)
+			exitWithReceipt(2)
 		}
 	}
 
@@ -208,7 +217,7 @@ func main() {
 	if !isValidModelName(effectiveModel) {
 		fmt.Fprintf(os.Stderr, "Error: --model %q is not recognized.\n", *model)
 		fmt.Fprintf(os.Stderr, "  Valid: %s.\n", api.ValidClaudeModelsHelp())
-		os.Exit(2)
+		exitWithReceipt(2)
 	}
 
 	// Resolve Anthropic API key: flag > env > keychain
@@ -240,7 +249,11 @@ func main() {
 
 	// If no qmax CLI and no API client, run full interactive setup
 	if qmaxBin == "" && apiClient == nil {
-		setupAuth, setupProjectID := setup.RunInteractive()
+		setupAuth, setupProjectID, setupErr := setup.RunInteractive()
+		if setupErr != nil {
+			fmt.Fprintln(os.Stderr, "Setup failed:", setupErr)
+			exitWithReceipt(1)
+		}
 		auth = setupAuth
 		apiClient = api.NewAPIClient(auth)
 		appConfig.DefaultProject = setupProjectID
@@ -264,7 +277,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "\nError: backend=cc but 'claude' CLI was not found.")
 			fmt.Fprintln(os.Stderr, "  Install Claude Code: https://claude.ai/download")
 			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		consent := setup.PromptOrchConsent(appConfig, "cc")
 		if !consent.Proceed {
@@ -283,7 +296,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "\nError: backend=codex but 'codex' CLI was not found.")
 			fmt.Fprintln(os.Stderr, "  Install Codex CLI: npm install -g @openai/codex")
 			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		consent := setup.PromptOrchConsent(appConfig, "codex")
 		if !consent.Proceed {
@@ -324,7 +337,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "\nError: Cerebras API key required for backend=cerebras.")
 			fmt.Fprintln(os.Stderr, "  export CEREBRAS_API_KEY=csk-...")
 			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		anthropicKey = "__cerebras_mode__" // skip Anthropic key gate below
 	} else if cliBackend == "opencode" {
@@ -333,7 +346,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "\nError: backend=opencode but 'opencode' CLI was not found.")
 			fmt.Fprintln(os.Stderr, "  Install opencode: https://opencode.ai  (curl -fsSL https://opencode.ai/install | bash)")
 			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		consent := setup.PromptOrchConsent(appConfig, "opencode")
 		if !consent.Proceed {
@@ -369,7 +382,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  Or use a CLI backend (no API key needed):")
 		fmt.Fprintln(os.Stderr, "    qmax-code config set backend cc      # Claude Code login / Agent SDK credit")
 		fmt.Fprintln(os.Stderr, "    qmax-code config set backend codex   # OpenAI/Codex subscription")
-		os.Exit(1)
+		exitWithReceipt(1)
 	}
 
 	// Detect project from cwd if not set via flag; fall back to saved config
@@ -531,7 +544,7 @@ func main() {
 	if *oneShot != "" {
 		if err := runOneShot(*oneShot); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		return
 	}
@@ -540,7 +553,7 @@ func main() {
 	if remaining := flag.Args(); len(remaining) > 0 {
 		if err := runOneShot(strings.Join(remaining, " ")); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		return
 	}
@@ -556,7 +569,7 @@ func main() {
 		}
 		if loadErr != nil {
 			fmt.Fprintf(os.Stderr, "Cannot resume session %q: %v\n", *resumeID, loadErr)
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		ag.History = sess.Messages
 		ag.Usage = sess.Usage
@@ -575,7 +588,7 @@ func main() {
 	agent.CleanupStaleMCPConfigs()
 
 	// Interactive REPL
-	repl.Run(ag, cliAgent, *quiet, Version, finalizeReceipt)
+	repl.Run(ag, cliAgent, *quiet, Version, finalizeForExit)
 }
 
 // resolveModel expands shorthand model names to full model IDs.

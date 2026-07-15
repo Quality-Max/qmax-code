@@ -33,6 +33,8 @@ const (
 	CatLLMCompletion = "llm-completion" // reserved: response-side LLM accounting
 	CatCloudAPI      = "cloud-api"      // QualityMax cloud REST API (projects, scripts, integrations)
 	CatMCPTraffic    = "mcp-traffic"    // reserved: outbound MCP-over-HTTP egress
+	CatTelemetry     = "telemetry"      // opt-in error-reporting envelope
+	CatVNCControl    = "vnc-control"    // noVNC WebSocket handshake/control channel
 	CatControl       = "control"        // metadata only: auth check, login poll, health/reachability probes
 	CatUncategorized = "uncategorized"  // unknown host/path — flagged so it can't hide
 )
@@ -61,6 +63,11 @@ func Classify(host, path string) string {
 		strings.HasSuffix(p, "/api/tags"), // Ollama reachability probe
 		strings.Contains(p, "/api/job-health/"):
 		return CatControl
+
+	// Sentry-compatible telemetry is opt-in. The request body is still hashed
+	// by httpx, but it is categorized separately from QualityMax cloud REST.
+	case strings.Contains(p, "/envelope"):
+		return CatTelemetry
 
 	// QualityMax cloud REST API — projects, scripts, crawl, integrations, etc.
 	case strings.Contains(p, "/api/"):

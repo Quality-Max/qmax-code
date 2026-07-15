@@ -44,22 +44,22 @@ func handleConfigCommand(args []string) {
 	case "set":
 		if len(args) < 3 {
 			fmt.Fprintln(os.Stderr, "Usage: qmax-code config set KEY VALUE")
-			os.Exit(2)
+			exitWithReceipt(2)
 		}
 		if err := setConfigField(args[1], args[2]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		fmt.Printf("  Set %s = %s\n", args[1], configSetDisplayValue(args[1], args[2]))
 
 	case "unset":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Usage: qmax-code config unset KEY")
-			os.Exit(2)
+			exitWithReceipt(2)
 		}
 		if err := setConfigField(args[1], ""); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		fmt.Printf("  Cleared %s\n", args[1])
 
@@ -67,14 +67,14 @@ func handleConfigCommand(args []string) {
 		cfg := api.DefaultConfig()
 		if err := cfg.Save(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		fmt.Println("  api.Config reset to defaults")
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown config command: %s\n", args[0])
 		fmt.Fprintln(os.Stderr, "Try: qmax-code config [show|set|unset|reset]")
-		os.Exit(2)
+		exitWithReceipt(2)
 	}
 }
 

@@ -20,6 +20,7 @@ func TestClassify(t *testing.T) {
 		{"cli poll", "app.qualitymax.io", "/api/auth/cli-poll", CatControl},
 		{"ollama tags probe", "localhost:11434", "/api/tags", CatControl},
 		{"job health", "app.qualitymax.io", "/api/job-health/background/abc", CatControl},
+		{"telemetry envelope", "sentry.example", "/api/42/envelope/", CatTelemetry},
 
 		{"projects list", "app.qualitymax.io", "/api/projects", CatCloudAPI},
 		{"script fetch", "app.qualitymax.io", "/api/automation/scripts/1234", CatCloudAPI},
