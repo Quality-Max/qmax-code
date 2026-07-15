@@ -29,7 +29,7 @@ func handleReceiptCommand(args []string) {
 		receiptVerify(argAt(args, 1))
 	default:
 		fmt.Fprintln(os.Stderr, "Usage: qmax-code receipt <list|show|verify> [id|latest]")
-		os.Exit(1)
+		exitWithReceipt(1)
 	}
 }
 
@@ -44,7 +44,7 @@ func receiptList() {
 	paths, err := receipt.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		exitWithReceipt(1)
 	}
 	if len(paths) == 0 {
 		fmt.Println("No exposure receipts found.")
@@ -65,7 +65,7 @@ func receiptShow(idOrLatest string) {
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot marshal receipt: %v\n", err)
-		os.Exit(1)
+		exitWithReceipt(1)
 	}
 	fmt.Println(string(data))
 }
@@ -74,7 +74,7 @@ func receiptVerify(idOrLatest string) {
 	r := mustResolveReceipt(idOrLatest)
 	if err := receipt.Verify(r); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ INVALID: %v\n", err)
-		os.Exit(1)
+		exitWithReceipt(1)
 	}
 	fmt.Printf("✓ VALID — run %s (%s), %d request(s) across %v\n",
 		r.RunID, r.RunKind, r.Summary.TotalRequests, r.Destinations)
@@ -86,25 +86,25 @@ func mustResolveReceipt(idOrLatest string) *receipt.Receipt {
 	dir, err := receipt.ReceiptsDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		exitWithReceipt(1)
 	}
 	if idOrLatest == "" || idOrLatest == "latest" {
 		paths, err := receipt.List()
 		if err != nil || len(paths) == 0 {
 			fmt.Fprintln(os.Stderr, "No exposure receipts found.")
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		r, err := receipt.Load(paths[len(paths)-1])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			exitWithReceipt(1)
 		}
 		return r
 	}
 	r, err := receipt.Load(filepath.Join(dir, idOrLatest+".json"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		exitWithReceipt(1)
 	}
 	return r
 }

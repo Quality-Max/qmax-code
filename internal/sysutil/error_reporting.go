@@ -8,6 +8,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 
+	"github.com/qualitymax/qmax-code/internal/httpx"
 	"github.com/qualitymax/qmax-code/internal/security"
 )
 
@@ -28,6 +29,8 @@ var telemetryDeniedTagPrefixes = []string{
 	"response", "body", "text", "data",
 }
 
+var initSentry = sentry.Init
+
 // InitErrorReporting sets up Sentry-compatible error reporting when explicitly
 // enabled via QMAX_CODE_TELEMETRY=1 and QMAX_CODE_TELEMETRY_DSN. Public builds
 // must not report anything unless the user opts in. version is reported as the
@@ -42,12 +45,15 @@ func InitErrorReporting(version string) {
 		return
 	}
 
-	err := sentry.Init(sentry.ClientOptions{
+	err := initSentry(sentry.ClientOptions{
 		Dsn:              dsn,
 		Release:          fmt.Sprintf("qmax-code@%s", version),
 		Environment:      "production",
 		AttachStacktrace: true,
 		BeforeSend:       sanitizeEvent,
+		// Sentry's buffered transport uses this client for envelope uploads,
+		// keeping opt-in telemetry in the session Exposure Receipt.
+		HTTPClient: httpx.NewClient(10 * time.Second),
 	})
 	if err != nil {
 		// Silently fail — error reporting is best-effort

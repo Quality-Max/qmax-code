@@ -12,7 +12,14 @@ import (
 	"time"
 
 	receipt "github.com/Quality-Max/qmax-receipt"
+	"github.com/coder/websocket"
 )
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 // TestRecordsRequestHashAndSize drives a real request through the recording
 // client and asserts the receipt captured the method, category, byte size and
@@ -85,6 +92,61 @@ func TestTransportErrorStillRecorded(t *testing.T) {
 	}
 	if rec.Entries[0].Category != "cloud-api" {
 		t.Errorf("category = %q, want cloud-api", rec.Entries[0].Category)
+	}
+}
+
+func TestIncompleteRequestBodyIsNotSignedAsACompleteHash(t *testing.T) {
+	rec := receipt.NewCurrent("test:early-response")
+	req, err := NewRequest(context.Background(), http.MethodPost, "http://example.test/api/projects", io.NopCloser(strings.NewReader("abcdef")))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+
+	transport := &receiptTransport{base: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		buf := make([]byte, 3)
+		if _, err := req.Body.Read(buf); err != nil {
+			t.Fatalf("read partial body: %v", err)
+		}
+		return &http.Response{StatusCode: http.StatusRequestEntityTooLarge, Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	if _, err := transport.RoundTrip(req); err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+
+	if rec.EntryCount() != 1 {
+		t.Fatalf("entries = %d, want 1", rec.EntryCount())
+	}
+	e := rec.Entries[0]
+	if e.ReqBytes != 0 || e.ReqSHA256 != "" {
+		t.Errorf("incomplete metadata = bytes:%d hash:%q, want unavailable", e.ReqBytes, e.ReqSHA256)
+	}
+	if !strings.Contains(e.Note, "request-body-incomplete") {
+		t.Errorf("note = %q, want incomplete-body marker", e.Note)
+	}
+}
+
+func TestWebSocketHandshakeIsRecorded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err == nil {
+			_ = conn.Close(websocket.StatusNormalClosure, "")
+		}
+	}))
+	defer srv.Close()
+
+	rec := receipt.NewCurrent("test:vnc")
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := DialWebSocket(context.Background(), wsURL, nil)
+	if err != nil {
+		t.Fatalf("DialWebSocket: %v", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	if rec.EntryCount() != 1 {
+		t.Fatalf("entries = %d, want 1", rec.EntryCount())
+	}
+	if got := rec.Entries[0].Category; got != "vnc-control" {
+		t.Errorf("category = %q, want vnc-control", got)
 	}
 }
 

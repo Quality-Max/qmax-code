@@ -144,9 +144,10 @@ func LoginViaBrowser() (*api.AuthConfig, error) {
 	return nil, fmt.Errorf("timed out waiting for browser authorization")
 }
 
-// RunInteractiveSetup guides a first-time user through login and project selection.
-// Returns the api.AuthConfig and selected project ID.
-func RunInteractive() (*api.AuthConfig, int) {
+// RunInteractive guides a first-time user through login and project selection.
+// It returns failures to main so the session receipt can be finalized before
+// the process exits.
+func RunInteractive() (*api.AuthConfig, int, error) {
 	fmt.Println()
 	tui.AnimateMax(tui.MoodWaving, tui.GetMaxGreeting())
 	fmt.Println()
@@ -184,7 +185,7 @@ func RunInteractive() (*api.AuthConfig, int) {
 		tui.AnimateMax(tui.MoodSad, "Login failed: "+err.Error())
 		fmt.Println()
 		fmt.Println("  Try again with: qmax-code login")
-		os.Exit(1)
+		return nil, 0, fmt.Errorf("interactive login: %w", err)
 	}
 
 	// Show success
@@ -266,7 +267,7 @@ func RunInteractive() (*api.AuthConfig, int) {
 	fmt.Println("    \"review the latest PR for security issues\"")
 	fmt.Println()
 
-	return auth, projectID
+	return auth, projectID, nil
 }
 
 // loginWithKeyPrompt asks the user to paste their API key.

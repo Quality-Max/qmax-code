@@ -38,6 +38,10 @@ func userOpenCodeConfigDir() string {
 // literal is a plaintext key sitting on disk.
 var literalAPIKeyRe = regexp.MustCompile(`"apiKey"\s*:\s*"([^"]*)"`)
 
+// loadProviderKey is replaceable in tests so provider-env construction does
+// not depend on a developer's real OS keychain entries.
+var loadProviderKey = api.LoadProviderKey
+
 // PlaintextKeyInUserOpenCodeConfig reports whether the user's OWN opencode
 // config files contain a plaintext apiKey (not an {env:}/{file:} reference),
 // and the path where one was found. Used to warn a user — when they move a
@@ -211,7 +215,7 @@ func WriteOpenCodeConfig(cfg *api.Config, sctx *api.SessionContext, permissionMo
 func OpenCodeProviderEnv(cfg *api.Config) map[string]string {
 	env := map[string]string{}
 	for _, p := range cfg.ActiveProviders() {
-		key := api.LoadProviderKey(p.ID)
+		key := loadProviderKey(p.ID)
 		if key == "" {
 			continue
 		}

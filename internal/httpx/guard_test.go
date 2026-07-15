@@ -1,56 +1,39 @@
 package httpx
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-// forbiddenSymbols are the egress-creating constructs. Their only legitimate
-// home is this package.
-var forbiddenSymbols = []string{
-	"http.Client{",
-	"http.NewRequest(",
-	"http.NewRequestWithContext(",
-	"http.Get(",
-	"http.Post(",
-	"http.PostForm(",
-	"http.Head(",
-	"http.DefaultClient",
-	"http.DefaultTransport",
+// forbiddenLibraryImports are client libraries that create egress outside the
+// standard library. New entries require a dedicated httpx wrapper.
+var forbiddenLibraryImports = map[string]bool{
+	"github.com/go-resty/resty":      true,
+	"github.com/levigross/grequests": true,
+	"github.com/h2non/gentleman":     true,
+	"github.com/valyala/fasthttp":    true,
+	"github.com/imroc/req":           true,
+	"github.com/jmcvetta/napping":    true,
 }
 
-// forbiddenImports are third-party HTTP/WebSocket clients that would bypass
-// net/http entirely.
-var forbiddenImports = []string{
-	"go-resty", "levigross/grequests", "h2non/gentleman",
-	"valyala/fasthttp", "imroc/req", "jmcvetta/napping",
-	"coder/websocket",
-}
-
-// sanctionedCarveOuts are packages allowed to bypass the guard. Each must have
-// a documented justification in its package doc.
-//   httpx — the chokepoint itself (creates the clients).
-//   vnc  — documented WebSocket carve-out (see internal/vnc/stream.go package
-//          doc): live-browser screen streaming carries pixels, never
-//          source/prompts. Reviewed and accepted on QUA-1316.
-var sanctionedCarveOuts = map[string]bool{"httpx": true, "vnc": true}
-
-// scanForEgressViolations walks root and returns any forbidden egress symbols or
-// third-party HTTP imports outside sanctioned carve-out packages. It is
-// extracted from the guard test so the injection test can exercise the same
-// logic against a temp directory.
+// scanForEgressViolations parses production Go source rather than matching
+// strings. It catches import aliases, zero-value http.Client declarations,
+// new(http.Client), raw transports, default clients, direct WebSocket dials,
+// and net.Dial calls.
 func scanForEgressViolations(root string) ([]string, error) {
 	var violations []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 		if info.IsDir() {
 			name := info.Name()
-			if sanctionedCarveOuts[name] || name == "vendor" || name == "build" || strings.HasPrefix(name, ".") {
+			if name == "httpx" || name == "vendor" || name == "build" || strings.HasPrefix(name, ".") {
 				if path != root {
 					return filepath.SkipDir
 				}
@@ -60,86 +43,140 @@ func scanForEgressViolations(root string) ([]string, error) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		data, rerr := os.ReadFile(path)
-		if rerr != nil {
-			return rerr
+
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
 		}
 		rel, _ := filepath.Rel(root, path)
-		for i, line := range strings.Split(string(data), "\n") {
-			code := line
-			if idx := strings.Index(code, "//"); idx >= 0 {
-				code = code[:idx]
-			}
-			for _, sym := range forbiddenSymbols {
-				if strings.Contains(code, sym) {
-					violations = append(violations,
-						rel+":"+strconv.Itoa(i+1)+"  forbidden egress symbol "+sym)
-				}
-			}
-			for _, imp := range forbiddenImports {
-				if strings.Contains(line, imp) {
-					violations = append(violations,
-						rel+":"+strconv.Itoa(i+1)+"  forbidden HTTP library import "+imp)
-				}
-			}
-		}
+		violations = append(violations, scanFileForEgressViolations(file, fset, rel)...)
 		return nil
 	})
 	return violations, err
 }
 
-// TestNoEgressOutsideHttpx is the static Egress Guard. It walks the whole
-// qmax-code module and fails if any package other than a sanctioned carve-out
-// constructs an HTTP client/request/transport or imports a third-party HTTP
-// library. This makes an un-receipted egress path impossible to merge — the
-// load-bearing half of the "Receipts, not promises" guarantee.
-//
-// net/http may still be IMPORTED elsewhere for types and constants (http.Request,
-// http.MethodPost, http.StatusOK, http.StatusText); only the egress-CREATING
-// symbols are forbidden. Route all outbound HTTP through
-// httpx.NewClient / httpx.NewRequest.
-func TestNoEgressOutsideHttpx(t *testing.T) {
-	root := filepath.Join("..", "..") // module root: qmax-code/
+func scanFileForEgressViolations(file *ast.File, fset *token.FileSet, rel string) []string {
+	imports := map[string]string{}
+	var violations []string
+	for _, spec := range file.Imports {
+		path := strings.Trim(spec.Path.Value, `"`)
+		name := filepath.Base(path)
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		imports[name] = path
+		if forbiddenLibraryImports[path] {
+			violations = append(violations, violation(rel, fset, spec.Pos(), "forbidden egress library "+path))
+		}
+	}
+
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.ValueSpec:
+			if selectorMatches(n.Type, imports, "net/http", "Client") || selectorMatches(n.Type, imports, "net/http", "Transport") {
+				violations = append(violations, violation(rel, fset, n.Pos(), "raw net/http client or transport declaration"))
+			}
+		case *ast.CompositeLit:
+			if selectorMatches(n.Type, imports, "net/http", "Client") || selectorMatches(n.Type, imports, "net/http", "Transport") {
+				violations = append(violations, violation(rel, fset, n.Pos(), "raw net/http client or transport construction"))
+			}
+		case *ast.CallExpr:
+			if isNewHTTPClientOrTransport(n, imports) {
+				violations = append(violations, violation(rel, fset, n.Pos(), "new(net/http Client or Transport)"))
+			}
+			if callMatches(n, imports, "net/http", map[string]bool{
+				"NewRequest": true, "NewRequestWithContext": true, "Get": true,
+				"Post": true, "PostForm": true, "Head": true,
+			}) {
+				violations = append(violations, violation(rel, fset, n.Pos(), "raw net/http request creation"))
+			}
+			if callMatches(n, imports, "net", map[string]bool{
+				"Dial": true, "DialTimeout": true, "DialTCP": true, "DialUDP": true,
+			}) {
+				violations = append(violations, violation(rel, fset, n.Pos(), "raw net dial"))
+			}
+			if callMatches(n, imports, "github.com/coder/websocket", map[string]bool{"Dial": true}) {
+				violations = append(violations, violation(rel, fset, n.Pos(), "direct WebSocket dial; use httpx.DialWebSocket"))
+			}
+		case *ast.SelectorExpr:
+			if selectorMatches(n, imports, "net/http", "DefaultClient") || selectorMatches(n, imports, "net/http", "DefaultTransport") {
+				violations = append(violations, violation(rel, fset, n.Pos(), "raw net/http default client or transport"))
+			}
+		}
+		return true
+	})
+	return violations
+}
+
+func selectorMatches(expr ast.Expr, imports map[string]string, packagePath, name string) bool {
+	selector, ok := expr.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != name {
+		return false
+	}
+	ident, ok := selector.X.(*ast.Ident)
+	return ok && imports[ident.Name] == packagePath
+}
+
+func callMatches(call *ast.CallExpr, imports map[string]string, packagePath string, names map[string]bool) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || !names[selector.Sel.Name] {
+		return false
+	}
+	ident, ok := selector.X.(*ast.Ident)
+	return ok && imports[ident.Name] == packagePath
+}
+
+func isNewHTTPClientOrTransport(call *ast.CallExpr, imports map[string]string) bool {
+	ident, ok := call.Fun.(*ast.Ident)
+	if !ok || ident.Name != "new" || len(call.Args) != 1 {
+		return false
+	}
+	return selectorMatches(call.Args[0], imports, "net/http", "Client") ||
+		selectorMatches(call.Args[0], imports, "net/http", "Transport")
+}
+
+func violation(rel string, fset *token.FileSet, pos token.Pos, message string) string {
+	return rel + ":" + fset.Position(pos).String()[len(fset.Position(pos).Filename)+1:] + "  " + message
+}
+
+func TestNoEgressOutsideHTTPX(t *testing.T) {
+	root := filepath.Join("..", "..")
 	violations, err := scanForEgressViolations(root)
 	if err != nil {
-		t.Fatalf("walk failed: %v", err)
+		t.Fatalf("scan egress: %v", err)
 	}
 	if len(violations) > 0 {
-		t.Fatalf("egress guard: %d violation(s) outside sanctioned carve-outs — route all outbound HTTP through httpx.NewClient/NewRequest:\n%s",
-			len(violations), strings.Join(violations, "\n"))
+		t.Fatalf("egress guard: %d violation(s) outside httpx:\n%s", len(violations), strings.Join(violations, "\n"))
 	}
 }
 
-// TestEgressGuardDetectsInjection proves the guard actually catches a raw
-// http.Client construction and a forbidden import — so the guard's detection
-// logic itself is validated in CI, not just the absence of violations today.
-func TestEgressGuardDetectsInjection(t *testing.T) {
+func TestEgressGuardDetectsAliasAndConstructorBypasses(t *testing.T) {
 	dir := t.TempDir()
-	// Simulate a package that bypasses the chokepoint.
-	if err := os.WriteFile(filepath.Join(dir, "bad.go"), []byte(
-		`package bad
+	bad := `package bad
 
-import "net/http"
+import (
+    h "net/http"
+    "net"
+    ws "github.com/coder/websocket"
+)
 
-var client = &http.Client{}
-`), 0644); err != nil {
+var client h.Client
+var transport = new(h.Transport)
+
+func f() {
+    _, _ = net.Dial("tcp", "example.com:80")
+    _, _, _ = ws.Dial(nil, "ws://example.com", nil)
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "bad.go"), []byte(bad), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	violations, err := scanForEgressViolations(dir)
 	if err != nil {
-		t.Fatalf("scan failed: %v", err)
+		t.Fatalf("scan: %v", err)
 	}
-	if len(violations) == 0 {
-		t.Fatal("guard failed to detect an injected raw http.Client{} — detection logic is broken")
-	}
-	found := false
-	for _, v := range violations {
-		if strings.Contains(v, "forbidden egress symbol http.Client{") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("guard did not flag http.Client{}: %v", violations)
+	if len(violations) != 4 {
+		t.Fatalf("violations = %d, want 4: %v", len(violations), violations)
 	}
 }
