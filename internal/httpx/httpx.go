@@ -22,6 +22,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"hash"
 	"io"
 	"net/http"
@@ -212,13 +213,20 @@ func (t *receiptTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 	}
 	if err != nil {
-		entry.Note = appendNote(entry.Note, "transport-error: "+err.Error())
+		entry.Note = appendNote(entry.Note, transportErrorNote(err))
 	} else if resp != nil {
 		entry.RespStatus = resp.StatusCode
 		entry.RespBytes = resp.ContentLength
 	}
 	rec.Record(entry)
 	return resp, err
+}
+
+// transportErrorNote records a stable diagnostic category without copying an
+// arbitrary transport error into a customer-held receipt. Error strings may
+// contain URLs, proxy details, or credentials supplied by a custom transport.
+func transportErrorNote(err error) string {
+	return fmt.Sprintf("transport-error: %T", err)
 }
 
 func appendNote(existing, next string) string {

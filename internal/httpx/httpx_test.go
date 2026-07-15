@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -105,6 +106,32 @@ func TestTransportErrorStillRecorded(t *testing.T) {
 	}
 	if rec.Entries[0].Category != "cloud-api" {
 		t.Errorf("category = %q, want cloud-api", rec.Entries[0].Category)
+	}
+}
+
+func TestTransportErrorNoteExcludesErrorText(t *testing.T) {
+	rec := receipt.NewCurrent("test:private-transport-error")
+	req, err := NewRequest(context.Background(), http.MethodGet, "http://example.test/api/projects", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	transportErr := errors.New("not-for-receipt")
+	transport := &receiptTransport{base: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return nil, transportErr
+	})}
+	if _, err := transport.RoundTrip(req); !errors.Is(err, transportErr) {
+		t.Fatalf("RoundTrip error = %v, want %v", err, transportErr)
+	}
+
+	if rec.EntryCount() != 1 {
+		t.Fatalf("entries = %d, want 1", rec.EntryCount())
+	}
+	note := rec.Entries[0].Note
+	if !strings.HasPrefix(note, "transport-error: ") {
+		t.Errorf("note = %q, want transport error category", note)
+	}
+	if strings.Contains(note, transportErr.Error()) {
+		t.Errorf("note = %q, must not include the transport error text", note)
 	}
 }
 
