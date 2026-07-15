@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,8 +128,8 @@ func TestTransportErrorNoteExcludesErrorText(t *testing.T) {
 		t.Fatalf("entries = %d, want 1", rec.EntryCount())
 	}
 	note := rec.Entries[0].Note
-	if !strings.HasPrefix(note, "transport-error: ") {
-		t.Errorf("note = %q, want transport error category", note)
+	if note != "transport-error" {
+		t.Errorf("note = %q, want generic transport error category", note)
 	}
 	if strings.Contains(note, transportErr.Error()) {
 		t.Errorf("note = %q, must not include the transport error text", note)
@@ -253,6 +254,37 @@ func TestWebSocketHandshakeIsRecorded(t *testing.T) {
 	}
 	if got := rec.Entries[0].Category; got != "vnc-control" {
 		t.Errorf("category = %q, want vnc-control", got)
+	}
+}
+
+func TestFailedWebSocketHandshakeIsRecorded(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+
+	rec := receipt.NewCurrent("test:vnc-failed-handshake")
+	conn, _, err := DialWebSocket(context.Background(), "ws://"+addr, nil)
+	if err == nil {
+		if conn != nil {
+			_ = conn.Close(websocket.StatusNormalClosure, "")
+		}
+		t.Fatal("DialWebSocket error = nil, want connection failure")
+	}
+
+	if rec.EntryCount() != 1 {
+		t.Fatalf("entries = %d, want 1", rec.EntryCount())
+	}
+	e := rec.Entries[0]
+	if e.Category != "vnc-control" {
+		t.Errorf("category = %q, want vnc-control", e.Category)
+	}
+	if e.Note != "transport-error" {
+		t.Errorf("note = %q, want generic transport error", e.Note)
 	}
 }
 

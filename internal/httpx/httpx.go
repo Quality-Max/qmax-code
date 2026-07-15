@@ -22,7 +22,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"hash"
 	"io"
 	"net/http"
@@ -222,11 +221,11 @@ func (t *receiptTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return resp, err
 }
 
-// transportErrorNote records a stable diagnostic category without copying an
-// arbitrary transport error into a customer-held receipt. Error strings may
-// contain URLs, proxy details, or credentials supplied by a custom transport.
-func transportErrorNote(err error) string {
-	return fmt.Sprintf("transport-error: %T", err)
+// transportErrorNote deliberately omits arbitrary transport details. Error
+// strings and concrete types can disclose URLs, proxy configuration, or
+// implementation details in a customer-held receipt.
+func transportErrorNote(_ error) string {
+	return "transport-error"
 }
 
 func appendNote(existing, next string) string {
