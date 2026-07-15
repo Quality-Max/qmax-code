@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -285,6 +286,38 @@ func TestFailedWebSocketHandshakeIsRecorded(t *testing.T) {
 	}
 	if e.Note != "transport-error" {
 		t.Errorf("note = %q, want generic transport error", e.Note)
+	}
+}
+
+func TestHashingBodySnapshotConcurrentWithRead(t *testing.T) {
+	body := bytes.Repeat([]byte("x"), 64*1024)
+	hb := &hashingBody{rc: io.NopCloser(bytes.NewReader(body)), h: sha256.New()}
+	done := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			_, err := hb.Read(buf)
+			if err != nil {
+				done <- err
+				return
+			}
+		}
+	}()
+
+	for range 1000 {
+		_, _, _ = hb.snapshot()
+	}
+	if err := <-done; err != io.EOF {
+		t.Fatalf("Read error = %v, want EOF", err)
+	}
+
+	gotBytes, gotDigest, complete := hb.snapshot()
+	if !complete || gotBytes != int64(len(body)) {
+		t.Errorf("snapshot = bytes:%d complete:%t, want bytes:%d complete:true", gotBytes, complete, len(body))
+	}
+	wantDigest := sha256.Sum256(body)
+	if gotDigest != hex.EncodeToString(wantDigest[:]) {
+		t.Errorf("digest = %q, want %q", gotDigest, hex.EncodeToString(wantDigest[:]))
 	}
 }
 
