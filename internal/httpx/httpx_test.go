@@ -21,6 +21,19 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+type failingReadCloser struct{ read bool }
+
+func (b *failingReadCloser) Read(p []byte) (int, error) {
+	if b.read {
+		return 0, io.ErrUnexpectedEOF
+	}
+	b.read = true
+	copy(p, "abc")
+	return 3, io.ErrUnexpectedEOF
+}
+
+func (b *failingReadCloser) Close() error { return nil }
+
 // TestRecordsRequestHashAndSize drives a real request through the recording
 // client and asserts the receipt captured the method, category, byte size and
 // content hash — and never the content itself.
@@ -122,6 +135,72 @@ func TestIncompleteRequestBodyIsNotSignedAsACompleteHash(t *testing.T) {
 	}
 	if !strings.Contains(e.Note, "request-body-incomplete") {
 		t.Errorf("note = %q, want incomplete-body marker", e.Note)
+	}
+}
+
+func TestRequestBodyReadErrorIsRecordedAsIncomplete(t *testing.T) {
+	rec := receipt.NewCurrent("test:body-read-error")
+	req, err := NewRequest(context.Background(), http.MethodPost, "http://example.test/api/projects", &failingReadCloser{})
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+
+	transport := &receiptTransport{base: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		buf := make([]byte, 8)
+		_, err := req.Body.Read(buf)
+		return nil, err
+	})}
+	if _, err := transport.RoundTrip(req); err == nil {
+		t.Fatal("RoundTrip error = nil, want body read error")
+	}
+
+	if rec.EntryCount() != 1 {
+		t.Fatalf("entries = %d, want 1", rec.EntryCount())
+	}
+	e := rec.Entries[0]
+	if e.ReqBytes != 0 || e.ReqSHA256 != "" {
+		t.Errorf("incomplete metadata = bytes:%d hash:%q, want unavailable", e.ReqBytes, e.ReqSHA256)
+	}
+	if !strings.Contains(e.Note, "request-body-incomplete") || !strings.Contains(e.Note, "transport-error") {
+		t.Errorf("note = %q, want incomplete-body and transport-error markers", e.Note)
+	}
+}
+
+func TestRequestWithoutReceiptContextIsRecorded(t *testing.T) {
+	req, err := NewRequest(context.Background(), http.MethodGet, "http://example.test/api/projects", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	rec := receipt.FromContext(req.Context())
+	before := rec.EntryCount()
+	transport := &receiptTransport{base: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	if _, err := transport.RoundTrip(req); err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	if got := rec.EntryCount(); got != before+1 {
+		t.Errorf("entries = %d, want %d", got, before+1)
+	}
+}
+
+func TestAppendNote(t *testing.T) {
+	tests := []struct {
+		existing string
+		next     string
+		want     string
+	}{
+		{want: ""},
+		{next: "next", want: "next"},
+		{existing: "existing", want: "existing"},
+		{existing: "first", next: "second", want: "first; second"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			if got := appendNote(tt.existing, tt.next); got != tt.want {
+				t.Errorf("appendNote(%q, %q) = %q, want %q", tt.existing, tt.next, got, tt.want)
+			}
+		})
 	}
 }
 

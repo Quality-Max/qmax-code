@@ -66,6 +66,8 @@ type modelKey struct{}
 // alone cannot identify their purpose (for example a WebSocket handshake).
 type categoryKey struct{}
 
+const webSocketHandshakeTimeout = 15 * time.Second
+
 // WithModel annotates ctx with the LLM model id for requests built from it.
 // LLM call sites (Anthropic, Cerebras, Ollama) wrap their context with this so
 // the receipt records model attribution; all other traffic omits it.
@@ -122,7 +124,11 @@ func DialWebSocket(ctx context.Context, url string, opts *websocket.DialOptions)
 		dialOpts = *opts
 		dialOpts.Subprotocols = append([]string(nil), opts.Subprotocols...)
 	}
-	dialOpts.HTTPClient = NewClient(0)
+	// coder/websocket converts this client timeout into a handshake context
+	// deadline, then clears the client timeout before returning the upgraded
+	// connection. This bounds a stalled upgrade without imposing a lifetime on
+	// the VNC stream itself.
+	dialOpts.HTTPClient = NewClient(webSocketHandshakeTimeout)
 	return websocket.Dial(ctx, url, &dialOpts)
 }
 
@@ -216,6 +222,9 @@ func (t *receiptTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 }
 
 func appendNote(existing, next string) string {
+	if next == "" {
+		return existing
+	}
 	if existing == "" {
 		return next
 	}

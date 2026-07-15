@@ -66,6 +66,9 @@ func scanFileForEgressViolations(file *ast.File, fset *token.FileSet, rel string
 			name = spec.Name.Name
 		}
 		imports[name] = path
+		if name == "." && (path == "net/http" || path == "net" || path == "github.com/coder/websocket") {
+			violations = append(violations, violation(rel, fset, spec.Pos(), "dot-import of egress package "+path))
+		}
 		if forbiddenLibraryImports[path] {
 			violations = append(violations, violation(rel, fset, spec.Pos(), "forbidden egress library "+path))
 		}
@@ -178,5 +181,25 @@ func f() {
 	}
 	if len(violations) != 4 {
 		t.Fatalf("violations = %d, want 4: %v", len(violations), violations)
+	}
+}
+
+func TestEgressGuardRejectsDotImports(t *testing.T) {
+	dir := t.TempDir()
+	bad := `package bad
+
+import . "net/http"
+
+var client = Client{}
+`
+	if err := os.WriteFile(filepath.Join(dir, "bad.go"), []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	violations, err := scanForEgressViolations(dir)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(violations) != 1 || !strings.Contains(violations[0], "dot-import") {
+		t.Fatalf("violations = %v, want dot-import violation", violations)
 	}
 }
