@@ -162,6 +162,42 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 
 	var inputHistory []string
 	var lastCtrlC time.Time
+	sessionStarted := time.Now()
+	var lastTask string
+	var lastTurnDur time.Duration
+	var lastContextTokens int
+
+	inputStatus := func() *tui.StatusInfo {
+		backend := "api"
+		if ag.Cfg.Context != nil && ag.Cfg.Context.Backend != "" {
+			backend = ag.Cfg.Context.Backend
+		}
+		model := ag.Cfg.Model
+		effort, permissionMode := "", ""
+		if ag.AppConfig != nil {
+			if ag.AppConfig.ModelOverride != "" {
+				model = ag.AppConfig.ModelOverride
+			}
+			effort = ag.AppConfig.Effort
+			if backend != "api" {
+				permissionMode = ag.AppConfig.OrchPermissionMode
+			}
+		}
+		return &tui.StatusInfo{
+			Backend:        backend,
+			Model:          model,
+			Effort:         effort,
+			PermissionMode: permissionMode,
+			OutputVerbose:  ag.Cfg.OutputVerbose,
+			Task:           lastTask,
+			TokensIn:       ag.Usage.InputTokens,
+			TokensOut:      ag.Usage.OutputTokens,
+			ContextUsed:    lastContextTokens,
+			ContextWindow:  api.ContextWindow(model),
+			LastTurnDur:    lastTurnDur,
+			SessionStarted: sessionStarted,
+		}
+	}
 
 	// Prompt consent and open cloud session at startup (idempotent — safe to call again later).
 	startCloudSession()
@@ -184,7 +220,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			fmt.Println()
 			inputHistory = append(inputHistory, input)
 		} else {
-			result := tui.ReadInput(term.Prompt(), inputHistory, ag.Cfg.OutputVerbose)
+			result := tui.ReadInput(term.Prompt(), inputHistory, ag.Cfg.OutputVerbose, inputStatus())
 
 			if result.OutputToggle {
 				toggleOutputVerbose(ag, cliAgent, term)
@@ -222,6 +258,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			continue
 		case input == "/clear":
 			ag.ClearHistory()
+			lastContextTokens = 0
 			if oc, ok := cliAgent.(*agent.OpenCodeAgent); ok {
 				oc.ClearSession()
 			}
@@ -1058,6 +1095,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		// Normal mode: use direct Anthropic API.
 		var llmResult string
 		var err error
+		turnStarted := time.Now()
 
 		// In CC/Codex mode, start a pre-connect goroutine that watches for a
 		// live_browser_url in the side-channel file every second. When one
@@ -1123,6 +1161,14 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			llmResult, err = cliAgent.Run(cleanInput, term)
 			term.StopThinking()
 			if err == nil {
+				if stats, ok := cliAgent.(agent.TurnStatsProvider); ok {
+					if inputTokens, outputTokens, reported := stats.LastTurnStats(); reported {
+						ag.Usage.InputTokens += inputTokens
+						ag.Usage.OutputTokens += outputTokens
+						ag.Usage.Requests++
+						lastContextTokens = inputTokens
+					}
+				}
 				// Mirror the turn into ag.History so autoSave records it.
 				// agent.CCAgent/agent.CodexAgent manage their own subprocess state; qmax's
 				// history would otherwise stay empty and autoSave would no-op.
@@ -1143,6 +1189,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			llmResult, err = ag.RunStreamingWithImages(cleanInput, images, term)
 		} else {
 			llmResult, err = ag.RunStreaming(input, term)
+		}
+		lastTurnDur = time.Since(turnStarted)
+		if err == nil {
+			lastTask = cleanInput
+			if cliAgent == nil {
+				lastContextTokens = ag.LastContextTokens
+			}
 		}
 
 		// Stop queue reader and wait for the goroutine to exit before we

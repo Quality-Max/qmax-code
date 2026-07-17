@@ -40,3 +40,18 @@ func IsValidClaudeModelName(m string) bool {
 func ValidClaudeModelsHelp() string {
 	return "auto, sonnet, opus, haiku, " + ModelFable + ", " + ModelSonnet5 + ", " + ModelSonnet + ", " + ModelOpus + ", " + ModelOpus1M + ", " + ModelOpus47 + ", " + ModelHaiku
 }
+
+// ContextWindow returns the assumed context-window size in tokens for a model
+// ID across all backends. It feeds the status-bar fill estimate only, so a
+// conservative 200k default for unknown (non-Anthropic) models is acceptable.
+func ContextWindow(model string) int {
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "[1m]"):
+		return 1_000_000
+	case m == ModelFable, m == ModelSonnet5:
+		return 1_000_000
+	default:
+		return 200_000
+	}
+}

@@ -4,12 +4,33 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 )
+
+// StatusInfo carries session metrics rendered around the input box: token
+// counts, context-window fill, timing, and the mode/task bottom bar. Zero
+// values are omitted from the display, so backends that can't report a given
+// metric simply don't show it.
+type StatusInfo struct {
+	Backend        string // "cc" | "codex" | "opencode" | "cerebras" | "ollama" | "" (direct API)
+	Model          string // active model ID; "" = backend default
+	Effort         string // "low" | "medium" | "high" (CLI backends)
+	PermissionMode string // "standard" | "unattended" (CLI backends)
+	OutputVerbose  bool
+	Task           string        // what the agent is working on (latest user prompt)
+	TokensIn       int           // session input tokens
+	TokensOut      int           // session output tokens
+	ContextUsed    int           // tokens occupying the model context after the last turn
+	ContextWindow  int           // assumed context window of the active model
+	LastTurnDur    time.Duration // wall-clock duration of the previous agent turn
+	SessionStarted time.Time     // used to keep the session timer live while typing
+	SessionDur     time.Duration // fallback when SessionStarted is unavailable
+}
 
 // SlashMenuItem represents a selectable command.
 type SlashMenuItem struct {
@@ -77,6 +98,7 @@ type inputModel struct {
 	prompt        string
 	history       []string
 	histIdx       int
+	status        *StatusInfo // optional metrics/mode/task display; nil hides it
 }
 
 func newInputModel(prompt string, history []string) inputModel {
@@ -97,13 +119,26 @@ func newInputModelWithOutputMode(prompt string, history []string, outputVerbose 
 	}
 }
 
-func (m inputModel) Init() tea.Cmd { return nil }
+type statusTickMsg time.Time
+
+func (m inputModel) Init() tea.Cmd {
+	if m.status == nil || m.status.SessionStarted.IsZero() {
+		return nil
+	}
+	return nextStatusTick()
+}
+
+func nextStatusTick() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return statusTickMsg(t) })
+}
 
 func (m inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		return m, nil
+	case statusTickMsg:
+		return m, nextStatusTick()
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlO {
 			m.result = ""
@@ -373,10 +408,23 @@ var (
 	menuDescSelSty = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("69"))
 	menuHintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	filterStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+
+	// Input box + status bar styles. The bordered box visually separates the
+	// prompt from the agent stream above it; the bottom bar mirrors the
+	// pickerStatusBar look (light text on a raised background).
+	inputBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("238")).
+			Padding(0, 1)
+
+	statusMetricsStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	statusBarStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(lipgloss.Color("236"))
+	statusBarModeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("236")).Bold(true)
+	statusBarDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Background(lipgloss.Color("236"))
 )
 
 func (m inputModel) View() string {
-	// When done, show only the final input — no menu residue.
+	// When done, show only the final input — no menu/box residue.
 	if m.done {
 		if m.result == "" {
 			return ""
@@ -385,6 +433,11 @@ func (m inputModel) View() string {
 	}
 
 	var b strings.Builder
+
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
 
 	if m.mode == modeTyping {
 		runes := []rune(m.text)
@@ -395,34 +448,7 @@ func (m inputModel) View() string {
 		display = append(display, '█')
 		display = append(display, runes[m.cursor:]...)
 
-		b.WriteString(m.prompt)
-
-		w := m.width
-		if w <= 0 {
-			w = 80
-		}
-		promptW := lipgloss.Width(m.prompt)
-		availW := w - promptW
-		if availW < 10 {
-			availW = 10
-		}
-
-		if len(display) <= availW {
-			b.WriteString(string(display))
-		} else {
-			// Wrap at availW; indent continuation lines to align with text start.
-			indent := strings.Repeat(" ", promptW)
-			col := 0
-			for _, r := range display {
-				if col >= availW {
-					b.WriteString("\n")
-					b.WriteString(indent)
-					col = 0
-				}
-				b.WriteRune(r)
-				col++
-			}
-		}
+		b.WriteString(m.renderInputBox(string(display), w))
 
 		mode := "compact"
 		if m.outputVerbose {
@@ -430,14 +456,18 @@ func (m inputModel) View() string {
 		}
 		b.WriteString("\n")
 		b.WriteString(menuHintStyle.Render(fmt.Sprintf("  Ctrl+O output: %s • ↑↓ history • Ctrl+X×3 clear • Opt+←/→ words • Ctrl+C cancel • / commands", mode)))
+		if status := m.renderStatus(w); status != "" {
+			b.WriteString("\n")
+			b.WriteString(status)
+		}
 	} else {
 		// Menu mode
-		b.WriteString(m.prompt)
-		b.WriteString("/")
+		filterLine := "/"
 		if m.filter != "" {
-			b.WriteString(filterStyle.Render(m.filter))
+			filterLine += filterStyle.Render(m.filter)
 		}
-		b.WriteString("█")
+		filterLine += "█"
+		b.WriteString(m.renderInputBox(filterLine, w))
 		b.WriteString("\n")
 
 		filtered := m.filteredMenuItems()
@@ -457,9 +487,167 @@ func (m inputModel) View() string {
 			}
 		}
 		b.WriteString(menuHintStyle.Render("  ↑↓ navigate • enter select • esc cancel • type to filter"))
+		if status := m.renderStatus(w); status != "" {
+			b.WriteString("\n")
+			b.WriteString(status)
+		}
 	}
 
 	return b.String()
+}
+
+// renderInputBox draws the prompt + content inside a full-width rounded
+// border so the input field reads as a distinct panel below the agent stream.
+func (m inputModel) renderInputBox(content string, w int) string {
+	// Inner width: total minus 2 border columns minus 2 padding columns.
+	innerW := w - 4
+	if innerW < 20 {
+		innerW = 20
+	}
+
+	promptW := lipgloss.Width(m.prompt)
+	availW := innerW - promptW
+	if availW < 10 {
+		availW = 10
+	}
+
+	var text strings.Builder
+	text.WriteString(m.prompt)
+	runes := []rune(content)
+	if len(runes) <= availW {
+		text.WriteString(content)
+	} else {
+		// Wrap at availW; indent continuation lines to align with text start.
+		indent := strings.Repeat(" ", promptW)
+		col := 0
+		for _, r := range runes {
+			if col >= availW {
+				text.WriteString("\n")
+				text.WriteString(indent)
+				col = 0
+			}
+			text.WriteRune(r)
+			col++
+		}
+	}
+
+	return inputBoxStyle.Width(w - 2).Render(text.String())
+}
+
+// renderStatus produces the metrics line (context window, tokens, timings)
+// and the bottom bar (mode + task). Returns "" when no status was provided.
+func (m inputModel) renderStatus(w int) string {
+	s := m.status
+	if s == nil {
+		return ""
+	}
+
+	var lines []string
+
+	// ── Metrics line: token window · tokens · time ──────────────────────
+	var metrics []string
+	if s.ContextUsed > 0 && s.ContextWindow > 0 {
+		pct := s.ContextUsed * 100 / s.ContextWindow
+		metrics = append(metrics, fmt.Sprintf("ctx %s/%s (%d%%)",
+			compactTokens(s.ContextUsed), compactTokens(s.ContextWindow), pct))
+	}
+	if s.TokensIn+s.TokensOut > 0 {
+		metrics = append(metrics, fmt.Sprintf("tokens %s in / %s out",
+			compactTokens(s.TokensIn), compactTokens(s.TokensOut)))
+	}
+	if s.LastTurnDur > 0 {
+		metrics = append(metrics, "last turn "+compactDuration(s.LastTurnDur))
+	}
+	if sessionDur := s.sessionDuration(); sessionDur > 0 {
+		metrics = append(metrics, "session "+compactDuration(sessionDur))
+	}
+	if len(metrics) > 0 {
+		lines = append(lines, statusMetricsStyle.Render("  "+strings.Join(metrics, " · ")))
+	}
+
+	// ── Bottom bar: mode (left) + task (right) ──────────────────────────
+	mode := s.PermissionMode
+	if mode == "" {
+		mode = "api"
+	}
+	left := " " + statusBarModeStyle.Render("-- "+strings.ToUpper(mode)+" --") + statusBarStyle.Render("  "+m.describeBackend())
+
+	task := s.Task
+	if task == "" {
+		task = "idle"
+	}
+	leftW := lipgloss.Width(left)
+	// " task: " + text + trailing space must fit in what's left of the row.
+	taskAvail := w - leftW - 9
+	if taskAvail < 8 {
+		taskAvail = 8
+	}
+	taskRunes := []rune(strings.ReplaceAll(task, "\n", " "))
+	if len(taskRunes) > taskAvail {
+		task = string(taskRunes[:taskAvail-1]) + "…"
+	}
+	right := statusBarDimStyle.Render("task: ") + statusBarStyle.Render(task+" ")
+
+	gap := w - leftW - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	bar := left + statusBarStyle.Render(strings.Repeat(" ", gap)) + right
+	lines = append(lines, bar)
+
+	return strings.Join(lines, "\n")
+}
+
+func (s *StatusInfo) sessionDuration() time.Duration {
+	if !s.SessionStarted.IsZero() {
+		return time.Since(s.SessionStarted)
+	}
+	return s.SessionDur
+}
+
+// describeBackend renders "backend · model · effort" from whichever parts are set.
+func (m inputModel) describeBackend() string {
+	s := m.status
+	backend := s.Backend
+	if backend == "" {
+		backend = "api"
+	}
+	parts := []string{backend}
+	if s.Model != "" {
+		parts = append(parts, s.Model)
+	}
+	if s.Effort != "" {
+		parts = append(parts, s.Effort+" effort")
+	}
+	if s.OutputVerbose {
+		parts = append(parts, "verbose")
+	}
+	return strings.Join(parts, " · ")
+}
+
+// compactTokens formats a token count as "950", "12.3k", or "1.2M".
+func compactTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+// compactDuration formats a duration as "42s", "2m10s", or "1h03m".
+func compactDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
 }
 
 // InputResult holds the result of a ReadInput call.
@@ -471,8 +659,10 @@ type InputResult struct {
 }
 
 // ReadInput runs the bubbletea input widget and returns the submitted text.
-func ReadInput(prompt string, history []string, outputVerbose bool) InputResult {
+// status is optional session metrics rendered below the input box (nil hides them).
+func ReadInput(prompt string, history []string, outputVerbose bool, status *StatusInfo) InputResult {
 	m := newInputModelWithOutputMode(prompt, history, outputVerbose)
+	m.status = status
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {

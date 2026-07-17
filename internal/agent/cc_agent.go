@@ -29,6 +29,14 @@ type CLIAgent interface {
 	Cleanup()
 }
 
+// TurnStatsProvider is optionally implemented by CLI agents that can report
+// token usage for their most recent Run. The REPL folds these numbers into
+// the session totals shown in the input status bar; backends whose stream
+// carries no usage information simply don't implement it (or return ok=false).
+type TurnStatsProvider interface {
+	LastTurnStats() (inputTokens, outputTokens int, ok bool)
+}
+
 // CCAgent orchestrates a Claude Code CLI subprocess for LLM inference.
 // Inference runs through the user's Claude Code login, so qmax-code does not
 // need a QM-held Anthropic API key. Because this agent uses `claude --print`,
@@ -55,6 +63,9 @@ type CCAgent struct {
 	mcpConfigInfo  os.FileInfo
 	sctx           *api.SessionContext
 	lastToolName   string // track last tool name for result display
+	lastTurnIn     int    // token usage of the most recent turn (from CC's result event)
+	lastTurnOut    int
+	lastTurnOK     bool // true once a result event carried usage this turn
 	mu             sync.Mutex
 	runMu          sync.Mutex
 	runCancel      context.CancelFunc // non-nil while Run() is active
@@ -347,6 +358,7 @@ func sanitizeCCUserPrompt(prompt string) (string, error) {
 // CC's subscription handles inference; qmax handles tools via MCP.
 func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	a.mu.Lock()
+	a.lastTurnIn, a.lastTurnOut, a.lastTurnOK = 0, 0, false
 	if !sameMCPConfigFile(a.mcpConfigPath, a.mcpConfigInfo) {
 		a.mu.Unlock()
 		if err := a.WriteMCPConfig(); err != nil {
@@ -500,6 +512,14 @@ type ccEvent struct {
 	Message   *ccEventMsg `json:"message,omitempty"`
 	Result    string      `json:"result,omitempty"`
 	IsError   bool        `json:"is_error,omitempty"`
+	Usage     *ccUsage    `json:"usage,omitempty"`
+}
+
+// ccUsage is emitted on Claude Code's final result event. Keep the fields we
+// surface in the UI typed, while allowing CC to add other usage fields.
+type ccUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
 }
 
 type ccEventMsg struct {
@@ -591,6 +611,13 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 
 		case "result":
 			finalResult = event.Result
+			if event.Usage != nil {
+				a.mu.Lock()
+				a.lastTurnIn = event.Usage.InputTokens
+				a.lastTurnOut = event.Usage.OutputTokens
+				a.lastTurnOK = event.Usage.InputTokens > 0 || event.Usage.OutputTokens > 0
+				a.mu.Unlock()
+			}
 			if event.IsError && event.Result != "" {
 				term.PrintError("CC error: " + event.Result)
 			}
@@ -599,6 +626,15 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 
 	term.FinishMarkdown(finalResult)
 	return finalResult
+}
+
+// LastTurnStats returns Claude Code's usage from the most recently completed
+// turn. It is intentionally optional so other CLI backends need not invent
+// token figures when their protocol does not expose them.
+func (a *CCAgent) LastTurnStats() (inputTokens, outputTokens int, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastTurnIn, a.lastTurnOut, a.lastTurnOK
 }
 
 // parseCCBlocks unmarshals a CC message content field (string or []block).

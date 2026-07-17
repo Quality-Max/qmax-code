@@ -157,6 +157,7 @@ type Terminal struct {
 	currentPrompt string          // track prompt for readline recreation
 	thinking      *spinner        // active thinking spinner, if any
 	userTyping    atomic.Bool     // true while StartQueueReader has the user typing
+	toolStreak    bool            // last printed line was a tool call; keeps consecutive tools tight
 }
 
 // SetUserTyping tells the active spinner to pause (true) or resume (false) its
@@ -369,6 +370,7 @@ func (t *Terminal) StreamText(text string) {
 	if !t.streaming {
 		t.StopThinking() // erase spinner before first token
 		t.streaming = true
+		t.toolStreak = false
 		t.streamBuf.Reset()
 		// Hide readline prompt during streaming to prevent input overlap
 		if t.rl != nil {
@@ -384,6 +386,7 @@ func (t *Terminal) StreamText(text string) {
 // FinishMarkdown is called when a text block is complete.
 // Re-renders the streamed text with glamour for syntax highlighting.
 func (t *Terminal) FinishMarkdown(fullText string) {
+	t.toolStreak = false
 	if t.streaming {
 		t.streaming = false
 
@@ -417,6 +420,7 @@ func (t *Terminal) FinishMarkdown(fullText string) {
 // PrintAssistant prints the agent's text response with markdown rendering.
 // Used in non-streaming mode.
 func (t *Terminal) PrintAssistant(text string) {
+	t.toolStreak = false
 	if t.renderer != nil {
 		rendered, err := t.renderer.Render(text)
 		if err == nil {
@@ -428,6 +432,8 @@ func (t *Terminal) PrintAssistant(text string) {
 }
 
 // PrintToolIcon shows a tool icon when a tool_use block starts streaming.
+// Consecutive tool calls render as a tight group: only the first tool after
+// text/system output gets a separating blank line.
 func (t *Terminal) PrintToolIcon(name string) {
 	t.StopThinking() // erase spinner before tool display
 	if t.streaming {
@@ -439,7 +445,11 @@ func (t *Terminal) PrintToolIcon(name string) {
 		icon = "🔧"
 	}
 	displayName := strings.ReplaceAll(name, "_", " ")
-	fmt.Printf("\n  %s %s", icon, styleTool.Render(displayName))
+	if !t.toolStreak {
+		fmt.Println()
+	}
+	t.toolStreak = true
+	fmt.Printf("  %s %s", icon, styleTool.Render(displayName))
 }
 
 // PrintToolStart shows a tool invocation with its input summary.
@@ -545,6 +555,7 @@ func (t *Terminal) PrintPlan(steps []PlanStep) {
 		t.streaming = false
 		fmt.Println()
 	}
+	t.toolStreak = false
 	defer t.StartThinking()
 
 	done := 0
@@ -582,11 +593,13 @@ func (t *Terminal) PrintPlan(steps []PlanStep) {
 
 // PrintSystem prints a system message.
 func (t *Terminal) PrintSystem(msg string) {
+	t.toolStreak = false
 	fmt.Printf("  %s %s\n", styleSystem.Render("●"), msg)
 }
 
 // PrintError prints an error message.
 func (t *Terminal) PrintError(msg string) {
+	t.toolStreak = false
 	fmt.Printf("  %s\n", styleError.Render("✗ "+msg))
 }
 

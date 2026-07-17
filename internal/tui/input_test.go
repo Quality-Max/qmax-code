@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -145,6 +146,61 @@ func TestInputFooterShowsOutputModeAndHotkeys(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("input footer missing %q in %q", want, view)
 		}
+	}
+}
+
+func TestInputSeparatesPromptAndRendersSessionStatus(t *testing.T) {
+	m := newInputModelWithOutputMode("qmax > ", nil, false)
+	m.width = 100
+	m.status = &StatusInfo{
+		Backend:        "cc",
+		Model:          "claude-sonnet-5",
+		Effort:         "high",
+		PermissionMode: "standard",
+		Task:           "fix the spacing around the input panel",
+		TokensIn:       12_300,
+		TokensOut:      4_500,
+		ContextUsed:    16_800,
+		ContextWindow:  200_000,
+		LastTurnDur:    42 * time.Second,
+		SessionDur:     2*time.Minute + 10*time.Second,
+	}
+
+	view := m.View()
+	for _, want := range []string{
+		"╭", "╮", "╰", "╯", // a distinct bordered input field
+		"ctx 16.8k/200.0k (8%)",
+		"tokens 12.3k in / 4.5k out",
+		"last turn 42s",
+		"session 2m10s",
+		"-- STANDARD --",
+		"cc · claude-sonnet-5 · high effort",
+		"task: fix the spacing around the input panel",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("input status missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestInputRendersStatusInSlashMenu(t *testing.T) {
+	m := newInputModel("qmax > ", nil)
+	m.width = 100
+	m.mode = modeMenu
+	m.status = &StatusInfo{Backend: "cc", PermissionMode: "standard", Task: "review the diff"}
+
+	view := m.View()
+	for _, want := range []string{"↑↓ navigate", "-- STANDARD --", "task: review the diff"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("slash menu status missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestStatusUsesLiveSessionStart(t *testing.T) {
+	s := &StatusInfo{SessionStarted: time.Now().Add(-2 * time.Minute)}
+	if got := s.sessionDuration(); got < 2*time.Minute || got > 2*time.Minute+time.Second {
+		t.Fatalf("live session duration = %s, want about 2m", got)
 	}
 }
 
