@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -105,10 +106,25 @@ func TestTurnViewportPreservesDraftWhenTurnFinishes(t *testing.T) {
 	}
 }
 
+func TestTurnViewportDoneDoesNotOverwriteSubmittedInput(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m.text = []rune("submitted prompt")
+	m.cursor = len(m.text)
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	// Simulate another input event winning the race before the backend's done
+	// message is delivered. The submitted result must remain authoritative.
+	m.text = nil
+	m, _ = updateTurnViewport(t, m, turnDoneMsg{})
+
+	if got, want := m.result.Text, "submitted prompt"; got != want {
+		t.Fatalf("completed turn replaced submitted input: got %q, want %q", got, want)
+	}
+}
+
 func TestTurnViewportOnlyShowsOutputThatFitsAbovePanel(t *testing.T) {
 	m := newTurnViewportModel("qmax > ", nil, nil)
 	m.height = 12 // four output lines after reserving the persistent panel
-	m.output.WriteString("one\ntwo\nthree\nfour\nfive\nsix")
+	m.appendOutput("one\ntwo\nthree\nfour\nfive\nsix")
 
 	visible := m.visibleOutput()
 	if strings.Contains(visible, "one") || strings.Contains(visible, "two") {
@@ -125,10 +141,58 @@ func TestTurnViewportWrapsLongStreamingLines(t *testing.T) {
 	m := newTurnViewportModel("qmax > ", nil, nil)
 	m.width = 20
 	m.height = 20
-	m.output.WriteString("abcdefghijklmnopqrstuvwxyz")
+	m.appendOutput("abcdefghijklmnopqrstuvwxyz")
 
 	visible := m.visibleOutput()
 	if !strings.Contains(visible, "\n") || !strings.Contains(visible, "uvwxyz") {
 		t.Fatalf("long stream line was not wrapped into visible output: %q", visible)
+	}
+}
+
+func TestTurnViewportCachesWrappedOutputAcrossTicks(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m.appendOutput("a streaming line that needs wrapping")
+	m.width = 12
+
+	_ = m.visibleOutput()
+	_ = m.visibleOutput()
+	if got, want := m.cache.wraps, 1; got != want {
+		t.Fatalf("unchanged output wrapped %d times, want %d", got, want)
+	}
+
+	m, _ = updateTurnViewport(t, m, turnTickMsg{})
+	_ = m.visibleOutput()
+	if got, want := m.cache.wraps, 1; got != want {
+		t.Fatalf("timer tick re-wrapped unchanged output %d times, want %d", got, want)
+	}
+
+	m.appendOutput(" with more text")
+	_ = m.visibleOutput()
+	if got, want := m.cache.wraps, 2; got != want {
+		t.Fatalf("changed output wrapped %d times, want %d", got, want)
+	}
+}
+
+func TestTurnViewportBoundsStoredAndLiveOutput(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	// No newline forces the ANSI/UTF-8-safe fallback rather than the normal
+	// line-boundary trim.
+	huge := "\x1b[31m" + strings.Repeat("é", maxStoredTurnOutput/2+1024)
+	m.appendOutput(huge)
+
+	if m.output.Len() > maxStoredTurnOutput {
+		t.Fatalf("stored output = %d bytes, want <= %d", m.output.Len(), maxStoredTurnOutput)
+	}
+	if m.live.Len() > maxLiveOutput {
+		t.Fatalf("live output = %d bytes, want <= %d", m.live.Len(), maxLiveOutput)
+	}
+	if !strings.Contains(m.output.String(), turnOutputTruncatedNotice) {
+		t.Fatal("bounded scrollback did not explain that earlier output was omitted")
+	}
+	if !utf8.ValidString(m.output.String()) || !utf8.ValidString(m.live.String()) {
+		t.Fatal("output bounding split a UTF-8 rune")
+	}
+	if strings.Contains(m.live.String(), "\x1b[") {
+		t.Fatal("long-line live suffix retained a partial or active ANSI sequence")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -24,11 +25,30 @@ type turnActivityMsg string
 type turnDoneMsg struct{}
 type turnTickMsg time.Time
 
+const (
+	maxLiveOutput       = 64 * 1024
+	keptLiveOutput      = 48 * 1024
+	maxStoredTurnOutput = 4 * 1024 * 1024
+	keptTurnOutput      = 3 * 1024 * 1024
+)
+
+const turnOutputTruncatedNotice = "\n  … earlier turn output omitted to keep memory bounded …\n"
+
+type turnViewportCache struct {
+	revision uint64
+	width    int
+	wrapped  string
+	lines    []string
+	wraps    int
+}
+
 type turnViewportModel struct {
 	prompt   string
 	status   *StatusInfo
 	output   *strings.Builder
-	liveFrom int
+	live     *strings.Builder
+	revision uint64
+	cache    *turnViewportCache
 	text     []rune
 	cursor   int
 	width    int
@@ -46,6 +66,8 @@ func newTurnViewportModel(prompt string, status *StatusInfo, cancelFn func()) tu
 		prompt:   prompt,
 		status:   status,
 		output:   &strings.Builder{},
+		live:     &strings.Builder{},
+		cache:    &turnViewportCache{},
 		width:    80,
 		height:   24,
 		cancelFn: cancelFn,
@@ -64,18 +86,7 @@ func (m turnViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case turnOutputMsg:
-		m.output.WriteString(string(msg))
-		// The complete turn is retained for scrollback restoration, but live
-		// redraws only need a bounded recent window. Advance at a newline so ANSI
-		// sequences and UTF-8 runes are never cut in half.
-		const maxLiveOutput = 64 * 1024
-		if m.output.Len()-m.liveFrom > maxLiveOutput {
-			out := m.output.String()
-			target := len(out) - maxLiveOutput
-			if newline := strings.IndexByte(out[target:], '\n'); newline >= 0 {
-				m.liveFrom = target + newline + 1
-			}
-		}
+		m.appendOutput(string(msg))
 		return m, nil
 	case turnThinkingMsg:
 		m.thinking = bool(msg)
@@ -85,9 +96,11 @@ func (m turnViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case turnDoneMsg:
 		// Preserve text that was still being composed when the backend
-		// completed. The REPL queues it for the next turn, matching the old
-		// concurrent readline behaviour without surrendering the viewport.
-		m.result.Text = strings.TrimSpace(string(m.text))
+		// completed. Do not overwrite a prompt already submitted by Enter if the
+		// backend's cancellation races with the queued turnDoneMsg.
+		if m.result.Text == "" {
+			m.result.Text = strings.TrimSpace(string(m.text))
+		}
 		m.done = true
 		return m, tea.Quit
 	case turnTickMsg:
@@ -97,6 +110,63 @@ func (m turnViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateKey(msg)
 	}
 	return m, nil
+}
+
+func (m *turnViewportModel) appendOutput(text string) {
+	if m.output == nil {
+		m.output = &strings.Builder{}
+	}
+	if m.live == nil {
+		m.live = &strings.Builder{}
+	}
+	m.output.WriteString(text)
+	m.live.WriteString(text)
+	m.revision++
+
+	// Retain enough output to restore useful scrollback after the viewport
+	// exits, but place a hard ceiling on unusually verbose CLI turns. Shrinking
+	// to a lower watermark avoids repeatedly copying on every subsequent token.
+	if m.output.Len() > maxStoredTurnOutput {
+		kept := safeOutputSuffix(m.output.String(), keptTurnOutput)
+		next := &strings.Builder{}
+		next.Grow(len(turnOutputTruncatedNotice) + len(kept))
+		next.WriteString(turnOutputTruncatedNotice)
+		next.WriteString(kept)
+		m.output = next
+	}
+
+	// Live redraws retain a much smaller suffix than final scrollback. Keeping
+	// this as a separate buffer bounds wrapping work even for a huge line with
+	// no newline, where a byte offset into the full ANSI stream would be unsafe.
+	if m.live.Len() > maxLiveOutput {
+		kept := safeOutputSuffix(m.live.String(), keptLiveOutput)
+		next := &strings.Builder{}
+		next.Grow(len(kept))
+		next.WriteString(kept)
+		m.live = next
+	}
+}
+
+func safeOutputSuffix(out string, keep int) string {
+	start := len(out) - keep
+	if start <= 0 {
+		return out
+	}
+	if newline := strings.IndexByte(out[start:], '\n'); newline >= 0 {
+		return out[start+newline+1:]
+	}
+
+	// A very long line has no safe textual boundary. Strip styling before
+	// slicing so an ANSI escape sequence can never be cut in half.
+	plain := ansi.Strip(out)
+	start = len(plain) - keep
+	if start < 0 {
+		start = 0
+	}
+	for start < len(plain) && !utf8.RuneStart(plain[start]) {
+		start++
+	}
+	return plain[start:]
 }
 
 func (m turnViewportModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -227,25 +297,47 @@ func (m turnViewportModel) View() string {
 }
 
 func (m turnViewportModel) visibleOutput() string {
-	out := m.output.String()[m.liveFrom:]
+	if m.live == nil {
+		return ""
+	}
+	out := m.live.String()
 	width := m.width
 	if width <= 0 {
 		width = 80
 	}
-	// Bubble Tea truncates over-wide physical lines. Wrap them first so a
-	// streamed paragraph remains readable while the persistent panel is active.
-	out = ansi.Wrap(out, width, "")
+
+	var lines []string
+	if m.cache != nil &&
+		m.cache.revision == m.revision &&
+		m.cache.width == width &&
+		m.cache.lines != nil {
+		lines = m.cache.lines
+	} else {
+		// Bubble Tea truncates over-wide physical lines. Wrap them first so a
+		// streamed paragraph remains readable while the persistent panel is active.
+		wrapped := ansi.Wrap(out, width, "")
+		lines = strings.Split(wrapped, "\n")
+		if m.cache != nil {
+			m.cache.revision = m.revision
+			m.cache.width = width
+			m.cache.wrapped = wrapped
+			m.cache.lines = lines
+			m.cache.wraps++
+		}
+	}
 	if m.height <= 0 {
-		return out
+		return strings.Join(lines, "\n")
 	}
 	// Reserve the bordered input, hint, metrics, bottom bar, and spinner.
 	maxLines := m.height - 8
 	if maxLines < 3 {
 		maxLines = 3
 	}
-	lines := strings.Split(out, "\n")
 	if len(lines) <= maxLines {
-		return out
+		if m.cache != nil && m.cache.lines != nil {
+			return m.cache.wrapped
+		}
+		return strings.Join(lines, "\n")
 	}
 	return strings.Join(lines[len(lines)-maxLines:], "\n")
 }
@@ -270,8 +362,8 @@ func RunTurnViewport(term *Terminal, prompt string, status *StatusInfo, cancelFn
 	term.detachTurnProgram(p)
 	final, ok := result.(turnViewportModel)
 	if ok && final.output != nil {
-		// Bubble Tea only owns the live viewport. Re-emit the complete turn once
-		// after it exits so normal terminal scrollback retains the full response.
+		// Bubble Tea only owns the live viewport. Re-emit the retained turn output
+		// once after it exits so normal terminal scrollback remains useful.
 		term.emit(final.output.String())
 	}
 	if err != nil || !ok {
