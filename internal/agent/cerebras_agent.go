@@ -68,6 +68,7 @@ func (a *Agent) RunCerebrasAgent(term *tui.Terminal) (string, bool) {
 
 		choice := resp.Choices[0]
 		a.Usage.InputTokens += resp.Usage.PromptTokens
+		a.LastContextTokens = resp.Usage.PromptTokens
 		a.Usage.OutputTokens += resp.Usage.CompletionTokens
 		a.Usage.Requests++
 

@@ -63,10 +63,14 @@ type Agent struct {
 	AppConfig *api.Config // persistent user preferences
 	History   []api.Message
 	Usage     api.TokenUsage
-	Logger    *sysutil.Logger
-	Ollama    *OllamaClient   // optional self-hosted LLM
-	Mode      OllamaMode      // off, chat, or full
-	Cerebras  *CerebrasClient // optional Cerebras backend; when set, owns the whole turn
+	// LastContextTokens is the input-token count reported by the most recent
+	// model request. Unlike Usage.InputTokens, it is not cumulative and can be
+	// used to estimate the currently occupied context window in the TUI.
+	LastContextTokens int
+	Logger            *sysutil.Logger
+	Ollama            *OllamaClient   // optional self-hosted LLM
+	Mode              OllamaMode      // off, chat, or full
+	Cerebras          *CerebrasClient // optional Cerebras backend; when set, owns the whole turn
 
 	tools           []api.ToolDef
 	client          *http.Client
@@ -126,6 +130,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 // ClearHistory resets conversation history.
 func (a *Agent) ClearHistory() {
 	a.History = []api.Message{}
+	a.LastContextTokens = 0
 }
 
 // CancelCurrent cancels the current streaming request if one is in progress.
@@ -141,6 +146,9 @@ func (a *Agent) CancelCurrent() {
 // Run executes a prompt through the agent loop and returns the final text response.
 // Used for non-interactive (one-shot) mode.
 func (a *Agent) Run(prompt string) (string, error) {
+	// This is a new top-level turn; do not show a prior request's context size
+	// if this request fails before the provider reports usage.
+	a.LastContextTokens = 0
 	a.History = append(a.History, api.Message{
 		Role:    "user",
 		Content: prompt,
@@ -327,6 +335,11 @@ func (a *Agent) RunStreaming(prompt string, term *tui.Terminal) (string, error) 
 }
 
 func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
+	// All backends share this top-level turn boundary, including Ollama. Ollama's
+	// streaming protocol does not expose usage, so leaving this at zero hides the
+	// context-fill metric instead of carrying a stale value from another backend.
+	a.LastContextTokens = 0
+
 	// Cerebras backend owns the entire turn via its own native function-calling
 	// loop (full tool set). No Claude fallback — the user has no Anthropic key.
 	if a.Cerebras != nil {
@@ -654,6 +667,7 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 			var ev sseMessageStart
 			if err := json.Unmarshal([]byte(rawData), &ev); err == nil {
 				a.Usage.InputTokens += ev.Message.Usage.InputTokens
+				a.LastContextTokens = ev.Message.Usage.InputTokens
 				a.Usage.Requests++
 				if a.Cfg.Verbose {
 					fmt.Printf("[SSE] message_start: input_tokens=%d\n", ev.Message.Usage.InputTokens)
@@ -813,6 +827,7 @@ func (a *Agent) callAPI() (*api.APIResponse, error) {
 
 	// Track usage
 	a.Usage.InputTokens += apiResp.Usage.InputTokens
+	a.LastContextTokens = apiResp.Usage.InputTokens
 	a.Usage.OutputTokens += apiResp.Usage.OutputTokens
 	a.Usage.Requests++
 
