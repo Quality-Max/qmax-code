@@ -1095,6 +1095,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		// Normal mode: use direct Anthropic API.
 		var llmResult string
 		var err error
+		// Clear the UI's per-turn estimate before starting any backend. This also
+		// covers CLI backends, whose usage is reported outside Agent.RunStreaming.
+		lastContextTokens = 0
+		ag.LastContextTokens = 0
 		turnStarted := time.Now()
 
 		// In CC/Codex mode, start a pre-connect goroutine that watches for a
@@ -1167,6 +1171,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 						ag.Usage.OutputTokens += outputTokens
 						ag.Usage.Requests++
 						lastContextTokens = inputTokens
+						ag.LastContextTokens = inputTokens
 					}
 				}
 				// Mirror the turn into ag.History so autoSave records it.

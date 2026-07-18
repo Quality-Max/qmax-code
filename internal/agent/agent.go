@@ -146,6 +146,9 @@ func (a *Agent) CancelCurrent() {
 // Run executes a prompt through the agent loop and returns the final text response.
 // Used for non-interactive (one-shot) mode.
 func (a *Agent) Run(prompt string) (string, error) {
+	// This is a new top-level turn; do not show a prior request's context size
+	// if this request fails before the provider reports usage.
+	a.LastContextTokens = 0
 	a.History = append(a.History, api.Message{
 		Role:    "user",
 		Content: prompt,
@@ -332,6 +335,11 @@ func (a *Agent) RunStreaming(prompt string, term *tui.Terminal) (string, error) 
 }
 
 func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
+	// All backends share this top-level turn boundary, including Ollama. Ollama's
+	// streaming protocol does not expose usage, so leaving this at zero hides the
+	// context-fill metric instead of carrying a stale value from another backend.
+	a.LastContextTokens = 0
+
 	// Cerebras backend owns the entire turn via its own native function-calling
 	// loop (full tool set). No Claude fallback — the user has no Anthropic key.
 	if a.Cerebras != nil {

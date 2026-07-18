@@ -29,7 +29,6 @@ type StatusInfo struct {
 	ContextWindow  int           // assumed context window of the active model
 	LastTurnDur    time.Duration // wall-clock duration of the previous agent turn
 	SessionStarted time.Time     // used to keep the session timer live while typing
-	SessionDur     time.Duration // fallback when SessionStarted is unavailable
 }
 
 // SlashMenuItem represents a selectable command.
@@ -558,8 +557,10 @@ func (m inputModel) renderStatus(w int) string {
 	if s.LastTurnDur > 0 {
 		metrics = append(metrics, "last turn "+compactDuration(s.LastTurnDur))
 	}
-	if sessionDur := s.sessionDuration(); sessionDur > 0 {
-		metrics = append(metrics, "session "+compactDuration(sessionDur))
+	if !s.SessionStarted.IsZero() {
+		if sessionDur := time.Since(s.SessionStarted); sessionDur > 0 {
+			metrics = append(metrics, "session "+compactDuration(sessionDur))
+		}
 	}
 	if len(metrics) > 0 {
 		lines = append(lines, statusMetricsStyle.Render("  "+strings.Join(metrics, " · ")))
@@ -596,13 +597,6 @@ func (m inputModel) renderStatus(w int) string {
 	lines = append(lines, bar)
 
 	return strings.Join(lines, "\n")
-}
-
-func (s *StatusInfo) sessionDuration() time.Duration {
-	if !s.SessionStarted.IsZero() {
-		return time.Since(s.SessionStarted)
-	}
-	return s.SessionDur
 }
 
 // describeBackend renders "backend · model · effort" from whichever parts are set.

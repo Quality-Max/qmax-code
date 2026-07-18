@@ -163,7 +163,7 @@ func TestInputSeparatesPromptAndRendersSessionStatus(t *testing.T) {
 		ContextUsed:    16_800,
 		ContextWindow:  200_000,
 		LastTurnDur:    42 * time.Second,
-		SessionDur:     2*time.Minute + 10*time.Second,
+		SessionStarted: time.Now().Add(-2*time.Minute - 10*time.Second),
 	}
 
 	view := m.View()
@@ -199,7 +199,7 @@ func TestInputRendersStatusInSlashMenu(t *testing.T) {
 
 func TestStatusUsesLiveSessionStart(t *testing.T) {
 	s := &StatusInfo{SessionStarted: time.Now().Add(-2 * time.Minute)}
-	if got := s.sessionDuration(); got < 2*time.Minute || got > 2*time.Minute+time.Second {
+	if got := time.Since(s.SessionStarted); got < 2*time.Minute || got > 2*time.Minute+time.Second {
 		t.Fatalf("live session duration = %s, want about 2m", got)
 	}
 }
