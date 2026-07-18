@@ -790,6 +790,10 @@ func buildAllToolDefs() []api.ToolDef {
 // Uses the API client for QualityMax operations (no qmax CLI needed).
 // Falls back to qmax CLI if API client is not available.
 func ExecuteTool(name string, rawInput interface{}, sctx *api.SessionContext, ctx context.Context) string {
+	return executeTool(name, rawInput, sctx, ctx, nil)
+}
+
+func executeTool(name string, rawInput interface{}, sctx *api.SessionContext, ctx context.Context, term *tui.Terminal) string {
 	// update_plan is a local, side-effect-free planning surface — handle it
 	// before any API/CLI dispatch. The rich terminal checklist is rendered by
 	// the UI layer (executeToolCallsWithUI); here we just validate the steps and
@@ -800,7 +804,7 @@ func ExecuteTool(name string, rawInput interface{}, sctx *api.SessionContext, ct
 
 	// Use API client if available (standalone mode)
 	if sctx.API != nil {
-		result := executeToolViaAPI(name, rawInput, sctx, ctx)
+		result := executeToolViaAPI(name, rawInput, sctx, ctx, term)
 		if result != "" {
 			return result
 		}
@@ -810,7 +814,7 @@ func ExecuteTool(name string, rawInput interface{}, sctx *api.SessionContext, ct
 }
 
 // executeToolViaAPI handles tool execution through the QualityMax REST API.
-func executeToolViaAPI(name string, rawInput interface{}, sctx *api.SessionContext, ctx context.Context) string {
+func executeToolViaAPI(name string, rawInput interface{}, sctx *api.SessionContext, ctx context.Context, term *tui.Terminal) string {
 	input := parseInput(rawInput)
 	client := sctx.API
 
@@ -846,7 +850,7 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *api.SessionConte
 		return client.GenerateTestCode(ctx, intVal(input, "test_case_id", 0), boolVal(input, "force"), fw)
 
 	case "run_test":
-		return runTestWithProgress(ctx, client, sctx, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"))
+		return runTestWithProgress(ctx, client, sctx, intVal(input, "script_id", 0), boolVal(input, "headless"), strVal(input, "browser"), strVal(input, "base_url"), term)
 
 	case "run_native_test":
 		return client.RunNativeTest(ctx, intVal(input, "script_id", 0), strVal(input, "base_url"))
@@ -859,7 +863,7 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *api.SessionConte
 
 	case "check_test_status":
 		out := client.CheckTestStatus(ctx, strVal(input, "execution_id"))
-		captureLiveURL(sctx, out)
+		captureLiveURLTo(sctx, out, term)
 		return out
 
 	case "start_crawl":
@@ -868,7 +872,7 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *api.SessionConte
 
 	case "crawl_status":
 		out := client.CrawlStatus(ctx, strVal(input, "crawl_id"))
-		captureLiveURL(sctx, out)
+		captureLiveURLTo(sctx, out, term)
 		return out
 
 	case "crawl_results":
@@ -1008,7 +1012,7 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *api.SessionConte
 // When sctx.LiveFeed is true the test runs in a QM Cloud Sandbox; status
 // responses are scanned for `live_browser_url` and the freshest one is
 // stored on sctx for the REPL to auto-launch /browserfeed against.
-func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.SessionContext, scriptID int, headless bool, browser, baseURL string) string {
+func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.SessionContext, scriptID int, headless bool, browser, baseURL string, term *tui.Terminal) string {
 	// Start the test
 	raw := client.RunTest(ctx, scriptID, headless, browser, baseURL, sctx != nil && sctx.LiveFeed)
 	if strings.HasPrefix(raw, `{"error"`) {
@@ -1039,10 +1043,31 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.S
 				"then call check_test_status ONCE to get the final result.", execID))
 	}
 
-	// Show browser animation + progress bar
-	fmt.Println()
-	tui.ShowBrowserAnimation(0)
-	progress := tui.NewProgressBar("Running test...", 30)
+	// Keep progress in the viewport's ephemeral activity line when it owns the
+	// terminal. The legacy cursor-rewriting animation remains available to
+	// non-interactive callers.
+	persistentProgress := term != nil && term.SetTurnActivity("Running test... 0%")
+	var progress *tui.ProgressBar
+	if !persistentProgress {
+		fmt.Println()
+		tui.ShowBrowserAnimation(0)
+		progress = tui.NewProgressBar("Running test...", 30)
+	}
+	clearProgress := func() {
+		if persistentProgress {
+			term.SetTurnActivity("")
+			return
+		}
+		tui.ClearBrowserAnimation()
+	}
+	finishProgress := func(success bool, message string) {
+		if persistentProgress {
+			term.SetTurnActivity("")
+			return
+		}
+		tui.ClearBrowserAnimation()
+		progress.Finish(success, message)
+	}
 
 	// Poll until done. Bail out early if progress is stuck at the same value
 	// for stuckLimit consecutive polls (~60 s) — that pattern means the
@@ -1058,7 +1083,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.S
 		time.Sleep(2 * time.Second)
 
 		statusRaw := client.CheckTestStatus(ctx, execID)
-		captureLiveURL(sctx, statusRaw)
+		captureLiveURLTo(sctx, statusRaw, term)
 		var status map[string]interface{}
 		if err := json.Unmarshal([]byte(statusRaw), &status); err != nil {
 			continue
@@ -1071,21 +1096,26 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.S
 			pct = int(p)
 		}
 
-		// Animate browser
-		tui.ShowBrowserAnimation(frame)
-		frame++
-
 		// Update progress
 		if st == "running" || st == "queued" {
 			if pct == 0 {
 				pct = min(10+i*3, 90) // fake progress if backend doesn't report
 			}
-			progress.Update(pct, msg)
+			if persistentProgress {
+				activity := fmt.Sprintf("Running test... %d%%", pct)
+				if msg != "" {
+					activity += " · " + tui.TruncateStr(msg, 40)
+				}
+				term.SetTurnActivity(activity)
+			} else {
+				tui.ShowBrowserAnimation(frame)
+				frame++
+				progress.Update(pct, msg)
+			}
 		}
 
 		if st == "passed" || st == "failed" || st == "completed" {
-			tui.ClearBrowserAnimation()
-			progress.Finish(st == "passed", msg)
+			finishProgress(st == "passed", msg)
 			return statusRaw
 		}
 
@@ -1094,7 +1124,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.S
 		// feed while the test is still running. The LLM must call
 		// check_test_status once the user closes the feed to get the result.
 		if sctx != nil && sctx.LiveFeed && sctx.LastLiveURL != "" {
-			tui.ClearBrowserAnimation()
+			clearProgress()
 			return annotateWithClientNote(statusRaw,
 				fmt.Sprintf("VNC feed is ready — returning early so the REPL opens the browser feed now. "+
 					"The test (execution_id: %s) is still running in the background. "+
@@ -1107,8 +1137,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.S
 		if pct == lastPct {
 			stuckCount++
 			if stuckCount >= stuckLimit {
-				tui.ClearBrowserAnimation()
-				progress.Finish(false, fmt.Sprintf("stuck at %d%% for %ds — sandbox may be hung", pct, stuckCount*2))
+				finishProgress(false, fmt.Sprintf("stuck at %d%% for %ds — sandbox may be hung", pct, stuckCount*2))
 				return annotateWithClientNote(statusRaw,
 					fmt.Sprintf("Polling stopped: progress stuck at %d%% for %d seconds. "+
 						"Do NOT call check_test_status again — the run appears hung. "+
@@ -1120,10 +1149,9 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.S
 		}
 	}
 
-	tui.ClearBrowserAnimation()
-	progress.Finish(false, "Timed out after 6 minutes")
+	finishProgress(false, "Timed out after 6 minutes")
 	final := client.CheckTestStatus(ctx, execID)
-	captureLiveURL(sctx, final)
+	captureLiveURLTo(sctx, final, term)
 	return annotateWithClientNote(final,
 		"Polling stopped after 6 minutes. Do NOT call check_test_status again — the run timed out.")
 }
@@ -1145,6 +1173,10 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.S
 // the server is including, which directly maps to the relevant
 // fallback path on the server side.
 func captureLiveURL(sctx *api.SessionContext, raw string) {
+	captureLiveURLTo(sctx, raw, nil)
+}
+
+func captureLiveURLTo(sctx *api.SessionContext, raw string, term *tui.Terminal) {
 	if sctx == nil || raw == "" {
 		return
 	}
@@ -1182,9 +1214,15 @@ func captureLiveURL(sctx *api.SessionContext, raw string) {
 			if isE2B == "false" || isE2B == "absent" {
 				color = "\033[33m" // yellow = warning, no sandbox
 			}
-			fmt.Fprintf(os.Stderr,
-				"%s[live]\033[0m first status: is_e2b=%s, live_browser_url=%s (keys: %s)\n",
-				color, isE2B, liveURL, strings.Join(keys, ","))
+			if term != nil {
+				fmt.Fprintf(term.Stderr(),
+					"%s[live]\033[0m first status: is_e2b=%s, live_browser_url=%s (keys: %s)\n",
+					color, isE2B, liveURL, strings.Join(keys, ","))
+			} else {
+				fmt.Fprintf(os.Stderr,
+					"%s[live]\033[0m first status: is_e2b=%s, live_browser_url=%s (keys: %s)\n",
+					color, isE2B, liveURL, strings.Join(keys, ","))
+			}
 			sctx.SandboxModeLogged = true
 		}
 	}
@@ -1201,7 +1239,11 @@ func captureLiveURL(sctx *api.SessionContext, raw string) {
 	// when QMAX_LIVE_URL_FILE isn't set (standalone mode).
 	sysutil.PersistLiveURLForParent(url)
 	if sctx.LiveFeed && !sctx.LiveURLLogged {
-		fmt.Fprintln(os.Stderr, "\033[36m[live]\033[0m live_browser_url captured — auto-launch fires at end of turn")
+		if term != nil {
+			fmt.Fprintln(term.Stderr(), "\033[36m[live]\033[0m live_browser_url captured — auto-launch fires at end of turn")
+		} else {
+			fmt.Fprintln(os.Stderr, "\033[36m[live]\033[0m live_browser_url captured — auto-launch fires at end of turn")
+		}
 		sctx.LiveURLLogged = true
 	}
 }

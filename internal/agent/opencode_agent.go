@@ -164,7 +164,7 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 
 	cmd := exec.CommandContext(ctx, a.openCodeBin, args...)
 	cmd.Stdin = strings.NewReader("")
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = term.Stderr()
 	cmd.Env = append(os.Environ(), "OPENCODE_CONFIG="+configPath)
 	for k, v := range OpenCodeProviderEnv(a.cfg) {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -266,7 +266,7 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 			a.mu.Unlock()
 			term.PrintToolIcon(displayName)
 			if !a.outputVerbose {
-				fmt.Println()
+				term.EndLine()
 			}
 		}
 	}

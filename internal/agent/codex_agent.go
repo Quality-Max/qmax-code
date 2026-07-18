@@ -173,7 +173,7 @@ func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 
 	cmd := exec.CommandContext(ctx, a.codexBin, args...)
 	cmd.Stdin = strings.NewReader("")
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = term.Stderr()
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

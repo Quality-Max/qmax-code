@@ -204,6 +204,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 
 	for {
 		var input string
+		var turnImages []tui.ImageAttachment
 		inputWasPasted := false
 
 		// Drain the prompt queue before blocking on interactive input.
@@ -1012,29 +1013,16 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				continue
 			}
 			term.PrintSystem(fmt.Sprintf("Screenshot captured (%s)", img.FileName))
-			llmResult, err := ag.RunStreamingWithImages("Analyze this screenshot.", []tui.ImageAttachment{*img}, term)
-			if err != nil {
-				term.PrintError(err.Error())
-			}
-			if llmResult != "" {
-				fmt.Println()
-			}
-			autoSave()
-			continue
+			input = "Analyze this screenshot."
+			turnImages = append(turnImages, *img)
 		case input == "/paste":
 			// Try image first, then text
 			img, imgErr := tui.PasteImageFromClipboard()
 			if imgErr == nil {
 				term.PrintSystem(fmt.Sprintf("Pasted image from clipboard (%s)", img.FileName))
-				llmResult, err := ag.RunStreamingWithImages("Analyze this pasted image.", []tui.ImageAttachment{*img}, term)
-				if err != nil {
-					term.PrintError(err.Error())
-				}
-				if llmResult != "" {
-					fmt.Println()
-				}
-				autoSave()
-				continue
+				input = "Analyze this pasted image."
+				turnImages = append(turnImages, *img)
+				break
 			}
 			// Fall back to text paste
 			text, textErr := tui.PasteTextFromClipboard()
@@ -1061,7 +1049,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		}
 
 		// Detect image file paths dragged/pasted into input
-		cleanInput, images := tui.DetectAndLoadImages(input)
+		cleanInput, detectedImages := tui.DetectAndLoadImages(input)
+		images := append(turnImages, detectedImages...)
+		// /screenshot and image /paste have historically used the embedded
+		// multimodal backend even when a CLI backend is selected. Keep that
+		// behaviour; dragged image paths still follow the CLI's unsupported-note
+		// path as before.
+		runWithCLI := cliAgent != nil && len(turnImages) == 0
 
 		// Ensure a cloud session exists for this conversation (no-op after first call).
 		startCloudSession()
@@ -1075,20 +1069,15 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			c.SandboxFallbackSeen = false
 		}
 
-		// Run through the LLM agent with streaming.
-		// Start the queue reader so the user can type the next prompt while
-		// the agent is working.  It is stopped (and fully drained) before
-		// the next tui.ReadInput call so stdin is never shared between readers.
-		// Pressing Enter while typing cancels the running agent so the queued
-		// prompt is processed on the very next iteration.
+		// Run through the LLM agent with a persistent Bubble Tea viewport. It
+		// owns stdin and the bottom input/status panel for the whole turn, while
+		// Terminal routes streamed output into the region above it.
 		var cancelCurrent func()
-		if cliAgent != nil {
+		if runWithCLI {
 			cancelCurrent = cliAgent.Cancel
 		} else {
 			cancelCurrent = ag.CancelCurrent
 		}
-		stopQueueReader := session.StartQueueReader(pq, term, cancelCurrent)
-
 		// CC mode: delegate entirely to Claude Code subprocess. This does not
 		// require a QM Anthropic API key, but `claude --print` usage draws from
 		// the user's Agent SDK credit starting 2026-06-15.
@@ -1117,7 +1106,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		// DialVNC — the stream needs a context that outlives the goroutine.
 		watchCtx, watchCancel := context.WithCancel(context.Background())
 		defer watchCancel() // ensures cancel on any return/continue path
-		if cliAgent != nil {
+		if runWithCLI {
 			go func() {
 				// Do NOT defer watchCancel here — it is called by the main
 				// goroutine after the agent turn ends. If we cancelled it here
@@ -1157,64 +1146,55 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			watchCancel()
 		}
 
-		if cliAgent != nil {
-			if len(images) > 0 {
-				term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
-			}
-			term.StartThinking()
-			llmResult, err = cliAgent.Run(cleanInput, term)
-			term.StopThinking()
-			if err == nil {
-				if stats, ok := cliAgent.(agent.TurnStatsProvider); ok {
-					if inputTokens, outputTokens, reported := stats.LastTurnStats(); reported {
-						ag.Usage.InputTokens += inputTokens
-						ag.Usage.OutputTokens += outputTokens
-						ag.Usage.Requests++
-						lastContextTokens = inputTokens
-						ag.LastContextTokens = inputTokens
-					}
+		turnInput := tui.RunTurnViewport(term, term.Prompt(), inputStatus(), cancelCurrent, func() {
+			if runWithCLI {
+				if len(images) > 0 {
+					term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
 				}
-				// Mirror the turn into ag.History so autoSave records it.
-				// agent.CCAgent/agent.CodexAgent manage their own subprocess state; qmax's
-				// history would otherwise stay empty and autoSave would no-op.
-				ag.History = append(ag.History,
-					api.Message{Role: "user", Content: cleanInput},
-					api.Message{Role: "assistant", Content: llmResult},
-				)
+				term.StartThinking()
+				llmResult, err = cliAgent.Run(cleanInput, term)
+				term.StopThinking()
+				if err == nil {
+					if stats, ok := cliAgent.(agent.TurnStatsProvider); ok {
+						if inputTokens, outputTokens, reported := stats.LastTurnStats(); reported {
+							ag.Usage.InputTokens += inputTokens
+							ag.Usage.OutputTokens += outputTokens
+							ag.Usage.Requests++
+							lastContextTokens = inputTokens
+							ag.LastContextTokens = inputTokens
+						}
+					}
+					// Mirror the turn into ag.History so autoSave records it.
+					ag.History = append(ag.History,
+						api.Message{Role: "user", Content: cleanInput},
+						api.Message{Role: "assistant", Content: llmResult},
+					)
+				}
+			} else if len(images) > 0 {
+				names := make([]string, len(images))
+				for i, img := range images {
+					names[i] = img.FileName
+				}
+				term.PrintSystem(fmt.Sprintf("Attached %d image(s): %s", len(images), strings.Join(names, ", ")))
+				if cleanInput == "" {
+					cleanInput = "Analyze these images."
+				}
+				llmResult, err = ag.RunStreamingWithImages(cleanInput, images, term)
+			} else {
+				llmResult, err = ag.RunStreaming(input, term)
 			}
-		} else if len(images) > 0 {
-			names := make([]string, len(images))
-			for i, img := range images {
-				names[i] = img.FileName
-			}
-			term.PrintSystem(fmt.Sprintf("Attached %d image(s): %s", len(images), strings.Join(names, ", ")))
-			if cleanInput == "" {
-				cleanInput = "Analyze these images."
-			}
-			llmResult, err = ag.RunStreamingWithImages(cleanInput, images, term)
-		} else {
-			llmResult, err = ag.RunStreaming(input, term)
-		}
+		})
 		lastTurnDur = time.Since(turnStarted)
 		if err == nil {
 			lastTask = cleanInput
-			if cliAgent == nil {
+			if !runWithCLI {
 				lastContextTokens = ag.LastContextTokens
 			}
 		}
 
-		// Stop queue reader and wait for the goroutine to exit before we
-		// touch stdin again (either via the queue loop or tui.ReadInput).
-		// If the user was mid-typing when the agent finished — i.e. typed a
-		// partial line but didn't press Enter before the response came back —
-		// the queue reader returns that text. Push it onto the queue so it
-		// isn't silently lost (QUA-577). The user can /queue clear if it was
-		// stray input.
-		partial := strings.TrimSpace(stopQueueReader())
-		if partial != "" {
-			pq.Push(partial)
-			fmt.Println()
-			term.PrintSystem(fmt.Sprintf("↩ partial input recovered → queued [%d]: %s  (type /queue clear to discard)", pq.Len(), partial))
+		if turnInput.Text != "" {
+			pq.Push(turnInput.Text)
+			term.PrintSystem(fmt.Sprintf("✓ queued [%d]: %s", pq.Len(), turnInput.Text))
 		}
 
 		// If prompts were queued during this run, surface them.
@@ -1228,7 +1208,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			// output. Only structural metadata that helps diagnose without revealing
 			// what the user was working on.
 			backendTag := "api"
-			if cliAgent != nil {
+			if runWithCLI {
 				backendTag = ag.Cfg.Context.Backend
 			}
 			sysutil.CaptureError(err, map[string]interface{}{
@@ -1260,7 +1240,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		// serve --mcp` subprocess; the URL it stored sits on that
 		// process's sctx, not ours. Prefer the URL the pre-connect goroutine
 		// already drained; fall back to a final drain for non-cliAgent runs.
-		if cliAgent != nil {
+		if runWithCLI {
 			if preConn.url != "" {
 				ag.Cfg.Context.LastLiveURL = preConn.url
 				ag.Cfg.Context.SandboxModeLogged = true

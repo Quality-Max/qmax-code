@@ -106,12 +106,20 @@ func renderHalfBlock(img image.Image, maxWidth int) error {
 
 // RenderScreenshotCompact shows a framed screenshot label.
 func RenderScreenshotCompact(label string, url string) {
+	fmt.Print(FormatScreenshotCompact(label, url))
+}
+
+// FormatScreenshotCompact returns the compact screenshot frame so callers can
+// send it through a persistent terminal renderer instead of writing directly.
+func FormatScreenshotCompact(label string, url string) string {
 	border := strings.Repeat("─", 44)
-	fmt.Printf("  ┌%s┐\n", border)
-	fmt.Printf("  │ 📸 %-42s│\n", TruncateStr(label, 42))
+	var b strings.Builder
+	fmt.Fprintf(&b, "  ┌%s┐\n", border)
+	fmt.Fprintf(&b, "  │ 📸 %-42s│\n", TruncateStr(label, 42))
 	if url != "" {
 		short := TruncateStr(url, 42)
-		fmt.Printf("  │ %-44s│\n", short)
+		fmt.Fprintf(&b, "  │ %-44s│\n", short)
 	}
-	fmt.Printf("  └%s┘\n", border)
+	fmt.Fprintf(&b, "  └%s┘\n", border)
+	return b.String()
 }

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/chzyer/readline"
@@ -114,6 +115,10 @@ type spinner struct {
 
 func newSpinner(t *Terminal) *spinner {
 	s := &spinner{stop: make(chan struct{}), term: t}
+	if p := t.activeTurnProgram(); p != nil {
+		p.Send(turnThinkingMsg(true))
+		return s
+	}
 	msg := spinnerMessages[rand.Intn(len(spinnerMessages))]
 	s.wg.Add(1)
 	go func() {
@@ -144,6 +149,12 @@ func newSpinner(t *Terminal) *spinner {
 func (s *spinner) Stop() {
 	s.done.Do(func() {
 		close(s.stop)
+		if s.term != nil {
+			if p := s.term.activeTurnProgram(); p != nil {
+				p.Send(turnThinkingMsg(false))
+				return
+			}
+		}
 		s.wg.Wait()
 	})
 }
@@ -158,6 +169,62 @@ type Terminal struct {
 	thinking      *spinner        // active thinking spinner, if any
 	userTyping    atomic.Bool     // true while StartQueueReader has the user typing
 	toolStreak    bool            // last printed line was a tool call; keeps consecutive tools tight
+	turnMu        sync.RWMutex
+	turnProgram   *tea.Program // non-nil while a persistent turn viewport owns rendering
+}
+
+func (t *Terminal) attachTurnProgram(p *tea.Program) {
+	t.turnMu.Lock()
+	t.turnProgram = p
+	t.turnMu.Unlock()
+}
+
+func (t *Terminal) detachTurnProgram(p *tea.Program) {
+	t.turnMu.Lock()
+	if t.turnProgram == p {
+		t.turnProgram = nil
+	}
+	t.turnMu.Unlock()
+}
+
+func (t *Terminal) activeTurnProgram() *tea.Program {
+	t.turnMu.RLock()
+	defer t.turnMu.RUnlock()
+	return t.turnProgram
+}
+
+func (t *Terminal) emit(text string) {
+	if p := t.activeTurnProgram(); p != nil {
+		p.Send(turnOutputMsg(text))
+		return
+	}
+	fmt.Print(text)
+}
+
+func (t *Terminal) printf(format string, args ...interface{}) {
+	t.emit(fmt.Sprintf(format, args...))
+}
+
+// Write makes Terminal an io.Writer so subprocess diagnostics can be routed
+// through the renderer that currently owns the terminal.
+func (t *Terminal) Write(p []byte) (int, error) {
+	t.emit(string(p))
+	return len(p), nil
+}
+
+// EndLine completes an output line through whichever renderer currently owns
+// the terminal. CLI backends use it instead of writing directly to stdout.
+func (t *Terminal) EndLine() { t.emit("\n") }
+
+// SetTurnActivity updates an ephemeral activity line above the persistent
+// input panel. It returns false when no turn viewport is active so callers can
+// fall back to their legacy terminal animation.
+func (t *Terminal) SetTurnActivity(text string) bool {
+	if p := t.activeTurnProgram(); p != nil {
+		p.Send(turnActivityMsg(text))
+		return true
+	}
+	return false
 }
 
 // SetUserTyping tells the active spinner to pause (true) or resume (false) its
@@ -170,7 +237,13 @@ func (t *Terminal) SetUserTyping(v bool) {
 // readline instance steers around the prompt. Callers in other packages need
 // this to emit verbose messages without corrupting the readline buffer.
 func (t *Terminal) Stderr() io.Writer {
-	if t == nil || t.rl == nil {
+	if t == nil {
+		return os.Stderr
+	}
+	if t.activeTurnProgram() != nil {
+		return t
+	}
+	if t.rl == nil {
 		return os.Stderr
 	}
 	return t.rl.Stderr()
@@ -373,13 +446,13 @@ func (t *Terminal) StreamText(text string) {
 		t.toolStreak = false
 		t.streamBuf.Reset()
 		// Hide readline prompt during streaming to prevent input overlap
-		if t.rl != nil {
+		if t.activeTurnProgram() == nil && t.rl != nil {
 			t.rl.SetPrompt("")
 			t.rl.Refresh()
 		}
-		fmt.Println() // newline before assistant response
+		t.emit("\n") // newline before assistant response
 	}
-	fmt.Print(text)
+	t.emit(text)
 	t.streamBuf.WriteString(text)
 }
 
@@ -389,6 +462,13 @@ func (t *Terminal) FinishMarkdown(fullText string) {
 	t.toolStreak = false
 	if t.streaming {
 		t.streaming = false
+		if t.activeTurnProgram() != nil {
+			t.streamBuf.Reset()
+			if !strings.HasSuffix(fullText, "\n") {
+				t.emit("\n")
+			}
+			return
+		}
 
 		// If the text contains code blocks, re-render with glamour for highlighting
 		if t.renderer != nil && strings.Contains(fullText, "```") {
@@ -424,11 +504,11 @@ func (t *Terminal) PrintAssistant(text string) {
 	if t.renderer != nil {
 		rendered, err := t.renderer.Render(text)
 		if err == nil {
-			fmt.Print(rendered)
+			t.emit(rendered)
 			return
 		}
 	}
-	fmt.Println(text)
+	t.emit(text + "\n")
 }
 
 // PrintToolIcon shows a tool icon when a tool_use block starts streaming.
@@ -438,7 +518,7 @@ func (t *Terminal) PrintToolIcon(name string) {
 	t.StopThinking() // erase spinner before tool display
 	if t.streaming {
 		t.streaming = false
-		fmt.Println()
+		t.emit("\n")
 	}
 	icon := toolIcons[name]
 	if icon == "" {
@@ -446,19 +526,19 @@ func (t *Terminal) PrintToolIcon(name string) {
 	}
 	displayName := strings.ReplaceAll(name, "_", " ")
 	if !t.toolStreak {
-		fmt.Println()
+		t.emit("\n")
 	}
 	t.toolStreak = true
-	fmt.Printf("  %s %s", icon, styleTool.Render(displayName))
+	t.emit(fmt.Sprintf("  %s %s", icon, styleTool.Render(displayName)))
 }
 
 // PrintToolStart shows a tool invocation with its input summary.
 func (t *Terminal) PrintToolStart(name string, input interface{}) {
 	summary := formatToolInput(input)
 	if summary != "" {
-		fmt.Printf(" %s", styleToolDim.Render(summary))
+		t.emit(fmt.Sprintf(" %s", styleToolDim.Render(summary)))
 	}
-	fmt.Println()
+	t.emit("\n")
 }
 
 // PrintToolResult shows tool output with smart formatting for known result types.
@@ -466,7 +546,7 @@ func (t *Terminal) PrintToolStart(name string, input interface{}) {
 func (t *Terminal) PrintToolResult(name string, output string) {
 	defer t.StartThinking()
 	if strings.HasPrefix(output, "{\"error\"") {
-		fmt.Printf("  %s %s\n", styleError.Render("✗ Error"), styleDim.Render(TruncateStr(output, 120)))
+		t.printf("  %s %s\n", styleError.Render("✗ Error"), styleDim.Render(TruncateStr(output, 120)))
 		return
 	}
 
@@ -476,20 +556,20 @@ func (t *Terminal) PrintToolResult(name string, output string) {
 		if err := json.Unmarshal([]byte(output), &data); err == nil {
 			execID, _ := data["execution_id"].(string)
 			status, _ := data["status"].(string)
-			fmt.Printf("  Execution: %s\n", styleDim.Render(execID))
+			t.printf("  Execution: %s\n", styleDim.Render(execID))
 			switch status {
 			case "passed":
-				fmt.Printf("    Status: %s\n", styleSuccess.Render("✓ PASSED"))
+				t.printf("    Status: %s\n", styleSuccess.Render("✓ PASSED"))
 			case "failed":
-				fmt.Printf("    Status: %s\n", styleError.Render("✗ FAILED"))
+				t.printf("    Status: %s\n", styleError.Render("✗ FAILED"))
 			default:
-				fmt.Printf("    Status: %s\n", styleSystem.Render(status))
+				t.printf("    Status: %s\n", styleSystem.Render(status))
 			}
 			if msg, ok := data["message"].(string); ok && msg != "" {
-				fmt.Printf("    Message: %s\n", styleDim.Render(TruncateStr(msg, 120)))
+				t.printf("    Message: %s\n", styleDim.Render(TruncateStr(msg, 120)))
 			}
 			if errs, ok := data["test_errors"].(string); ok && errs != "" {
-				fmt.Printf("    Errors: %s\n", styleError.Render(TruncateStr(errs, 300)))
+				t.printf("    Errors: %s\n", styleError.Render(TruncateStr(errs, 300)))
 			}
 			// Extract errors from console_logs if test_errors is empty
 			if logs, ok := data["console_logs"].([]interface{}); ok && len(logs) > 0 {
@@ -503,25 +583,25 @@ func (t *Terminal) PrintToolResult(name string, output string) {
 					}
 				}
 				if len(errorLines) > 0 {
-					fmt.Printf("    Console errors:\n")
+					t.emit("    Console errors:\n")
 					for _, line := range errorLines {
-						fmt.Printf("      %s\n", styleError.Render(TruncateStr(line, 120)))
+						t.printf("      %s\n", styleError.Render(TruncateStr(line, 120)))
 					}
 				}
 			}
 			if dur, ok := data["execution_time"].(float64); ok && dur > 0 {
-				fmt.Printf("    Duration: %.1fs\n", dur)
+				t.printf("    Duration: %.1fs\n", dur)
 			}
 			if screenshots, ok := data["screenshot_paths"].([]interface{}); ok && len(screenshots) > 0 {
-				fmt.Printf("    Screenshots: %d captured\n", len(screenshots))
+				t.printf("    Screenshots: %d captured\n", len(screenshots))
 				for i, s := range screenshots {
 					if url, ok := s.(string); ok && url != "" {
-						RenderScreenshotCompact(fmt.Sprintf("Screenshot %d", i+1), url)
+						t.emit(FormatScreenshotCompact(fmt.Sprintf("Screenshot %d", i+1), url))
 					}
 				}
 			}
 			if video, ok := data["video_path"].(string); ok && video != "" {
-				fmt.Printf("    Video: %s\n", styleDim.Render(video))
+				t.printf("    Video: %s\n", styleDim.Render(video))
 			}
 			return
 		}
@@ -532,10 +612,10 @@ func (t *Terminal) PrintToolResult(name string, output string) {
 
 	if lineCount <= 3 {
 		for _, line := range lines {
-			fmt.Printf("  %s\n", styleDim.Render(TruncateStr(line, 140)))
+			t.printf("  %s\n", styleDim.Render(TruncateStr(line, 140)))
 		}
 	} else {
-		fmt.Printf("  %s\n", styleSuccess.Render(fmt.Sprintf("✓ %d lines of output", lineCount)))
+		t.printf("  %s\n", styleSuccess.Render(fmt.Sprintf("✓ %d lines of output", lineCount)))
 	}
 }
 
@@ -553,7 +633,7 @@ func (t *Terminal) PrintPlan(steps []PlanStep) {
 	t.StopThinking() // erase spinner before plan display
 	if t.streaming {
 		t.streaming = false
-		fmt.Println()
+		t.emit("\n")
 	}
 	t.toolStreak = false
 	defer t.StartThinking()
@@ -569,7 +649,7 @@ func (t *Terminal) PrintPlan(steps []PlanStep) {
 	if icon == "" {
 		icon = "📋"
 	}
-	fmt.Printf("\n  %s %s %s\n",
+	t.printf("\n  %s %s %s\n",
 		icon,
 		styleTool.Render("plan"),
 		styleDim.Render(fmt.Sprintf("(%d/%d done)", done, len(steps))))
@@ -587,27 +667,27 @@ func (t *Terminal) PrintPlan(steps []PlanStep) {
 			mark = styleDim.Render("◦")
 			title = s.Title
 		}
-		fmt.Printf("    %s %s\n", mark, title)
+		t.printf("    %s %s\n", mark, title)
 	}
 }
 
 // PrintSystem prints a system message.
 func (t *Terminal) PrintSystem(msg string) {
 	t.toolStreak = false
-	fmt.Printf("  %s %s\n", styleSystem.Render("●"), msg)
+	t.emit(fmt.Sprintf("  %s %s\n", styleSystem.Render("●"), msg))
 }
 
 // PrintError prints an error message.
 func (t *Terminal) PrintError(msg string) {
 	t.toolStreak = false
-	fmt.Printf("  %s\n", styleError.Render("✗ "+msg))
+	t.emit(fmt.Sprintf("  %s\n", styleError.Render("✗ "+msg)))
 }
 
 // PrintTokenUsage shows token usage in dim text after a response.
 func (t *Terminal) PrintTokenUsage(usage api.TokenUsage) {
-	fmt.Printf("\n%s\n", styleUsage.Render(
+	t.emit(fmt.Sprintf("\n%s\n", styleUsage.Render(
 		fmt.Sprintf("  tokens: %d in / %d out (session: %d total, %d requests)",
-			usage.InputTokens, usage.OutputTokens, usage.TotalTokens(), usage.Requests)))
+			usage.InputTokens, usage.OutputTokens, usage.TotalTokens(), usage.Requests))))
 }
 
 // PrintCostSummary shows detailed cost info for /cost command.
