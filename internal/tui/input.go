@@ -423,12 +423,18 @@ var (
 )
 
 func (m inputModel) View() string {
-	// When done, show only the final input — no menu/box residue.
+	// Keep the submitted input panel in the terminal scrollback. Streaming starts
+	// immediately after Bubble Tea exits, so returning a bare prompt here used to
+	// make the agent stream visually collapse into the user's last input.
 	if m.done {
 		if m.result == "" {
 			return ""
 		}
-		return m.prompt + m.result + "\n"
+		w := m.width
+		if w <= 0 {
+			w = 80
+		}
+		return m.renderInputBox(m.result, w) + "\n"
 	}
 
 	var b strings.Builder
