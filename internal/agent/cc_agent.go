@@ -431,7 +431,7 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 
 	cmd := exec.CommandContext(ctx, a.claudeBin, args...)
 	cmd.Stdin = strings.NewReader(safeUserMsg)
-	cmd.Stderr = os.Stderr // CC's own errors and status messages
+	cmd.Stderr = term.Stderr() // keep CC diagnostics inside the active viewport
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -584,7 +584,7 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 					if a.outputVerbose {
 						term.PrintToolStart(displayName, block.Input)
 					} else {
-						fmt.Println()
+						term.EndLine()
 					}
 				}
 			}

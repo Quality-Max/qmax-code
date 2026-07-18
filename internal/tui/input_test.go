@@ -149,6 +149,20 @@ func TestInputFooterShowsOutputModeAndHotkeys(t *testing.T) {
 	}
 }
 
+func TestSubmittedInputKeepsPanelBoundaryForStream(t *testing.T) {
+	m := newInputModel("qmax > ", nil)
+	m.width = 80
+	m.done = true
+	m.result = "check projects"
+
+	view := m.View()
+	for _, want := range []string{"╭", "╯", "qmax > check projects"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("submitted input should retain panel boundary %q in %q", want, view)
+		}
+	}
+}
+
 func TestInputSeparatesPromptAndRendersSessionStatus(t *testing.T) {
 	m := newInputModelWithOutputMode("qmax > ", nil, false)
 	m.width = 100

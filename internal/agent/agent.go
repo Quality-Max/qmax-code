@@ -585,7 +585,7 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 	a.Logger.Info("api", "request", map[string]interface{}{"model": model, "messages": len(a.History)})
 
 	if a.Cfg.Verbose {
-		fmt.Printf("[API] Streaming request: %d bytes, %d messages\n", len(data), len(a.History))
+		fmt.Fprintf(term.Stderr(), "[API] Streaming request: %d bytes, %d messages\n", len(data), len(a.History))
 	}
 
 	// Attribute the model on the Exposure Receipt entry for this prompt.
@@ -670,7 +670,7 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 				a.LastContextTokens = ev.Message.Usage.InputTokens
 				a.Usage.Requests++
 				if a.Cfg.Verbose {
-					fmt.Printf("[SSE] message_start: input_tokens=%d\n", ev.Message.Usage.InputTokens)
+					fmt.Fprintf(term.Stderr(), "[SSE] message_start: input_tokens=%d\n", ev.Message.Usage.InputTokens)
 				}
 			}
 
@@ -753,7 +753,7 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 				stopReason = ev.Delta.StopReason
 				a.Usage.OutputTokens += ev.Usage.OutputTokens
 				if a.Cfg.Verbose {
-					fmt.Printf("[SSE] message_delta: stop=%s, output_tokens=%d\n", stopReason, ev.Usage.OutputTokens)
+					fmt.Fprintf(term.Stderr(), "[SSE] message_delta: stop=%s, output_tokens=%d\n", stopReason, ev.Usage.OutputTokens)
 				}
 			}
 
@@ -861,7 +861,7 @@ func (a *Agent) executeToolCallsWithUI(toolCalls []api.ContentBlock, term *tui.T
 	var results []api.ContentBlock
 	for _, block := range toolCalls {
 		a.Logger.Info("tool", block.Name, map[string]interface{}{"cost": ToolCost(block.Name)})
-		output := ExecuteTool(block.Name, block.Input, a.Cfg.Context, ctx)
+		output := executeTool(block.Name, block.Input, a.Cfg.Context, ctx, term)
 
 		// update_plan renders a dedicated checklist from its input rather than
 		// the generic tool-result line (which would just echo {total,done}).

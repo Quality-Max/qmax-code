@@ -248,7 +248,7 @@ func TestRunTestWithProgressLiveFeedFastReturn(t *testing.T) {
 	client := &api.APIClient{BaseURL: srv.URL, HTTP: srv.Client()}
 	sctx := &api.SessionContext{LiveFeed: true, API: client}
 
-	result := runTestWithProgress(t.Context(), client, sctx, 42, true, "", "")
+	result := runTestWithProgress(t.Context(), client, sctx, 42, true, "", "", nil)
 
 	// Must have returned early (contains client_note).
 	if !strings.Contains(result, "client_note") {
