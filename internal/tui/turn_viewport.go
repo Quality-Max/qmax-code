@@ -236,6 +236,11 @@ func (m turnViewportModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 	case tea.KeyEnd:
 		m.cursor = len(m.text)
+	case tea.KeySpace:
+		m.text = append(m.text, 0)
+		copy(m.text[m.cursor+1:], m.text[m.cursor:])
+		m.text[m.cursor] = ' '
+		m.cursor++
 	case tea.KeyRunes:
 		if msg.Alt && len(msg.Runes) == 1 {
 			switch msg.Runes[0] {
