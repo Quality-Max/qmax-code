@@ -4,6 +4,30 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.21.2] - 2026-07-22
+
+### Fixed
+- Typing a new message while the agent is processing no longer drops spaces.
+  Bubble Tea delivers the spacebar as `tea.KeySpace` (not `tea.KeyRunes`);
+  the turn-running input viewport was missing that case so every space was
+  silently discarded — messages appeared as a single run-on word (#154).
+
+## [1.21.1] - 2026-07-18
+
+### Fixed
+- The input panel is no longer overwritten or displaced by streamed agent
+  output while a turn is running (#153).
+
+## [1.21.0] - 2026-07-18
+
+### Added
+- Exposure Receipt: a per-session log of every LLM and cloud-API egress
+  (QUA-1316). Guards all egress paths and includes concurrent-body snapshot
+  tests (#149, #150, #151).
+
+### Changed
+- Terminal input status layout improvements (#152).
+
 ## [1.20.9] - 2026-07-13
 
 ### Fixed
