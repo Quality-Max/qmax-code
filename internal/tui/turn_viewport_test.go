@@ -93,6 +93,18 @@ func TestTurnViewportEditingMatchesMainInput(t *testing.T) {
 	}
 }
 
+func TestTurnViewportInsertsSpaceKey(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m.text = []rune("hello")
+	m.cursor = len(m.text)
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeySpace})
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("world")})
+
+	if got, want := string(m.text), "hello world"; got != want {
+		t.Fatalf("text = %q, want %q (space key was dropped)", got, want)
+	}
+}
+
 func TestTurnViewportPreservesDraftWhenTurnFinishes(t *testing.T) {
 	m := newTurnViewportModel("qmax > ", nil, nil)
 	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("follow up")})
