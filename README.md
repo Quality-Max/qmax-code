@@ -281,6 +281,7 @@ agent. qmax-code declares that dependency in the Codex skill metadata.
 /queue <prompt>           Add follow-up work; typing during a turn also queues it
 /theme                    Preview and select a terminal theme
 /cost                     Show token usage and estimated cost
+/plan                     Show coding-plan usage window (5h limit + reset time)
 /config                   Show session configuration
 /help                     Show the full in-app command reference
 ```

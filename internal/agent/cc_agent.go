@@ -37,6 +37,16 @@ type TurnStatsProvider interface {
 	LastTurnStats() (inputTokens, outputTokens int, ok bool)
 }
 
+// PlanLimitReporter is optionally implemented by CLI agents that can detect the
+// subscription plan's usage limit being hit on the most recent Run — e.g. a
+// 429 / "usage limit reached" event in the backend's stream. The REPL marks the
+// coding-plan window exhausted so /plan and the status bar reflect the real
+// stop. reset is the provider-reported reset time when the error carried one
+// (Retry-After / rate-limit header), otherwise the zero value.
+type PlanLimitReporter interface {
+	LastPlanLimit() (reset time.Time, hit bool)
+}
+
 // CCAgent orchestrates a Claude Code CLI subprocess for LLM inference.
 // Inference runs through the user's Claude Code login, so qmax-code does not
 // need a QM-held Anthropic API key. Because this agent uses `claude --print`,

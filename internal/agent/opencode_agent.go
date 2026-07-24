@@ -43,6 +43,11 @@ type OpenCodeAgent struct {
 	cfg            *api.Config
 	sctx           *api.SessionContext
 	lastToolName   string
+	lastTurnIn     int  // token usage of the most recent turn (from opencode's stream)
+	lastTurnOut    int
+	lastTurnOK     bool      // true once a usage event carried tokens this turn
+	lastLimitHit   bool      // true if the plan limit was hit this turn
+	lastLimitReset time.Time // provider-reported reset time, zero if unknown
 	mu             sync.Mutex
 	runMu          sync.Mutex
 	runCancel      context.CancelFunc // non-nil while Run() is active
@@ -122,6 +127,8 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 	}
 
 	a.mu.Lock()
+	a.lastTurnIn, a.lastTurnOut, a.lastTurnOK = 0, 0, false
+	a.lastLimitHit, a.lastLimitReset = false, time.Time{}
 	sessionID := a.sessionID
 	a.mu.Unlock()
 
@@ -195,16 +202,73 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 // --- NDJSON stream parsing ---
 
 type ocEvent struct {
-	Type      string `json:"type"`
-	SessionID string `json:"sessionID"`
-	Part      ocPart `json:"part"`
+	Type      string   `json:"type"`
+	Timestamp int64    `json:"timestamp"`
+	SessionID string   `json:"sessionID"`
+	Part      ocPart   `json:"part"`
+	Error     *ocError `json:"error,omitempty"`
+	// Token usage may appear at the top level of a completion/step event or on
+	// the message part; opencode/provider field names vary by version, so both
+	// the "tokens" and "usage" shapes are captured and whichever is populated
+	// wins. (Confirm exact names against a successful `opencode run --format
+	// json` sample; the time-based window works regardless of these.)
+	Tokens *ocTokens `json:"tokens,omitempty"`
+	Usage  *ocTokens `json:"usage,omitempty"`
 }
 
 type ocPart struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
-	Text string `json:"text"`
-	Tool string `json:"tool"`
+	ID     string    `json:"id"`
+	Type   string    `json:"type"`
+	Text   string    `json:"text"`
+	Tool   string    `json:"tool"`
+	Tokens *ocTokens `json:"tokens,omitempty"`
+	Usage  *ocTokens `json:"usage,omitempty"`
+}
+
+// ocTokens tolerates the common token-count field names emitted by opencode and
+// its providers (input/output vs prompt/completion).
+type ocTokens struct {
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	Prompt     int `json:"prompt"`
+	Completion int `json:"completion"`
+}
+
+func (t *ocTokens) in() int {
+	if t == nil {
+		return 0
+	}
+	if t.Input > 0 {
+		return t.Input
+	}
+	return t.Prompt
+}
+
+func (t *ocTokens) out() int {
+	if t == nil {
+		return 0
+	}
+	if t.Output > 0 {
+		return t.Output
+	}
+	return t.Completion
+}
+
+// ocError is the payload of a `{"type":"error", ...}` event. opencode emits
+// these when the provider refuses a turn — a retired model, an auth failure,
+// or (the case that matters for plan tracking) a 429 when the coding-plan usage
+// limit is reached. Before this was parsed, such events fell through the stream
+// switch and the turn ended with nothing shown to the user.
+type ocError struct {
+	Name string      `json:"name"`
+	Data ocErrorData `json:"data"`
+}
+
+type ocErrorData struct {
+	Message         string            `json:"message"`
+	StatusCode      int               `json:"statusCode"`
+	ResponseHeaders map[string]string `json:"responseHeaders"`
+	ResponseBody    string            `json:"responseBody"`
 }
 
 // parseStream reads opencode's NDJSON output, renders it, captures the session
@@ -231,6 +295,21 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 			a.mu.Lock()
 			a.sessionID = ev.SessionID
 			a.mu.Unlock()
+		}
+
+		// Surface provider errors that would otherwise be silently dropped,
+		// and detect a coding-plan limit hit for the usage-window tracker.
+		if ev.Error != nil {
+			a.handleOCError(ev.Error, term)
+		}
+
+		// Capture token usage from whichever shape/location carried it.
+		for _, tk := range []*ocTokens{ev.Tokens, ev.Usage, ev.Part.Tokens, ev.Part.Usage} {
+			if in, out := tk.in(), tk.out(); in > 0 || out > 0 {
+				a.mu.Lock()
+				a.lastTurnIn, a.lastTurnOut, a.lastTurnOK = in, out, true
+				a.mu.Unlock()
+			}
 		}
 
 		switch {
@@ -278,6 +357,46 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 	finalResult := sb.String()
 	term.FinishMarkdown(finalResult)
 	return finalResult
+}
+
+// handleOCError renders an opencode error event and, when it signals the
+// subscription plan's usage limit, records the hit (and any reset time) so the
+// REPL can mark the coding-plan window exhausted.
+func (a *OpenCodeAgent) handleOCError(e *ocError, term *tui.Terminal) {
+	msg := strings.TrimSpace(e.Data.Message)
+	if msg == "" {
+		msg = e.Name
+	}
+	if e.Data.StatusCode == 429 || isPlanLimitMessage(msg) || isPlanLimitMessage(e.Data.ResponseBody) {
+		reset := parseResetTime(e.Data.ResponseHeaders)
+		a.mu.Lock()
+		a.lastLimitHit = true
+		a.lastLimitReset = reset
+		a.mu.Unlock()
+		term.PrintError("Coding-plan limit reached — " + msg + " (see /plan)")
+		return
+	}
+	if e.Data.StatusCode > 0 {
+		term.PrintError(fmt.Sprintf("opencode provider error (%d): %s", e.Data.StatusCode, msg))
+		return
+	}
+	term.PrintError("opencode error: " + msg)
+}
+
+// LastTurnStats returns opencode's token usage for the most recent turn, when
+// its stream carried any. Satisfies TurnStatsProvider.
+func (a *OpenCodeAgent) LastTurnStats() (inputTokens, outputTokens int, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastTurnIn, a.lastTurnOut, a.lastTurnOK
+}
+
+// LastPlanLimit reports whether the plan limit was hit on the most recent turn
+// and, when known, the provider-reported reset time. Satisfies PlanLimitReporter.
+func (a *OpenCodeAgent) LastPlanLimit() (reset time.Time, hit bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastLimitReset, a.lastLimitHit
 }
 
 // ClearSession forgets the opencode session id so the next turn starts fresh

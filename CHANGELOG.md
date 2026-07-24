@@ -4,6 +4,23 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Added
+- Coding-plan usage-window tracking for the subscription orchestration backends
+  (Claude Code, Codex, and OpenCode + Z.AI GLM). qmax-code now tracks the plan's
+  rolling 5-hour limit — when it opens, how many turns/tokens it has used, and
+  when it resets — and surfaces it in the input status bar and a new `/plan`
+  command (also summarized in `/status` and `/cost`). The window length is
+  configurable via `plan_window_hours` (default 5).
+- OpenCode and Codex backends now report per-turn token usage (previously only
+  Claude Code did), feeding both the session cost totals and the plan window.
+
+### Fixed
+- OpenCode error events (`{"type":"error", ...}`) were parsed and surfaced
+  instead of being silently dropped. In particular, a `429` / usage-limit
+  refusal — the exact signal that the coding-plan window is full — now prints a
+  clear "coding-plan limit reached" message and marks the window exhausted,
+  reading the provider's reset time from rate-limit headers when present.
+
 ## [1.22.0] - 2026-07-24
 
 ### Added

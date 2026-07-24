@@ -35,6 +35,7 @@ import (
 //	auto_save         → bool
 //	output_verbose    → bool (compact vs previous detailed answer style)
 //	max_token_budget  → integer
+//	plan_window_hours → integer (subscription plan rolling window; 0 = 5h default)
 func handleConfigCommand(args []string) {
 	if len(args) == 0 || args[0] == "show" {
 		printConfig()
@@ -90,6 +91,12 @@ func printConfig() {
 	fmt.Printf("    auto_save         = %t\n", cfg.AutoSave)
 	fmt.Printf("    output_verbose    = %t\n", cfg.OutputVerbose)
 	fmt.Printf("    max_token_budget  = %d\n", cfg.MaxTokenBudget)
+	planWindow := cfg.PlanWindowHours
+	if planWindow == 0 {
+		fmt.Printf("    plan_window_hours = %d (default)\n", api.DefaultPlanWindowHours)
+	} else {
+		fmt.Printf("    plan_window_hours = %d\n", planWindow)
+	}
 	if cfg.AnthropicKey != "" {
 		fmt.Println("    anthropic_key     = (set; stored in OS keychain)")
 	} else {
@@ -242,6 +249,20 @@ func setConfigField(key, value string) error {
 				return fmt.Errorf("max_token_budget must be an integer, got %q", value)
 			}
 			cfg.MaxTokenBudget = n
+		}
+
+	case "plan_window_hours", "plan-window-hours":
+		if value == "" {
+			cfg.PlanWindowHours = 0
+		} else {
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("plan_window_hours must be an integer, got %q", value)
+			}
+			if n < 0 {
+				return fmt.Errorf("plan_window_hours must be non-negative, got %d", n)
+			}
+			cfg.PlanWindowHours = n
 		}
 
 	case "ollama_url":

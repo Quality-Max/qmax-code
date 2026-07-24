@@ -167,6 +167,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 	var lastTurnDur time.Duration
 	var lastContextTokens int
 
+	// Coding-plan usage window — tracks the subscription plan's rolling 5-hour
+	// limit for the cc/codex/opencode backends so the status bar and /plan can
+	// show how much is spent and when it resets. Non-plan backends never open a
+	// window, so it stays inert for them.
+	planWindow := api.PlanWindowFromConfig(ag.AppConfig)
+
 	inputStatus := func() *tui.StatusInfo {
 		backend := "api"
 		if ag.Cfg.Context != nil && ag.Cfg.Context.Backend != "" {
@@ -196,6 +202,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			ContextWindow:  api.ContextWindow(model),
 			LastTurnDur:    lastTurnDur,
 			SessionStarted: sessionStarted,
+			PlanActive:     isPlanBackend(backend) && planWindow.Active(time.Now()),
+			PlanRemaining:  planWindow.Remaining(time.Now()),
+			PlanTurns:      planWindow.Turns,
+			PlanExhausted:  planWindow.Exhausted,
 		}
 	}
 
@@ -296,10 +306,17 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			reconnectMCPTransport(cliAgent, term)
 			continue
 		case input == "/status":
-			term.PrintStatusInfo(ag.Cfg.Context, ag.Usage, ag.Cfg.Model)
+			term.PrintStatusInfo(ag.Cfg.Context, ag.Usage, ag.Cfg.Model, planWindow)
 			continue
 		case input == "/cost":
-			term.PrintCostSummary(ag.Usage, ag.Cfg.Model)
+			term.PrintCostSummary(ag.Usage, ag.Cfg.Model, planWindow)
+			continue
+		case input == "/plan":
+			if !planWindow.Started() {
+				term.PrintSystem("No coding-plan window yet — run a turn on a cc/codex/opencode backend first.")
+			} else {
+				term.PrintPlanWindow(planWindow)
+			}
 			continue
 		case input == "/resume" || strings.HasPrefix(input, "/resume "):
 			resumeTarget := strings.TrimPrefix(input, "/resume ")
@@ -1190,6 +1207,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				llmResult, err = cliAgent.Run(cleanInput, term)
 				term.StopThinking()
 				if err == nil {
+					turnIn, turnOut := 0, 0
 					if stats, ok := cliAgent.(agent.TurnStatsProvider); ok {
 						if inputTokens, outputTokens, reported := stats.LastTurnStats(); reported {
 							ag.Usage.InputTokens += inputTokens
@@ -1197,6 +1215,19 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 							ag.Usage.Requests++
 							lastContextTokens = inputTokens
 							ag.LastContextTokens = inputTokens
+							turnIn, turnOut = inputTokens, outputTokens
+						}
+					}
+					// Advance the coding-plan usage window for subscription
+					// backends — even when the harness reported no token usage,
+					// the rolling 5-hour clock still ticks on each turn.
+					if isPlanBackend(currentBackend(ag)) {
+						now := time.Now()
+						planWindow.Record(now, turnIn, turnOut)
+						if lim, ok := cliAgent.(agent.PlanLimitReporter); ok {
+							if reset, hit := lim.LastPlanLimit(); hit {
+								planWindow.MarkExhausted(now, reset)
+							}
 						}
 					}
 					// Mirror the turn into ag.History so autoSave records it.
@@ -1456,6 +1487,27 @@ func handleKeys(ag *agent.Agent, term *tui.Terminal) {
 	}
 }
 
+// isPlanBackend reports whether a backend runs on a subscription coding plan
+// with a rolling usage window (Claude Code, Codex, or OpenCode + a provider
+// plan like Z.AI GLM). The direct API, Cerebras, and Ollama backends bill
+// per-token or run locally, so they have no such window.
+func isPlanBackend(backend string) bool {
+	switch backend {
+	case "cc", "codex", "opencode":
+		return true
+	default:
+		return false
+	}
+}
+
+// currentBackend returns the active backend id ("" for the direct API path).
+func currentBackend(ag *agent.Agent) string {
+	if ag != nil && ag.Cfg.Context != nil {
+		return ag.Cfg.Context.Backend
+	}
+	return ""
+}
+
 func printHelp() {
 	fmt.Println(`
 Commands:
@@ -1480,6 +1532,7 @@ Commands:
   /project <id>     Set the active QualityMax project
   /context          Show current session context
   /cost             Show token usage and estimated cost
+  /plan             Show coding-plan usage window (5h limit, resets in)
 
   /live [on|off]    Toggle live browser feed for tests/crawls
   /feed             Open the most recent live browser feed

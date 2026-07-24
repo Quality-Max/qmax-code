@@ -29,6 +29,14 @@ type StatusInfo struct {
 	ContextWindow  int           // assumed context window of the active model
 	LastTurnDur    time.Duration // wall-clock duration of the previous agent turn
 	SessionStarted time.Time     // used to keep the session timer live while typing
+
+	// Subscription coding-plan usage window (cc / codex / opencode backends).
+	// PlanActive is false for non-plan backends and before the first turn, in
+	// which case the plan segment is omitted from the status line.
+	PlanActive    bool
+	PlanRemaining time.Duration // time until the plan window resets
+	PlanTurns     int           // turns used in the current window
+	PlanExhausted bool          // provider reported the plan limit was hit
 }
 
 // SlashMenuItem represents a selectable command.
@@ -566,6 +574,13 @@ func (m inputModel) renderStatus(w int) string {
 	if !s.SessionStarted.IsZero() {
 		if sessionDur := time.Since(s.SessionStarted); sessionDur > 0 {
 			metrics = append(metrics, "session "+compactDuration(sessionDur))
+		}
+	}
+	if s.PlanActive {
+		if s.PlanExhausted {
+			metrics = append(metrics, fmt.Sprintf("plan limit — resets in %s", compactDuration(s.PlanRemaining)))
+		} else {
+			metrics = append(metrics, fmt.Sprintf("plan resets in %s · %d turns", compactDuration(s.PlanRemaining), s.PlanTurns))
 		}
 	}
 	if len(metrics) > 0 {

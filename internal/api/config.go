@@ -117,6 +117,13 @@ type Config struct {
 	// users should opt in deliberately. Toggle via /live on|off or
 	// /set live_feed true|false.
 	LiveFeed bool `json:"live_feed,omitempty"`
+
+	// PlanWindowHours overrides the assumed rolling usage-window length, in
+	// hours, of the active subscription coding plan (cc / codex / opencode).
+	// It drives the /plan tracker and the status-bar "resets in …" readout.
+	// 0 or unset means the 5-hour default (DefaultPlanWindowHours), which
+	// matches Claude Code, Codex, and OpenCode + Z.AI GLM plans.
+	PlanWindowHours int `json:"plan_window_hours,omitempty"`
 }
 
 const QmaxCodeConfigDir = ".qmax-code"
