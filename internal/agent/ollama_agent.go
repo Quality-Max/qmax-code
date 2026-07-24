@@ -58,6 +58,7 @@ Action format — output ONLY this, no other text:
 <action>{"name": "ACTION_NAME", "params": {...}}</action>
 
 Available actions:
+- update_plan: Record or update your step-by-step plan; call FIRST for multi-step work and pass the complete ordered list each time. Params: {"steps": [{"title": "step description", "status": "pending"}]} where status is "pending", "in_progress", or "done"
 - read_file: Read a workspace file. Params: {"path": "relative/path"}
 - run_command: Run one allowlisted local command. Params: {"command": "go test ./..."}
 - edit_file: Replace exact text in a workspace file. Params: {"path": "relative/path", "old_text": "exact old text", "new_text": "replacement"}

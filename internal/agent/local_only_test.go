@@ -73,9 +73,12 @@ func TestStandaloneSystemPromptMatchesToolBoundary(t *testing.T) {
 func TestStandaloneOllamaUsesLocalActionsAndExecutionGuard(t *testing.T) {
 	a := NewAgent(AgentConfig{Context: &api.SessionContext{LocalOnly: true}})
 	instructions := a.ollamaToolInstructions()
-	for _, want := range []string{"read_file", "run_command", "edit_file", "write_file"} {
+	// Every tool in the standalone catalog must be advertised to the Ollama
+	// model; otherwise it cannot reach a tool it is allowed to call (e.g.
+	// update_plan for multi-step work).
+	for want := range localOnlyToolNames {
 		if !strings.Contains(instructions, want) {
-			t.Errorf("standalone Ollama instructions missing %q", want)
+			t.Errorf("standalone Ollama instructions missing local tool %q", want)
 		}
 	}
 	for _, forbidden := range []string{"list_projects", "run_test", "start_crawl"} {
