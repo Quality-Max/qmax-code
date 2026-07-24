@@ -380,7 +380,14 @@ func (a *OpenCodeAgent) handleOCError(e *ocError, term *tui.Terminal) {
 		term.PrintError(fmt.Sprintf("opencode provider error (%d): %s", e.Data.StatusCode, msg))
 		return
 	}
-	term.PrintError("opencode error: " + msg)
+	// opencode 1.0.x emits benign internal errors even on successful turns — e.g.
+	// an "UnknownError" schema-validation gripe on the trailing step event — with
+	// no HTTP status code. Real provider failures (auth, quota, 5xx) all carry a
+	// status code and are handled above, so surfacing these status-code-less
+	// events on every turn would just be noise. Show them only in verbose mode.
+	if a.outputVerbose {
+		term.PrintError("opencode error: " + msg)
+	}
 }
 
 // LastTurnStats returns opencode's token usage for the most recent turn, when

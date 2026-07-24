@@ -20,6 +20,9 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   refusal — the exact signal that the coding-plan window is full — now prints a
   clear "coding-plan limit reached" message and marks the window exhausted,
   reading the provider's reset time from rate-limit headers when present.
+  Provider errors carrying an HTTP status code (auth, quota, 5xx) are shown;
+  benign status-code-less events that opencode 1.0.x emits even on successful
+  turns are suppressed unless output is verbose, so they don't become noise.
 
 ## [1.22.0] - 2026-07-24
 
