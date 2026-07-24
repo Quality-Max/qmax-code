@@ -71,6 +71,32 @@ func FindOpenCode() string {
 	return ""
 }
 
+// autoFlag caches the one-time probe for `opencode run --auto` support so we
+// don't shell out to `--help` on every turn.
+var (
+	autoFlagOnce      sync.Once
+	autoFlagSupported bool
+)
+
+// openCodeSupportsAutoFlag reports whether the installed opencode accepts the
+// `run --auto` flag. Older opencode used --auto to auto-approve tool calls in
+// non-interactive `run` mode; opencode 1.x removed it and governs approvals
+// through the config `permission` block instead. Passing --auto to a version
+// that no longer knows it makes opencode print usage and exit 1 with no output,
+// so probe `run --help` once and only pass the flag when it is advertised.
+func openCodeSupportsAutoFlag(bin string) bool {
+	if bin == "" {
+		return false
+	}
+	autoFlagOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		out, _ := exec.CommandContext(ctx, bin, "run", "--help").CombinedOutput()
+		autoFlagSupported = strings.Contains(string(out), "--auto")
+	})
+	return autoFlagSupported
+}
+
 // NewOpenCodeAgent creates an opencode subprocess orchestrator.
 // modelID is the full "provider/model" string selected via the picker.
 // effort is "low" | "medium" | "high" (empty defaults to "high").
@@ -146,10 +172,15 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 	}
 	// --auto auto-approves anything not explicitly denied. In standard mode the
 	// managed config denies edits + destructive shell (openCodeStandardPermission),
-	// so --auto is safe there too; unattended has no denies (full autonomy). Both
-	// need --auto because `opencode run` is non-interactive — without it, tools
-	// that would prompt simply block.
-	args = append(args, "--auto")
+	// so --auto is safe there too; unattended has no denies (full autonomy).
+	// Older opencode needed --auto because `opencode run` is non-interactive —
+	// without it, tools that would prompt simply block. Newer opencode (1.x)
+	// REMOVED --auto and governs approvals purely through the config `permission`
+	// block; passing --auto there makes opencode print usage and exit 1 with no
+	// output. So only add it when the installed opencode still advertises it.
+	if openCodeSupportsAutoFlag(a.openCodeBin) {
+		args = append(args, "--auto")
+	}
 	if sessionID != "" && validOpenCodeSessionID(sessionID) {
 		args = append(args, "--session", sessionID)
 	}
