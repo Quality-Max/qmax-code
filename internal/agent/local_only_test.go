@@ -93,6 +93,68 @@ func TestStandaloneOllamaUsesLocalActionsAndExecutionGuard(t *testing.T) {
 	}
 }
 
+func TestCLIQASystemPromptSwitchesOnLocalOnly(t *testing.T) {
+	const connected = "CONNECTED-MARKER"
+	if got := cliQASystemPrompt(&api.SessionContext{LocalOnly: true}, connected); got != localCLISystemPrompt {
+		t.Errorf("local-only should return localCLISystemPrompt, got %q", got)
+	}
+	if strings.Contains(localCLISystemPrompt, "project ID") == false {
+		// Guard the standalone contract: the local CLI prompt must forbid asking
+		// for a QualityMax project, so cloud workflows can't leak into --local.
+		t.Error("localCLISystemPrompt should address QualityMax project unavailability")
+	}
+	for _, sctx := range []*api.SessionContext{nil, {LocalOnly: false}} {
+		if got := cliQASystemPrompt(sctx, connected); got != connected {
+			t.Errorf("connected mode should return the passed prompt, got %q", got)
+		}
+	}
+}
+
+func TestOllamaToolInstructionsConnectedBranch(t *testing.T) {
+	connected := NewAgent(AgentConfig{Context: &api.SessionContext{LocalOnly: false}})
+	got := connected.ollamaToolInstructions()
+	if got != ollamaToolPrompt {
+		t.Fatalf("connected Ollama instructions should be ollamaToolPrompt")
+	}
+	// Connected mode must advertise cloud actions that standalone hides.
+	if !strings.Contains(got, "list_projects") || !strings.Contains(got, "start_crawl") {
+		t.Error("connected Ollama instructions missing cloud actions")
+	}
+	if strings.Contains(got, "QualityMax projects and cloud actions are unavailable") {
+		t.Error("connected Ollama instructions leaked the standalone restriction notice")
+	}
+}
+
+func TestBuildLocalSystemPromptBranches(t *testing.T) {
+	// Git context branch.
+	withGit := NewAgent(AgentConfig{Context: &api.SessionContext{
+		LocalOnly: true,
+		GitInfo:   &api.GitInfo{Branch: "feature/x", RemoteURL: "git@example.com:o/r.git", ChangedFiles: []string{"a.go", "b.go"}},
+	}})
+	gitPrompt := withGit.buildLocalSystemPrompt()
+	for _, want := range []string{"Git context:", "feature/x", "git@example.com:o/r.git", "Changed files: 2"} {
+		if !strings.Contains(gitPrompt, want) {
+			t.Errorf("git-context prompt missing %q", want)
+		}
+	}
+
+	// No-git prompt omits the git section.
+	plain := NewAgent(AgentConfig{Context: &api.SessionContext{LocalOnly: true}}).buildLocalSystemPrompt()
+	if strings.Contains(plain, "Git context:") {
+		t.Error("prompt without GitInfo should not emit a Git context section")
+	}
+
+	// Cerebras Gemma 4 image-support branch.
+	gemma := NewAgent(AgentConfig{Context: &api.SessionContext{LocalOnly: true}})
+	gemma.Cerebras = &CerebrasClient{Model: api.CerebrasGemma4Model}
+	if !strings.Contains(gemma.buildLocalSystemPrompt(), "inspect attached images") {
+		t.Error("Gemma 4 standalone prompt should include image-inspection guidance")
+	}
+	if strings.Contains(plain, "inspect attached images") {
+		t.Error("non-Cerebras standalone prompt should not mention image inspection")
+	}
+}
+
 func assertExactToolSet(t *testing.T, defs []api.ToolDef, want map[string]bool) {
 	t.Helper()
 	if len(defs) != len(want) {

@@ -4,6 +4,8 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-07-24
+
 ### Added
 - Added supported standalone local-only mode (`--local`,
   `qmax-code config set local_only true`, or `QMAX_LOCAL_ONLY=1`). It skips
