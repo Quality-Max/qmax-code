@@ -124,7 +124,21 @@ func localWorkspacePath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	rel, err := filepath.Rel(cwd, absPath)
+
+	// Resolve symlinks on both sides before the containment check. A lexical
+	// filepath.Rel is not enough: a symlink inside the workspace pointing
+	// outside it (e.g. link -> /etc) would otherwise let edit_file/write_file
+	// follow it out of the workspace. The target may not exist yet — write_file
+	// creates files — so resolve the longest existing ancestor and rejoin the
+	// trailing components. Canonicalizing cwd too keeps the comparison in one
+	// namespace (e.g. macOS /var -> /private/var).
+	realRoot, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return "", err
+	}
+	realPath := resolveThroughSymlinks(absPath)
+
+	rel, err := filepath.Rel(realRoot, realPath)
 	if err != nil {
 		return "", err
 	}
@@ -132,6 +146,22 @@ func localWorkspacePath(path string) (string, error) {
 		return "", fmt.Errorf("local file operations are restricted to the current directory")
 	}
 	return absPath, nil
+}
+
+// resolveThroughSymlinks canonicalizes absPath by resolving symlinks for its
+// longest existing prefix, then rejoining the trailing components that do not
+// exist yet. This lets containment checks account for symlinked ancestors even
+// when the target file has not been created.
+func resolveThroughSymlinks(absPath string) string {
+	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
+		return resolved
+	}
+	parent := filepath.Dir(absPath)
+	if parent == absPath {
+		// Reached the filesystem root without an existing, resolvable ancestor.
+		return absPath
+	}
+	return filepath.Join(resolveThroughSymlinks(parent), filepath.Base(absPath))
 }
 
 func editLocalFile(input map[string]interface{}) string {
@@ -205,16 +235,38 @@ var experimentalToolNames = map[string]bool{
 	"check_job_status": true,
 }
 
-// BuildToolDefs returns the public tool definitions exposed to the LLM agent
-// and via the MCP server. Experimental tools are filtered out unless
+// localOnlyToolNames is the complete tool boundary for standalone mode. Every
+// entry must work without QualityMax credentials, an API client, or the legacy
+// qmax CLI. run_local_test is intentionally absent: despite its name it
+// downloads a QualityMax script and reports the result back to QualityMax.
+var localOnlyToolNames = map[string]bool{
+	"update_plan": true,
+	"read_file":   true,
+	"run_command": true,
+	"edit_file":   true,
+	"write_file":  true,
+}
+
+// BuildToolDefs returns the connected-mode public tool definitions exposed to
+// the LLM agent. Experimental tools are filtered out unless
 // QMAX_EXPERIMENTAL=1 is set.
 func BuildToolDefs() []api.ToolDef {
+	return BuildToolDefsForMode(false)
+}
+
+// BuildToolDefsForMode returns the public tool definitions for the requested
+// runtime boundary. Standalone mode exposes only tools that require no
+// QualityMax account or service.
+func BuildToolDefsForMode(localOnly bool) []api.ToolDef {
 	all := buildAllToolDefs()
-	if sysutil.EnvEnabled("QMAX_EXPERIMENTAL") {
+	if !localOnly && sysutil.EnvEnabled("QMAX_EXPERIMENTAL") {
 		return all
 	}
 	out := make([]api.ToolDef, 0, len(all))
 	for _, d := range all {
+		if localOnly && !localOnlyToolNames[d.Name] {
+			continue
+		}
 		if !experimentalToolNames[d.Name] {
 			out = append(out, d)
 		}
@@ -233,7 +285,13 @@ var nativeOnlyToolNames = map[string]bool{
 // BuildMCPToolDefs returns the tool definitions exposed via the MCP server —
 // the public set minus native-only tools (see nativeOnlyToolNames).
 func BuildMCPToolDefs() []api.ToolDef {
-	defs := BuildToolDefs()
+	return BuildMCPToolDefsForMode(false)
+}
+
+// BuildMCPToolDefsForMode applies the standalone boundary and then removes
+// native-agent-only tools that would collide with the consuming CLI.
+func BuildMCPToolDefsForMode(localOnly bool) []api.ToolDef {
+	defs := BuildToolDefsForMode(localOnly)
 	out := make([]api.ToolDef, 0, len(defs))
 	for _, d := range defs {
 		if !nativeOnlyToolNames[d.Name] {
@@ -794,6 +852,14 @@ func ExecuteTool(name string, rawInput interface{}, sctx *api.SessionContext, ct
 }
 
 func executeTool(name string, rawInput interface{}, sctx *api.SessionContext, ctx context.Context, term *tui.Terminal) string {
+	// Tool discovery is not a security boundary: an MCP client can send an
+	// arbitrary tools/call name even when it was absent from tools/list. Enforce
+	// standalone mode again at execution time so no QualityMax-backed action can
+	// be reached by name.
+	if sctx != nil && sctx.LocalOnly && !localOnlyToolNames[name] {
+		return jsonError(fmt.Sprintf("%s is unavailable in standalone mode; restart without --local or set local_only=false to use QualityMax cloud tools", name))
+	}
+
 	// update_plan is a local, side-effect-free planning surface — handle it
 	// before any API/CLI dispatch. The rich terminal checklist is rendered by
 	// the UI layer (executeToolCallsWithUI); here we just validate the steps and
@@ -802,7 +868,7 @@ func executeTool(name string, rawInput interface{}, sctx *api.SessionContext, ct
 		return executeUpdatePlan(rawInput)
 	}
 
-	// Use API client if available (standalone mode)
+	// Use the direct QualityMax API client when available.
 	if sctx.API != nil {
 		result := executeToolViaAPI(name, rawInput, sctx, ctx, term)
 		if result != "" {
@@ -1236,7 +1302,7 @@ func captureLiveURLTo(sctx *api.SessionContext, raw string, term *tui.Terminal) 
 	// subprocess; sctx.LastLiveURL is local to that process and the parent
 	// REPL's auto-launcher would never see it. Persist via the side
 	// channel set up in WriteMCPConfig (cc_agent / codex_agent). No-op
-	// when QMAX_LIVE_URL_FILE isn't set (standalone mode).
+	// when QMAX_LIVE_URL_FILE isn't set (in-process built-in-agent mode).
 	sysutil.PersistLiveURLForParent(url)
 	if sctx.LiveFeed && !sctx.LiveURLLogged {
 		if term != nil {

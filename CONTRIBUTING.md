@@ -27,13 +27,14 @@ Thanks for your interest in improving `qmax-code`. This document covers everythi
 | Requirement | Notes |
 |---|---|
 | **Go 1.24+** | See `go.mod` for the exact version. `go version` to check. |
-| **Anthropic API key** | Required for agent mode. Set via `qmax-code config set anthropic_key <key>` or `ANTHROPIC_API_KEY` env var. |
-| **QualityMax account** | Required for cloud tools (test generation, crawl, repo review). Run `qmax-code login` after [signing up](https://app.qualitymax.io). Most unit tests run without one. |
+| **Inference backend** | The direct API path needs an Anthropic key. You can instead develop against a logged-in Claude Code/Codex CLI, an enabled OpenCode provider, Cerebras, or Ollama. |
+| **QualityMax account** | Required only for connected cloud tools (test generation, crawl, repo review). Standalone `--local` development and most unit tests do not need one. |
 
 Optional but useful:
 
 - [golangci-lint](https://golangci-lint.run/usage/install/) — the CI linter; run it locally to catch issues before pushing
-- [Ollama](https://ollama.com) — only needed if working on the local-model (`/ollama`) code path
+- [Claude Code](https://claude.ai/download), [Codex](https://github.com/openai/codex), or [OpenCode](https://opencode.ai) — only needed when working on that CLI orchestration backend
+- [Ollama](https://ollama.com) or a Cerebras key — only needed when working on that inference adapter
 
 ---
 
@@ -86,29 +87,40 @@ Tests that hit the QualityMax API or a live Anthropic model are skipped when the
 
 ## Architecture overview
 
-```
-main.go             Entry point, flag parsing, REPL bootstrap
-agent.go            Core Anthropic streaming loop, tool dispatch, history compression
-tools.go            Tool definitions (BuildToolDefs) and ExecuteTool dispatcher
-api_client.go       REST client for the QualityMax cloud API
-input.go            Bubbletea TUI input model, slash-command menu
-terminal.go         Output rendering, theme application, progress display
-theme.go            Named color schemes and live-preview theme picker
-queue.go            Prompt queue — accepts input while the agent is running
-mcp_server.go       MCP server mode (native tool-use, no Anthropic tokens)
-ollama.go           Ollama provider adapter
-ollama_agent.go     Ollama full-agent mode (prompt-based tool dispatch)
-cc_agent.go         Claude Code sub-agent integration
-codex_agent.go      Codex/OpenAI-compatible sub-agent integration
-auth.go             QualityMax login, API key storage, keychain helpers
-config.go           Config struct, load/save, defaults
-security.go         Command validation, credential redaction
-error_reporting.go  Optional Sentry-compatible telemetry (opt-in only)
-session.go          Session persistence and history
-context.go          SessionContext — shared state threaded through the agent
+```text
+main.go                                Process entry, flags, subcommands, backend startup
+internal/repl/repl.go                  REPL, slash commands, queue, backend switching
+internal/agent/agent.go                Built-in streaming loop and history compression
+internal/agent/tools.go                Tool definitions, dispatch, safety, local execution
+internal/agent/cc_agent.go             Claude Code subprocess backend
+internal/agent/codex_agent.go          Codex subprocess backend
+internal/agent/opencode_agent.go       OpenCode subprocess backend
+internal/agent/cerebras_agent.go       Cerebras native function-calling loop
+internal/agent/ollama_agent.go         Ollama full-agent mode
+internal/api/client.go                 QualityMax REST client
+internal/api/auth.go                   QualityMax auth and keychain helpers
+internal/api/config.go                 Persistent user configuration
+internal/api/providers.go              Opt-in OpenCode provider registry
+internal/mcp/server.go                 Embedded stdio MCP server
+internal/setup/orch.go                 MCP registration and skill installation
+internal/skills/                       Backend-neutral 27-skill catalog/materializer
+internal/session/                      Local/cloud sessions and prompt queue
+internal/tui/                          Bubble Tea input, output, themes, media, pickers
+internal/security/                     Command validation and credential redaction
+internal/httpx/ and receipt.go          Guarded egress and Exposure Receipts
 ```
 
-The main loop lives in `runREPL` (`main.go`). Each user prompt goes to `Agent.RunStreaming` → `runStreamingLoop` → `callStreamingAPI` → `executeToolCallsWithUI`. Tools are defined declaratively in `BuildToolDefs` and dispatched by name in `ExecuteTool`.
+The interactive loop lives in `internal/repl/repl.go`. Built-in backend prompts
+flow through `Agent.RunStreaming`, while CLI backends implement
+`agent.CLIAgent` and receive qmax tools from `internal/mcp/server.go`. Tools are
+declared in `BuildToolDefs` and dispatched by `ExecuteTool` in
+`internal/agent/tools.go`.
+
+Standalone mode is an explicit capability boundary. New tools must not be added
+to `localOnlyToolNames` unless they work without QualityMax credentials, API
+calls, the legacy `qmax` CLI, or cloud result reporting. Keep tool discovery
+and execution-time rejection tests in sync; MCP clients can call tool names
+that were never advertised.
 
 ---
 
@@ -118,7 +130,7 @@ The main loop lives in `runREPL` (`main.go`). Each user prompt goes to `Agent.Ru
 
 Slash commands are handled in two places — miss either one and the command either won't work or won't appear in the autocomplete menu.
 
-**1. Register the handler** in `runREPL` (`main.go`):
+**1. Register the handler** in `runREPL` (`internal/repl/repl.go`):
 
 ```go
 case input == "/mycommand":
@@ -126,7 +138,8 @@ case input == "/mycommand":
     continue
 ```
 
-**2. Add a menu entry** in `input.go` so it appears in the `/` autocomplete:
+**2. Add a menu entry** in `internal/tui/input.go` so it appears in the `/`
+autocomplete:
 
 ```go
 var slashMenuItems = []SlashMenuItem{
@@ -141,7 +154,8 @@ Both steps are required. The menu entry is what users see when they type `/`; th
 
 ### Adding an agent tool
 
-Tools are declared in `BuildToolDefs` (`tools.go`) and dispatched in `ExecuteTool`. To add one:
+Tools are declared in `BuildToolDefs` (`internal/agent/tools.go`) and dispatched
+in `ExecuteTool`. To add one:
 
 **1. Declare the tool** in `buildAllToolDefs`:
 
@@ -162,7 +176,8 @@ case "my_tool":
     return api.MyTool(ctx, strVal(input, "param_name"))
 ```
 
-**3. Add the API method** in `api_client.go` if it calls the QualityMax backend:
+**3. Add the API method** in `internal/api/client.go` if it calls the QualityMax
+backend:
 
 ```go
 func (c *APIClient) MyTool(ctx context.Context, param string) string {
@@ -172,13 +187,16 @@ func (c *APIClient) MyTool(ctx context.Context, param string) string {
 
 **4. Assign a cost tier** in `ToolCost` (`tools.go`) — `"low"`, `"medium"`, or `"high"`. This is shown to the user before expensive operations.
 
-Write a test in `api_client_native_test.go` covering the request shape if the tool hits the network.
+Write a focused test in `internal/api/` covering the request shape if the tool
+hits the network. Outbound HTTP must go through `internal/httpx`; the static
+egress guard fails CI if a package constructs an unreceipted raw HTTP client or
+request.
 
 ---
 
 ### Adding a theme
 
-Themes are defined in `theme.go`. Add an entry to the `themes` map:
+Themes are defined in `internal/tui/theme.go`. Add an entry to the `themes` map:
 
 ```go
 "mytheme": {
@@ -192,7 +210,8 @@ Themes are defined in `theme.go`. Add an entry to the `themes` map:
 },
 ```
 
-Run `go test ./...` — `theme_test.go` validates that all registered themes have complete field sets.
+Run `go test ./...` — `internal/tui/theme_test.go` validates that all registered
+themes have complete field sets.
 
 ---
 
@@ -211,14 +230,18 @@ Run `go test ./...` — `theme_test.go` validates that all registered themes hav
 
 Read [SECURITY.md](SECURITY.md) before touching:
 
-- auth or credential storage (`auth.go`, `keychain.go`)
-- telemetry or error reporting (`error_reporting.go`)
-- `read_file`, `write_file`, `run_command`, or `run_local_test` tool implementations
-- command validation logic (`security.go`)
+- auth or credential storage (`internal/api/auth.go`, `internal/api/keychain.go`)
+- provider configuration or subprocess credential injection
+- telemetry or error reporting (`internal/sysutil/error_reporting.go`)
+- Exposure Receipts or outbound HTTP (`receipt.go`, `internal/httpx/`)
+- `read_file`, `edit_file`, `write_file`, `run_command`, or `run_local_test` tool implementations
+- command validation logic (`internal/security/`)
+- orchestration consent, global MCP configuration, or skill materialization
 - script healing, backup, or rollback behavior
 - API error handling or any code path that might log user data
 
-For any of the above, add or update tests in `security_test.go` and note the security impact in your PR description.
+For any of the above, add or update focused tests in the owning package and
+note the security impact in your PR description.
 
 ---
 

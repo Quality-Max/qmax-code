@@ -160,6 +160,21 @@ Crawl:        "47 scenarios found; 12 novel — here are the highest-value new o
 End every response with the single highest-impact next action.
 `
 
+const localCLISystemPrompt = `
+You are QMax in standalone local-only mode, an expert coding and QA engineer working in the current repository. QualityMax is not connected, and QualityMax projects, hosted tests, crawls, imports, repository analysis, cloud sessions, and script healing are unavailable.
+
+Use your native coding-agent tools for repository inspection, edits, and local tests. The qmax MCP server is intentionally restricted to local workspace file operations and allowlisted commands. Never claim a QualityMax cloud action succeeded, never ask for a QualityMax project ID, and do not direct the user to log in unless they explicitly request a cloud capability.
+
+Work from repository evidence, inspect before editing, run the narrowest relevant test after a change, and report concrete results. Never expose or hardcode credentials.
+`
+
+func cliQASystemPrompt(sctx *api.SessionContext, connectedPrompt string) string {
+	if sctx != nil && sctx.LocalOnly {
+		return localCLISystemPrompt
+	}
+	return connectedPrompt
+}
+
 // FindClaudeCode returns the path to the claude CLI binary, or "" if not installed.
 func FindClaudeCode() string {
 	if path, err := exec.LookPath("claude"); err == nil {
@@ -219,6 +234,9 @@ func (a *CCAgent) WriteMCPConfig() error {
 	// between turns to drive the auto-launch and /feed.
 	if a.sctx.LiveFeed {
 		env["QMAX_LIVE_FEED"] = "1"
+	}
+	if a.sctx.LocalOnly {
+		env[api.LocalOnlyEnv] = "1"
 	}
 	if path := sysutil.LiveURLFilePath(); path != "" {
 		env["QMAX_LIVE_URL_FILE"] = path
@@ -382,7 +400,7 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		return "", err
 	}
 
-	systemPrompt := ccQASystemPrompt + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose)
+	systemPrompt := cliQASystemPrompt(a.sctx, ccQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose)
 
 	args := []string{
 		"--print",

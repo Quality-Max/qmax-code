@@ -148,3 +148,41 @@ func TestWriteFileRejectsParentTraversal(t *testing.T) {
 		t.Fatalf("write_file output = %s", out)
 	}
 }
+
+// A symlink inside the workspace pointing outside it must not become an escape
+// hatch for write_file: containment is checked after resolving symlinks, and
+// the target file need not exist yet.
+func TestWriteFileRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "escape")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldCwd) })
+
+	out := ExecuteTool("write_file", map[string]interface{}{
+		"path":    "escape/pwned.txt",
+		"content": "nope",
+	}, &api.SessionContext{}, context.Background())
+	if !strings.Contains(out, "restricted to the current directory") {
+		t.Fatalf("write_file output = %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "pwned.txt")); err == nil {
+		t.Fatal("write_file escaped the workspace through a symlink")
+	}
+}

@@ -119,10 +119,11 @@ type sseMessageDelta struct {
 
 // NewAgent creates a new LLM agent.
 func NewAgent(cfg AgentConfig) *Agent {
+	localOnly := cfg.Context != nil && cfg.Context.LocalOnly
 	return &Agent{
 		Cfg:     cfg,
 		History: []api.Message{},
-		tools:   BuildToolDefs(),
+		tools:   BuildToolDefsForMode(localOnly),
 		client:  httpx.NewClient(300 * time.Second),
 	}
 }
@@ -370,6 +371,9 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 				result, ok := a.RunOllamaAgent(term)
 				if ok && result != "" {
 					return result, nil
+				}
+				if a.Cfg.Context != nil && a.Cfg.Context.LocalOnly && a.Cfg.AnthropicKey == "" {
+					return "", fmt.Errorf("ollama backend request failed in standalone mode; no Anthropic fallback is configured")
 				}
 				if a.Cfg.Verbose {
 					fmt.Fprintf(term.Stderr(), "[ollama-full] failed, falling back to Claude\n")
@@ -958,6 +962,10 @@ func (a *Agent) loadPriorSessions() {
 
 // buildSystemPrompt creates the system prompt with session context.
 func (a *Agent) buildSystemPrompt() string {
+	if a.Cfg.Context != nil && a.Cfg.Context.LocalOnly {
+		return a.buildLocalSystemPrompt()
+	}
+
 	var prompt string
 	if a.Cfg.Professional {
 		prompt = `You are qmax-code, a professional coding and QA engineering assistant in the terminal. Be professional and direct. No cat references, no personality. Just be an expert software engineer.
@@ -1190,6 +1198,60 @@ You MUST call list_projects first to get the slug. Never guess it.
 		}
 	}
 
+	return prompt
+}
+
+// buildLocalSystemPrompt is the standalone-mode contract. It deliberately
+// names only the tools present in BuildToolDefsForMode(true) and contains no
+// QualityMax project, cloud-runner, crawl, import, or hosted-script workflow.
+func (a *Agent) buildLocalSystemPrompt() string {
+	persona := "Be curious, playful, concise, and use cat references naturally but sparingly."
+	if a.Cfg.Professional {
+		persona = "Be professional, direct, concise, and do not use cat references."
+	}
+
+	prompt := `You are qmax-code in standalone local-only mode: a coding and QA engineering assistant working in the current repository. ` + persona + `
+
+QualityMax is not connected in this mode. Do not claim that QualityMax projects, hosted tests, crawls, repository analysis, imports, PR generation, cloud sessions, or script healing are available. Do not ask the user to log in unless they explicitly request a QualityMax cloud capability.
+
+Available qmax tools:
+- update_plan: track multi-step work
+- read_file: inspect a workspace file
+- edit_file: make an exact replacement in an existing workspace file
+- write_file: create or deliberately rewrite a workspace file
+- run_command: run one allowlisted local command
+
+Rules:
+1. Work directly from repository evidence: inspect before editing and run the narrowest relevant local test after changes.
+2. Use run_command one command at a time. Pipes, redirects, heredocs, command substitution, and shell chaining are blocked.
+3. Keep file operations inside the current workspace.
+4. Never invent test results, file contents, command output, or repository state.
+5. Summarize results clearly; do not dump raw tool output.
+6. For multi-step work, call update_plan first and keep it current. Skip it for single-step questions.
+7. Never hardcode credentials or place secrets in source, output, tests, or documentation.
+`
+
+	if a.Cerebras != nil && api.IsCerebrasGemma4Model(a.Cerebras.Model) {
+		prompt += `
+You can inspect attached images. When an image specifies a UI or flow, use it as local implementation/test context. Create any test files in the workspace and run them with the available local command tool; do not call QualityMax generation or hosted execution.
+`
+	}
+
+	if a.Cfg.Context.GitInfo != nil {
+		gi := a.Cfg.Context.GitInfo
+		prompt += "\nGit context:\n"
+		if gi.Branch != "" {
+			prompt += fmt.Sprintf("- Branch: %s\n", gi.Branch)
+		}
+		if gi.RemoteURL != "" {
+			prompt += fmt.Sprintf("- Remote: %s\n", gi.RemoteURL)
+		}
+		if len(gi.ChangedFiles) > 0 {
+			prompt += fmt.Sprintf("- Changed files: %d\n", len(gi.ChangedFiles))
+		}
+	}
+
+	prompt += outputStyleDirective(a.Cfg.OutputVerbose)
 	return prompt
 }
 

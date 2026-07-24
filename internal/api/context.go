@@ -14,12 +14,13 @@ import (
 // SessionContext holds the runtime context for the agent session.
 type SessionContext struct {
 	ProjectID   int
+	LocalOnly   bool // true = no QualityMax auth/cloud tools for this process
 	QMaxCfg     QMaxConfig
-	QMaxBin     string      // resolved path to qmax binary (empty = standalone mode)
+	QMaxBin     string      // resolved path to legacy qmax binary; empty for direct API/local-only paths
 	QMaxInfo    string      // output of `qmax status` at startup
 	GitInfo     *GitInfo    // git context from cwd
 	ProjectFile string      // name of .qmax.yml file if detected
-	API         *APIClient  // direct API client (standalone mode, no qmax CLI needed)
+	API         *APIClient  // direct QualityMax API client (no legacy qmax CLI needed)
 	Auth        *AuthConfig // authentication credentials
 	Backend     string      // "" | "cc" | "codex" — active CLI inference backend
 

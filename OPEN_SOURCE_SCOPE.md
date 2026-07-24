@@ -14,9 +14,12 @@ Public `qmax-code` may contain:
 
 - Terminal UX, command parsing, install/build/release scripts, and docs.
 - Client-side auth flows and cloud API calls that are intentionally supported.
-- LLM orchestration, tool definitions, local execution helpers, and safety
-  guards that define the CLI behavior.
-- Provider adapters for Anthropic/Ollama and public configuration.
+- LLM orchestration, MCP integration, managed QA skills, tool definitions,
+  local execution helpers, and safety guards that define the CLI behavior.
+- Provider adapters for Anthropic, Cerebras, Ollama, Claude Code, Codex, and
+  OpenCode, including the public opt-in provider registry.
+- Exposure Receipt generation and verification, provided that receipts contain
+  structural egress metadata rather than user content or credentials.
 
 Closed QualityMax monorepo should retain:
 
@@ -49,15 +52,19 @@ Before public release, every cloud route/tool should be classified as:
 
 Needs change before opening:
 
-- `error_reporting.go` now requires `QMAX_CODE_TELEMETRY=1` and
+- `internal/sysutil/error_reporting.go` now requires `QMAX_CODE_TELEMETRY=1` and
   `QMAX_CODE_TELEMETRY_DSN` before initializing Sentry-compatible reporting.
   Before release, confirm this opt-in behavior is documented wherever binaries
   are distributed.
-- `auth.go` stores QualityMax API credentials in `~/.qmax-code/auth.json`
+- `internal/api/auth.go` stores QualityMax API credentials in
+  `~/.qmax-code/auth.json`
   with `0600` permissions. `README.md` now documents storage and `/disconnect`
   cleanup.
 - Known credential patterns are redacted from API errors, command output, local
   test output, and optional telemetry before display/reporting.
+- `internal/httpx/guard_test.go` keeps outbound HTTP on the receipted transport;
+  signed manifests are stored under `~/.qmax-code/receipts/` and can be
+  verified offline.
 
 Likely okay with docs:
 
@@ -68,10 +75,11 @@ Likely okay with docs:
 
 Needs product review:
 
-- `api_client.go` publishes the complete client-side REST route map for
+- `internal/api/client.go` publishes the complete client-side REST route map for
   QualityMax projects, crawls, repository review, k6, QTML, framework export,
   PR creation, and background jobs.
-- `tools.go` publishes the LLM tool schema, capability descriptions, cost
+- `internal/agent/tools.go` publishes the LLM tool schema, capability
+  descriptions, cost
   categories, and agent-facing workflow assumptions.
 - `ImportRepo` no longer sends `training_consent` by default. It only sends
   `opt_in` or `opt_out` when the user/tool call explicitly provides one.
@@ -94,6 +102,10 @@ Proposed launch classification:
 | Surface | Suggested class | Notes |
 | --- | --- | --- |
 | Auth and config | public-core | Browser login, API-key login, env/keychain config. |
+| Inference backends and orch | public-core | Direct adapters, CLI subprocesses, MCP wiring, permission consent, opt-in providers. |
+| Exposure Receipts | public-core | Signed local egress manifests and offline verification. |
+| Managed QA skills | public-core | Public catalog materialized into supported coding-agent CLIs. |
+| Standalone local-only mode | public-core | No QualityMax auth; exact local tool allowlist enforced at discovery and execution. |
 | Projects and test cases | public-core | Basic CRUD/listing is expected client behavior. |
 | Automation scripts | public-core | List/get/update plus security scanning are core to the agent. |
 | Test generation and execution | public-cloud | Public client can call closed generation/execution services. |
@@ -134,8 +146,9 @@ Likely okay:
 
 Needs security review:
 
-- The agent exposes `read_file`, `write_file`, and `run_command` tools. There is
-  some validation, and `SECURITY.md` now documents the trusted-local model.
+- The agent exposes `read_file`, `edit_file`, `write_file`, and `run_command`
+  tools. There is some validation, and `SECURITY.md` now documents the
+  trusted-local model.
 - `runLocalTest` downloads test code from QualityMax and executes Python or
   Playwright locally, then reports results back. This is powerful and should be
   treated as a prominent security notice; `SECURITY.md` now calls this out.
@@ -156,7 +169,8 @@ Phase 3 cleanup completed:
 
 Needs product/legal review:
 
-- `agent.go` contains the full system prompt and autonomous healing policy.
+- `internal/agent/agent.go` contains the full system prompt and autonomous
+  healing policy.
   This may be acceptable, but it is product-defining behavior and should be
   intentionally open-sourced rather than leaked accidentally.
 - The system prompt includes product behavior: capability lanes, review
@@ -175,7 +189,8 @@ Phase 4 cleanup completed:
 
 Likely okay with docs:
 
-- Anthropic and Ollama provider adapters are client behavior and can be public.
+- Anthropic, Cerebras, and Ollama adapters plus the Claude Code, Codex, and
+  OpenCode orchestration paths are client behavior and can be public.
 - Prompt-based local-model tool dispatch is publishable as long as the enabled
   tool surface is intentionally classified in Phase 2.
 
@@ -187,8 +202,8 @@ Likely okay with docs:
 - QualityMax reporting in CI now skips when the reporting secret is unavailable,
   which keeps public forks cleaner.
 - Split private release publishing from public release workflows.
-- Decide whether public builds include telemetry, direct QualityMax cloud API,
-  or only an OSS/local mode.
+- Public builds include both the direct QualityMax API path and an explicit
+  standalone `--local` mode; telemetry remains opt-in.
 - Create an issue checklist for any intentionally deferred proprietary cleanup.
 
 Phase 5 cleanup completed:

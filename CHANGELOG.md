@@ -4,6 +4,25 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-07-24
+
+### Added
+- Added supported standalone local-only mode (`--local`,
+  `qmax-code config set local_only true`, or `QMAX_LOCAL_ONLY=1`). It skips
+  QualityMax onboarding and credential loading while retaining local
+  repository work across built-in and CLI orchestration backends.
+- Standalone tool catalogs now expose only planning/workspace file operations
+  and allowlisted local commands. MCP children inherit the mode, and
+  execution-time checks reject direct calls to hidden QualityMax tools.
+
+### Documentation
+- Updated the README and contributor/security documentation for the v1.21
+  feature set, including current backends, QA skills, Exposure Receipts, live
+  feeds, native test execution, sessions, and configuration.
+- Added orchestration-mode and command references, and corrected the in-app
+  `/help` and slash-menu descriptions to reflect the unified backend/model/
+  effort picker.
+
 ## [1.21.2] - 2026-07-22
 
 ### Fixed

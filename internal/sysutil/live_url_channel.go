@@ -74,7 +74,7 @@ func LiveURLFilePath() string {
 
 // liveURLFileForChild returns the path that *this* qmax-code instance
 // will read from. In MCP subprocess mode that's whatever the parent
-// passed via QMAX_LIVE_URL_FILE; in standalone mode it's the same path
+// passed via QMAX_LIVE_URL_FILE; in the in-process agent path it's the same path
 // LiveURLFilePath() chose for itself, but no one writes to it so reads
 // are a no-op.
 func liveURLFileForChild() string {
@@ -86,7 +86,7 @@ func liveURLFileForChild() string {
 
 // PersistLiveURLForParent writes `url` into the side-channel file the
 // parent watches. No-op when the env var isn't set (i.e. we're running
-// standalone, where captureLiveURL already wrote to sctx in-process).
+// in-process mode, where captureLiveURL already wrote to sctx directly).
 // Best-effort: errors are swallowed because failing here would corrupt
 // otherwise-valid tool output.
 func PersistLiveURLForParent(url string) {

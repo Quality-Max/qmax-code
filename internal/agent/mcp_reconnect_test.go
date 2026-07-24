@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,7 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"c
 	a := NewCodexAgent(codexBin, "", "high", "standard", false, &api.SessionContext{
 		ProjectID: 88,
 		LiveFeed:  true,
+		LocalOnly: true,
 	})
 
 	got, err := a.Run("list projects", &tui.Terminal{})
@@ -54,6 +56,7 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"c
 		`args = ["serve", "--mcp"]`,
 		`"QMAX_PROJECT_ID" = "88"`,
 		`"QMAX_LIVE_FEED" = "1"`,
+		`"QMAX_LOCAL_ONLY" = "1"`,
 		`"QMAX_LIVE_URL_FILE" = `,
 		`"QMAX_EXEC_ID_FILE" = `,
 	} {
@@ -69,7 +72,7 @@ func TestCCRunRestoresDeletedMCPConfigBeforeExec(t *testing.T) {
 printf '%s\n' '{"type":"result","result":"cc ok"}'
 `)
 
-	a := NewCCAgent(claudeBin, "", "high", "standard", false, &api.SessionContext{ProjectID: 42})
+	a := NewCCAgent(claudeBin, "", "high", "standard", false, &api.SessionContext{ProjectID: 42, LocalOnly: true})
 	if err := a.WriteMCPConfig(); err != nil {
 		t.Fatalf("initial WriteMCPConfig: %v", err)
 	}
@@ -100,6 +103,21 @@ printf '%s\n' '{"type":"result","result":"cc ok"}'
 	}
 	if _, err := os.Stat(newPath); err != nil {
 		t.Fatalf("expected MCP config to exist after restore: %v", err)
+	}
+	data, err := os.ReadFile(newPath)
+	if err != nil {
+		t.Fatalf("read restored MCP config: %v", err)
+	}
+	var restored struct {
+		MCPServers map[string]struct {
+			Env map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("parse restored MCP config: %v", err)
+	}
+	if got := restored.MCPServers["qmax"].Env[api.LocalOnlyEnv]; got != "1" {
+		t.Fatalf("restored MCP config %s = %q, want 1", api.LocalOnlyEnv, got)
 	}
 }
 

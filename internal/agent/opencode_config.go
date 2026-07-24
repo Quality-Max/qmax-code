@@ -136,6 +136,9 @@ func WriteOpenCodeConfig(cfg *api.Config, sctx *api.SessionContext, permissionMo
 		if sctx.LiveFeed {
 			mcpEnv["QMAX_LIVE_FEED"] = "1"
 		}
+		if sctx.LocalOnly {
+			mcpEnv[api.LocalOnlyEnv] = "1"
+		}
 	}
 	if path := sysutil.LiveURLFilePath(); path != "" {
 		mcpEnv["QMAX_LIVE_URL_FILE"] = path

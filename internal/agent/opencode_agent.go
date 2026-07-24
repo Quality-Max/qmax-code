@@ -130,7 +130,7 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 	// resume via --session and don't need it re-injected.
 	message := safeUserMsg
 	if sessionID == "" {
-		message = codexQASystemPrompt + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + safeUserMsg
+		message = cliQASystemPrompt(a.sctx, codexQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + safeUserMsg
 	}
 
 	args := []string{"run", "--format", "json"}

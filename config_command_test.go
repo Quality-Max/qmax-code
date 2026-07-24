@@ -62,6 +62,28 @@ func TestSetConfigField_BackendValidation(t *testing.T) {
 	}
 }
 
+func TestSetConfigField_LocalOnly(t *testing.T) {
+	withTempHome(t)
+
+	if err := setConfigField("local_only", "true"); err != nil {
+		t.Fatalf("enable local_only: %v", err)
+	}
+	if loaded := api.LoadQMaxCodeConfig(); !loaded.LocalOnly {
+		t.Fatal("LocalOnly = false after enabling it")
+	}
+
+	if err := setConfigField("local_only", "false"); err != nil {
+		t.Fatalf("disable local_only: %v", err)
+	}
+	if loaded := api.LoadQMaxCodeConfig(); loaded.LocalOnly {
+		t.Fatal("LocalOnly = true after disabling it")
+	}
+
+	if err := setConfigField("local_only", "maybe"); err == nil {
+		t.Fatal("expected invalid boolean to be rejected")
+	}
+}
+
 func TestSetConfigField_CerebrasModelAndBaseURL(t *testing.T) {
 	withTempHome(t)
 
