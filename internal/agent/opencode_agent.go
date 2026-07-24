@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -185,8 +186,17 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 		args = append(args, "--session", sessionID)
 	}
 	// "--" terminates flag parsing so a message starting with "-" is treated as
-	// the positional prompt rather than an unknown flag.
-	args = append(args, "--", message)
+	// the positional prompt rather than an unknown flag. On Windows, opencode is
+	// typically an npm ".cmd" shim; Go's os/exec routes it through cmd.exe, which
+	// swallows the "--" separator and drops the positional message after it
+	// ("You must provide a message or a command"). There we pass the message with
+	// no "--" — sanitizeCCUserPrompt already stripped control bytes, and a lone
+	// positional is taken as the message.
+	if runtime.GOOS == "windows" {
+		args = append(args, message)
+	} else {
+		args = append(args, "--", message)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
