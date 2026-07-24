@@ -11,6 +11,7 @@ import (
 
 	"github.com/qualitymax/qmax-code/internal/agent"
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/sysutil"
 )
 
 // RunServer starts an MCP (Model Context Protocol) server over stdin/stdout.
@@ -23,16 +24,26 @@ import (
 //
 // version is the qmax-code build version, surfaced in the initialize handshake.
 func RunServer(version string) {
-	auth := api.LoadAuth()
+	appConfig := api.LoadQMaxCodeConfig()
+	localOnly := appConfig.LocalOnly || sysutil.EnvEnabled(api.LocalOnlyEnv)
+
+	var auth *api.AuthConfig
 	var apiClient *api.APIClient
-	if auth != nil && auth.IsAuthenticated() {
-		apiClient = api.NewAPIClient(auth)
+	var qmaxCfg api.QMaxConfig
+	var qmaxBin string
+	if !localOnly {
+		auth = api.LoadAuth()
+		if auth != nil && auth.IsAuthenticated() {
+			apiClient = api.NewAPIClient(auth)
+		}
+		qmaxCfg = api.LoadQMaxConfig()
+		qmaxBin = api.DiscoverQMaxBinary()
 	}
 
-	appConfig := api.LoadQMaxCodeConfig()
 	sctx := &api.SessionContext{
-		QMaxCfg:   api.LoadQMaxConfig(),
-		QMaxBin:   api.DiscoverQMaxBinary(),
+		LocalOnly: localOnly,
+		QMaxCfg:   qmaxCfg,
+		QMaxBin:   qmaxBin,
 		API:       apiClient,
 		Auth:      auth,
 		ProjectID: appConfig.DefaultProject,
@@ -162,7 +173,8 @@ func dispatch(req request, sctx *api.SessionContext, version string) (resp respo
 		})
 
 	case "tools/list":
-		return okResp(req.ID, map[string]interface{}{"tools": buildToolList()})
+		localOnly := sctx != nil && sctx.LocalOnly
+		return okResp(req.ID, map[string]interface{}{"tools": buildToolList(localOnly)})
 
 	case "tools/call":
 		var params callParams
@@ -201,8 +213,8 @@ func errResp(id interface{}, code int, msg string) response {
 
 // buildToolList converts qmax ToolDefs to MCP format.
 // The only structural difference is camelCase inputSchema vs Anthropic's input_schema.
-func buildToolList() []toolDef {
-	defs := agent.BuildMCPToolDefs()
+func buildToolList(localOnly bool) []toolDef {
+	defs := agent.BuildMCPToolDefsForMode(localOnly)
 	out := make([]toolDef, len(defs))
 	for i, d := range defs {
 		out[i] = toolDef(d)

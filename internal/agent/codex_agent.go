@@ -111,6 +111,9 @@ func (a *CodexAgent) WriteMCPConfig() error {
 	if a.sctx.LiveFeed {
 		env["QMAX_LIVE_FEED"] = "1"
 	}
+	if a.sctx.LocalOnly {
+		env[api.LocalOnlyEnv] = "1"
+	}
 	if path := sysutil.LiveURLFilePath(); path != "" {
 		env["QMAX_LIVE_URL_FILE"] = path
 	}
@@ -232,7 +235,7 @@ func (a *CodexAgent) buildPrompt(userMsg string) string {
 	history := a.history
 	a.mu.Unlock()
 
-	systemPrompt := codexQASystemPrompt + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n"
+	systemPrompt := cliQASystemPrompt(a.sctx, codexQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n"
 
 	if len(history) == 0 {
 		// First turn: include the system prompt.

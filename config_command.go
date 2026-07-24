@@ -30,6 +30,7 @@ import (
 //	default_framework → "", "playwright", "pytest", "rust_cargo", "go_test"
 //	default_project   → integer project ID
 //	default_model     → "auto", "sonnet", "opus", "haiku", or known full model ID
+//	local_only        → bool (skip QualityMax login/cloud tools)
 //	professional      → bool ("true" / "false")
 //	auto_save         → bool
 //	output_verbose    → bool (compact vs previous detailed answer style)
@@ -84,6 +85,7 @@ func printConfig() {
 	fmt.Printf("    default_model     = %q\n", cfg.DefaultModel)
 	fmt.Printf("    default_project   = %d\n", cfg.DefaultProject)
 	fmt.Printf("    default_framework = %q\n", cfg.DefaultFramework)
+	fmt.Printf("    local_only        = %t\n", cfg.LocalOnly)
 	fmt.Printf("    professional      = %t\n", cfg.Professional)
 	fmt.Printf("    auto_save         = %t\n", cfg.AutoSave)
 	fmt.Printf("    output_verbose    = %t\n", cfg.OutputVerbose)
@@ -209,6 +211,13 @@ func setConfigField(key, value string) error {
 			return err
 		}
 		cfg.Professional = b
+
+	case "local_only":
+		b, err := parseConfigBool(value)
+		if err != nil {
+			return err
+		}
+		cfg.LocalOnly = b
 
 	case "auto_save":
 		b, err := parseConfigBool(value)

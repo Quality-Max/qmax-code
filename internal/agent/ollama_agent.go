@@ -46,6 +46,31 @@ Available actions:
 - create_pr: Create PR with tests. Params: {"repo_id": int, "project_id": int}
 `
 
+const ollamaLocalToolPrompt = `
+
+CRITICAL TOOL RULES:
+1. You are working only in the current local repository. QualityMax projects and cloud actions are unavailable.
+2. When the user asks you to inspect, edit, create, or test repository code, output ONLY an action block.
+3. Do not invent file contents or command results.
+4. For normal chat and coding advice that needs no repository evidence, respond normally without action blocks.
+
+Action format — output ONLY this, no other text:
+<action>{"name": "ACTION_NAME", "params": {...}}</action>
+
+Available actions:
+- read_file: Read a workspace file. Params: {"path": "relative/path"}
+- run_command: Run one allowlisted local command. Params: {"command": "go test ./..."}
+- edit_file: Replace exact text in a workspace file. Params: {"path": "relative/path", "old_text": "exact old text", "new_text": "replacement"}
+- write_file: Create or deliberately rewrite a workspace file. Params: {"path": "relative/path", "content": "full content"}
+`
+
+func (a *Agent) ollamaToolInstructions() string {
+	if a.Cfg.Context != nil && a.Cfg.Context.LocalOnly {
+		return ollamaLocalToolPrompt
+	}
+	return ollamaToolPrompt
+}
+
 // RunOllamaAgent runs a full conversation turn using only Ollama.
 // Returns the final text response and whether it succeeded.
 func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
@@ -54,7 +79,7 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 	}
 
 	// Build system prompt with action instructions
-	system := a.buildSystemPrompt() + ollamaToolPrompt
+	system := a.buildSystemPrompt() + a.ollamaToolInstructions()
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	a.cancel = cancel1
@@ -188,6 +213,13 @@ func tryParseActionJSON(jsonStr string) (string, map[string]interface{}, bool) {
 
 // executeOllamaAction maps an action name to a real API call.
 func (a *Agent) executeOllamaAction(action string, params map[string]interface{}, ctx context.Context) string {
+	if a.Cfg.Context != nil && a.Cfg.Context.LocalOnly {
+		// Standalone Ollama uses the same catalog and execution-time boundary as
+		// the native function-calling agent. This both enables local file/command
+		// actions and rejects a hallucinated QualityMax action name.
+		return ExecuteTool(action, params, a.Cfg.Context, ctx)
+	}
+
 	api := a.Cfg.Context.API
 	if api == nil {
 		return `{"error": "Not connected to QualityMax. Run /connect first."}`

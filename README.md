@@ -22,36 +22,71 @@
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/qualitymax)
 
-**AI-powered terminal agent for QualityMax.** Named after Max, the real cat who inspired it all.
+**AI-powered terminal coding and QA agent.** Named after Max, the real cat who inspired it all.
 
-qmax-code is a standalone terminal agent for QualityMax. It connects directly to
-the QualityMax API, understands testing intent in natural language, and runs
-structured workflows for crawling sites, generating tests, running scripts, and
-reviewing repos. No separate `qmax` CLI is required.
+qmax-code can work as a standalone local repository agent with no QualityMax
+account, or connect to QualityMax for hosted QA workflows. In connected mode it
+can manage projects and test cases, crawl sites, generate and run tests, review
+repositories, heal scripts, and prepare CI. It calls the QualityMax API
+directly, so the separate `qmax` CLI is optional.
 
-> **License:** Source-available under the [Functional Source License (FSL-1.1-ALv2)](LICENSE) — created by [Sentry](https://fsl.software). Free for any non-competing use (internal use, modifications, contributions, education, research, professional services). Two years after each release, the code automatically converts to plain Apache 2.0. The "Other" tag GitHub shows in the sidebar is a quirk of its licensee detector — FSL isn't on the SPDX list.
+Use the built-in agent with Anthropic, Cerebras, or Ollama, or use
+**orchestration mode** to run Claude Code, Codex, or OpenCode with the same qmax
+QA tools through MCP.
 
-## How it works
+> **License:** Source-available under the
+> [Functional Source License (FSL-1.1-ALv2)](LICENSE), created by
+> [Sentry](https://fsl.software). It is free for non-competing use, including
+> internal use, modification, contribution, education, research, and
+> professional services. Each release converts to Apache 2.0 after two years.
 
-```
-  You  →  "test the login flow on staging"
-                    │
-              qmax-code
-                    │
-          ┌─────────┼─────────┐
-          ▼         ▼         ▼
-      crawl     generate     run
-      site        tests      scripts
-```
+## What qmax-code can do
 
-Claude picks the right tools, chains them together, and reports back — all in a colorful terminal with cat personality.
+- **Plan and manage QA work:** list and manage projects and test cases, enhance
+  cases, find coverage gaps, and import requirements or repositories.
+- **Generate and execute tests:** create Playwright, pytest, Go, and Rust tests;
+  run browser tests in QualityMax, run Go/Rust tests on the native runner, or
+  execute supported tests locally.
+- **Crawl and inspect applications:** discover pages, generate test scenarios,
+  analyze screenshots and page elements, and optionally watch test/crawl runs
+  through a live terminal browser feed.
+- **Review and ship:** analyze repositories for quality, coverage, security, and
+  testing risk; honor saved review preferences; create test PRs; and generate a
+  GitHub Actions test workflow.
+- **Work on local repositories:** read, create, and edit files; search code; run
+  allowlisted commands and tests. Standalone mode provides this lane without a
+  QualityMax login.
+- **Extend coding agents:** install 27 QA skills into Claude Code, Codex, and
+  OpenCode, including accessibility, performance, security, dependency,
+  usability, flaky-selector, and release-gate workflows.
 
-## What's new in v1.13
+Some advanced surfaces—k6, QTML, framework export/trigger operations, and
+background-job health—remain experimental and are only exposed when
+`QMAX_EXPERIMENTAL=1`.
 
-- **Themes** — live-preview color scheme picker: Historic, Ocean, Neon, Ember, Aurora (`/theme`)
-- **Thinking spinner** — animated indicator with cat-themed messages while the agent reasons
-- **Prompt queue** — type your next prompt while the agent is still running; it processes automatically
-- **Input fixes** — long lines wrap correctly, cursor tracking fixed, rune editing fixed
+## What is new in v1.21
+
+- **Standalone local-only mode:** start with `--local` (or persist
+  `local_only=true`) to skip QualityMax onboarding and expose only workspace
+  file, command, and planning tools.
+- **Exposure Receipts:** every session that makes an outbound LLM or QualityMax
+  API request writes a signed local egress manifest that can be inspected and
+  verified offline.
+- **OpenCode backend:** opt in to Z.AI Coding Plan, Groq, or OpenRouter and pick
+  their models from `/orch`; keys stay in the OS keychain.
+- **Expanded orchestration:** one picker now covers the direct Anthropic API,
+  Claude Code, Codex, Cerebras, OpenCode, and Ollama, with backend-specific
+  model and reasoning/effort choices.
+- **Cerebras and Gemma 4:** native function calling across the qmax tool set,
+  multimodal input for Gemma 4, optional reasoning effort, and live speed
+  metrics.
+- **27 managed QA skills:** the catalog is refreshed into Claude Code, Codex,
+  and OpenCode and can be inspected or reinstalled with `/skills`.
+- **Improved terminal sessions:** a stable input panel, prompt queue, session
+  status and cost metrics, compact/verbose output toggle, ten themes, saved
+  sessions, and optional cloud sync.
+
+See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 
 ## Install
 
@@ -59,125 +94,340 @@ Claude picks the right tools, chains them together, and reports back — all in 
 curl -sL https://qualitymax.io/static/install-qmax-code.txt | bash
 ```
 
+To build from source instead:
+
+```bash
+git clone https://github.com/Quality-Max/qmax-code.git
+cd qmax-code
+go build -o qmax-code .
+./qmax-code --version
+```
+
+Go 1.24 or newer is required for source builds.
+
 ## Quick start
 
+### Standalone local-only
+
+Run qmax-code without a QualityMax account:
+
 ```bash
-# 1. Set your Anthropic API key
-export ANTHROPIC_API_KEY=sk-ant-...
+# Use an already authenticated coding-agent CLI:
+qmax-code --local --backend codex
+qmax-code --local --backend cc
 
-# 2. Login to QualityMax
-qmax-code login
+# Or use the built-in agent with your selected inference provider:
+qmax-code --local
+```
 
-# Or use a QualityMax API key from Settings > API Keys
-qmax-code login --api-key qm-YOUR-API-KEY
+The built-in path still needs an inference backend: an Anthropic or Cerebras
+key, or a configured Ollama endpoint. `--local` means no QualityMax login,
+project, or cloud request; it does not mean that a third-party model provider
+is offline. Use Ollama on a local endpoint when you also want inference to stay
+on your machine.
 
-# 3. Attach Codex for QualityMax mobile runs (optional)
-qmax-code codex connect
+To make standalone mode the default:
 
-# 4. Start using
+```bash
+qmax-code config set local_only true
 qmax-code
+
+# Return to QualityMax-connected startup:
+qmax-code config set local_only false
+```
+
+Standalone qmax tools are deliberately limited to `read_file`, `edit_file`,
+`write_file`, `run_command`, and the built-in agent's `update_plan`. QualityMax
+projects, hosted tests, crawls, imports, cloud sessions, live feeds, and the
+cloud-backed `run_local_test` workflow are unavailable. CLI backends may also
+have their own native coding tools, governed by their permission settings.
+
+### QualityMax-connected
+
+Log in for cloud-backed tools:
+
+```bash
+qmax-code login
+```
+
+The browser flow is the default. You can instead use an API key from
+[QualityMax Settings](https://app.qualitymax.io/settings):
+
+```bash
+qmax-code login --api-key qm-YOUR-API-KEY
+```
+
+Then start qmax-code and choose an inference backend:
+
+```bash
+qmax-code
+
+# Inside the REPL:
+> /orch
+```
+
+For the direct Anthropic backend, set a session-only key before launch:
+
+```bash
+export ANTHROPIC_API_KEY=YOUR_KEY
+qmax-code
+```
+
+You can also provide a prompt directly:
+
+```bash
 qmax-code "crawl staging.myapp.com and generate e2e tests"
 qmax-code -p "run all tests for project 42"
+qmax-code --backend codex -p "review this repository's test strategy"
 ```
 
-`qmax-code codex connect` runs a fresh `codex login`, reuses the saved
-QualityMax login (or opens the one-time browser authorization when needed), and
-attaches Codex to the authenticated QualityMax user.
+## Orchestration mode
 
-No qmax CLI needed. qmax-code calls the QualityMax API directly.
+`/orch` is qmax-code's unified **backend, model, and effort picker**. It is not
+a separate model and it does not create several agents. It selects which
+inference engine handles the conversation while keeping qmax-code as the host
+for terminal UX, QualityMax context, and tools.
 
-Get your QualityMax API key at: https://app.qualitymax.io/settings
+```text
+you
+ │
+ ▼
+qmax-code REPL ── /orch chooses one backend
+ │
+ ├─ built-in loop: Anthropic API / Cerebras / Ollama
+ │
+ └─ CLI agent: Claude Code / Codex / OpenCode
+                    │
+                    └─ embedded qmax MCP server
+                         ├─ connected: QualityMax + local QA tools
+                         └─ --local: workspace tools only
+```
 
-## Architecture
+For CLI backends, qmax-code launches the selected agent as a subprocess and
+serves qmax tools through its embedded MCP server. On first activation you
+choose one of two permission levels:
 
-| File | Purpose |
-|------|---------|
-| `agent.go` | Claude API agentic loop — streaming, tool-use, history compression |
-| `api_client.go` | REST client for the QualityMax cloud API |
-| `auth.go` | Authentication — browser login, API key, OS keychain |
-| `tools.go` | Tool definitions and ExecuteTool dispatcher |
-| `terminal.go` | Output rendering, progress display, theme application |
-| `theme.go` | Named color schemes and live-preview theme picker |
-| `input.go` | Bubbletea TUI input model and slash-command menu |
-| `queue.go` | Prompt queue — accepts input while the agent is running |
-| `mcp_server.go` | MCP server mode (native tool-use, no Anthropic tokens consumed) |
-| `ollama.go` / `ollama_agent.go` | Ollama local model provider and full-agent mode |
-| `context.go` | SessionContext threaded through the agent |
-| `main.go` | REPL, flag parsing, slash command handlers |
+- **Standard (recommended):** auto-approves reads, searches, status/diff
+  inspection, common test runners, and qmax tools. File edits and destructive
+  shell commands remain gated.
+- **Unattended:** grants the CLI agent full file and shell autonomy. Use only in
+  a trusted repository.
 
-## Available tools
+Claude Code and Codex also offer an optional global MCP installation. Accepting
+it adds qmax to their user-level configuration so qmax QA tools are available
+when those CLIs are launched outside qmax-code. Declining keeps the integration
+scoped to qmax-code sessions. OpenCode uses a qmax-managed overlay config rather
+than modifying the user's main OpenCode configuration.
 
-**Tests:** list_test_cases, list_scripts, generate_test_code, run_test, run_tests_batch, check_test_status
+Read [Orchestration mode](docs/ORCHESTRATION.md) for backend requirements,
+provider setup, permission behavior, installed files, switching, and
+troubleshooting.
 
-**Crawl:** start_crawl, crawl_status, crawl_results, list_crawl_jobs
+> qmax-code orchestration is separate from Conductor's parallel-workspace
+> orchestration. Conductor can run multiple isolated qmax-code development
+> workspaces; `/orch` chooses the inference backend inside one qmax-code
+> session.
 
-**Repos:** list_repos, review_repo, repo_coverage, repo_quality
+## Backend guide
 
-**Import:** import_repo, import_document
+| Backend | Select with | Authentication | Notes |
+| --- | --- | --- | --- |
+| Anthropic API | `/api` or `/orch` | `ANTHROPIC_API_KEY` or OS keychain | Built-in agent loop; tool set follows connected vs. standalone mode. |
+| Claude Code | `/cc` or `/orch` | Local Claude Code login | CLI subprocess; qmax tools arrive through MCP. Agent SDK usage may be separately metered by Anthropic. |
+| Codex | `/codex` or `/orch` | Local Codex login | CLI subprocess using the user's OpenAI access; qmax tools arrive through MCP. |
+| Cerebras | `/gemma`, `/orch`, or `--backend cerebras` | `CEREBRAS_API_KEY` or OS keychain | Built-in native function calling. Gemma 4 supports images and reasoning effort. |
+| OpenCode | `/opencode` or `/orch` | Per-provider key in OS keychain | CLI subprocess for opt-in Z.AI, Groq, and OpenRouter providers. |
+| Ollama | `/ollama` or `/orch` | Configured Ollama endpoint | Self-hosted inference; configure the URL and model first. |
 
-**PR:** create_pr
+QualityMax authentication is independent of model-provider authentication. You
+can run any backend with `--local` and no QualityMax login. Without `--local`,
+qmax-code starts the QualityMax onboarding flow when no supported QualityMax
+connection is available. Cloud projects, crawls, hosted test runs, imports, and
+repository analysis always require connected mode.
 
-**Local:** read_file, write_file, run_command, run_local_test
+## QA skills
 
-## Gemma 4 on Cerebras (multimodal, ultra-fast)
+qmax-code ships 27 agent skills:
 
-qmax-code can drive its entire agent loop through **Google DeepMind's Gemma 4 31B** hosted on **Cerebras** — multimodal vision, native function-calling over the full tool set, and optional reasoning, at Cerebras inference speed. Every response surfaces the live `tokens/sec` and time-to-first-token straight from Cerebras's `time_info`, so the speed advantage is visible in the terminal.
+- **QA workflows:** migration to Playwright, release quality gates,
+  pre-change SAST, and failure triage.
+- **Static review:** diff risk, secrets, dependencies, dead code, complexity,
+  error handling, test quality, and flaky selectors.
+- **Browser/runtime audits:** accessibility, broken links, cold-load waterfall,
+  console errors, cookies/privacy, Core Web Vitals, form validation, i18n/RTL,
+  mixed content, page weight, responsive screenshots, security headers, SEO,
+  third-party bloat, and UI/UX.
+
+Use these commands from the REPL:
+
+```text
+/skills          Show every skill and its Claude Code/Codex/OpenCode status
+/skills install  Refresh the catalog in all supported CLI backends
+```
+
+Browser/runtime skills also require a Playwright MCP server in the consuming
+agent. qmax-code declares that dependency in the Codex skill metadata.
+
+## Useful commands
+
+```text
+/orch                    Pick backend, model, and effort
+/providers               List opt-in OpenCode providers
+/providers enable groq   Store a provider key and enable its models
+/skills                   Show managed QA skills and install status
+/live on                  Stream eligible test/crawl browser runs in the terminal
+/feed                     Reopen the latest live browser feed
+/sessions                 Pick a saved session to resume
+/queue <prompt>           Add follow-up work; typing during a turn also queues it
+/theme                    Preview and select a terminal theme
+/cost                     Show token usage and estimated cost
+/config                   Show session configuration
+/help                     Show the full in-app command reference
+```
+
+See [Command reference](docs/COMMANDS.md) for subcommands, flags, REPL commands,
+configuration keys, and keyboard shortcuts.
+
+## Sessions and automation
+
+Interactive sessions auto-save by default. For a one-shot command, use
+`--save-session` on the built-in backends if you want it available through
+`--resume last`:
 
 ```bash
-# One-shot activation inside the REPL
-> /gemma                 # backend→Cerebras, model→gemma-4-31b, reasoning: low
-> /gemma high            # max thinking
-> /gemma none            # fastest (reasoning off) — best for a pure speed demo
-> /gemma off             # back to the Anthropic API
-
-# Or pre-configure:
-qmax-code config set backend cerebras
-qmax-code config set cerebras_model gemma             # resolves to gemma-4-31b
-qmax-code config set cerebras_reasoning_effort medium
+qmax-code --save-session -p "review the current diff"
+qmax-code --resume last
+qmax-code --list-sessions
 ```
 
-**Signature demo — screenshot → Playwright test:** paste a picture of a web page and Gemma 4 reads the pixels (buttons, forms, navigation, the primary user flow) and generates a runnable Playwright e2e test, then runs it.
+Claude Code, Codex, and OpenCode manage their own native CLI session and resume
+state. qmax-code mirrors successful interactive turns into its in-memory
+history, but `--save-session` does not replace a CLI backend's native resume
+mechanism.
 
+Cloud session sync is opt-in:
+
+```text
+/cloudsync
+/set cloud_sync true
+/set cloud_sync false
 ```
-> /gemma
-> /screenshot            # capture any web page → Gemma 4 generates + verifies a test
-# or
-> /paste                 # paste an image from clipboard
+
+Cloud session sync is unavailable in standalone local-only mode. Local session
+save/resume and prompt queues continue to work.
+
+## Live browser feed and images
+
+Turn on `/live` to request QualityMax Cloud Sandbox execution for eligible
+browser tests and AI crawls. qmax-code displays the stream in the terminal and
+keeps the latest feed available through `/feed`.
+
+`/live`, `/feed`, and `/browserfeed` are connected-mode commands and are
+unavailable in standalone local-only mode.
+
+Use `/screenshot` to capture a screen and `/paste` to attach clipboard text or
+an image. Image attachments are supported by the built-in multimodal path
+(including Gemma 4 on Cerebras); CLI subprocess backends currently receive text
+only.
+
+## Exposure Receipts
+
+When a session makes outbound requests, qmax-code writes a signed manifest
+under `~/.qmax-code/receipts/`. The receipt records LLM and cloud-API egress
+without storing prompt bodies, file contents, model responses, shell output, or
+credential values.
+
+```bash
+qmax-code receipt list
+qmax-code receipt show latest
+qmax-code receipt verify latest
 ```
 
-The multimodal path works because qmax converts image attachments into OpenAI `image_url` base64 data-URI parts (`internal/agent/cerebras.go`), which is exactly the format Cerebras accepts for Gemma 4. Env overrides: `CEREBRAS_API_KEY`, `CEREBRAS_MODEL`, `CEREBRAS_REASONING_EFFORT`.
+Offline verification proves that the receipt was produced by this agent's
+local signing key; it is provenance evidence, not proof that every possible
+network path was disclosed. Cross-check receipts against your own egress logs
+when that assurance matters.
 
-## Requirements
+## Authentication and credential storage
 
-- Go 1.24+ (for building from source)
-- Anthropic API key (`ANTHROPIC_API_KEY`)
-- QualityMax account (free at [qualitymax.io](https://qualitymax.io))
-- qmax CLI is **optional** — qmax-code works standalone via REST API
-
-## Auth
-
-- Anthropic: set `ANTHROPIC_API_KEY`, pass `--anthropic-api-key`, or save it through the interactive key prompt.
-- QualityMax: run `qmax-code login` for browser login, or `qmax-code login --api-key qm-YOUR-API-KEY`.
-- QualityMax credentials are stored in `~/.qmax-code/auth.json` with `0600` permissions. Run `/disconnect` in the REPL to remove saved QualityMax auth.
-- Use `qmax-code --save-session` to force saving the current session for that run, even if auto-save is disabled in the config — this applies to interactive REPL sessions as well as one-shot `-p` / positional-arg runs (so a scripted invocation can still be resumed later with `--resume last`). Not applicable to the `cc`/`codex` CLI backends, which manage their own native session/resume state.
-- Anthropic keys saved by the prompt are stored in the OS keychain under the `qmax-code` service; remove them with your platform keychain tool, or use `ANTHROPIC_API_KEY` for session-only auth.
-- Known credential patterns are redacted from API errors, command output, local test output, and optional telemetry before display or reporting.
+- QualityMax browser/API-key credentials are stored in
+  `~/.qmax-code/auth.json` with `0600` permissions. `/disconnect` removes them.
+- Anthropic and Cerebras keys saved through qmax-code are stored in the OS
+  keychain. Environment variables remain available for session-only or CI use.
+- OpenCode provider keys are opt-in per user and stored in the OS keychain.
+  Disabling a provider hides it but keeps its key so it can be re-enabled.
+- `qmax-code codex connect` starts a fresh Codex OAuth login and securely
+  attaches it to the authenticated QualityMax user.
+- `qmax-code cc connect` reads the active local Claude Code credentials and
+  securely attaches them to the authenticated QualityMax user.
+- Known credential patterns are redacted from API errors, command output,
+  local test output, and optional telemetry.
 
 ## Local safety
 
-qmax-code is a trusted local terminal agent. Tools such as `read_file`, `write_file`, `run_command`, and `run_local_test` can access your workspace or run local commands with your user permissions. See [SECURITY.md](SECURITY.md) for the trust model and local backup paths.
+qmax-code is a trusted local terminal agent. Local file and command tools run
+with your user permissions in the current workspace; they are not a sandbox.
+CLI orchestration in unattended mode is broader still and can edit files, run
+arbitrary commands, and push commits.
 
-## Build
+Standalone mode prevents qmax-code from loading QualityMax credentials or
+exposing QualityMax tools. It does not sandbox the selected inference backend
+or suppress that backend's own network traffic.
+
+Read [SECURITY.md](SECURITY.md) before using local execution or unattended
+orchestration in an unfamiliar repository.
+
+## Telemetry
+
+qmax-code does not send telemetry off-machine by default. Crash and error
+reporting requires both:
+
+```bash
+export QMAX_CODE_TELEMETRY=1
+export QMAX_CODE_TELEMETRY_DSN=YOUR_SENTRY_COMPATIBLE_DSN
+```
+
+When enabled, reporting is limited to structural metadata such as backend,
+status code, model identifier, input length, and image count. Prompt content,
+file contents, LLM responses, credentials, and shell output are not included.
+Unset either variable to disable reporting.
+
+## Architecture
+
+| Path | Purpose |
+| --- | --- |
+| `main.go` | Process entry, flags, subcommands, login, backend startup, and one-shot mode |
+| `internal/repl/repl.go` | Interactive REPL, slash commands, backend switching, queue, and live feed |
+| `internal/agent/agent.go` | Built-in streaming agent loop, tool use, routing, and history compression |
+| `internal/agent/tools.go` | Tool schemas, safety gates, dispatch, local execution, and healing |
+| `internal/agent/{cc,codex,opencode}_agent.go` | CLI orchestration backends |
+| `internal/agent/{cerebras,ollama}_agent.go` | Built-in alternative inference backends |
+| `internal/api/` | QualityMax client, auth, provider registry, models, and persistent config |
+| `internal/mcp/server.go` | Embedded stdio MCP server for CLI backends |
+| `internal/setup/orch.go` | MCP registration and QA-skill installation |
+| `internal/skills/` | Backend-neutral 27-skill catalog and materialization |
+| `internal/session/` | Local/cloud sessions and prompt queue |
+| `internal/tui/` | Terminal rendering, input, themes, media, and model pickers |
+| `internal/httpx/` and `receipt.go` | Guarded outbound HTTP and Exposure Receipt integration |
+
+## Development
 
 ```bash
 go build -o qmax-code .
+go test ./...
+go vet ./...
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture, development workflow,
+testing, security-sensitive areas, and pull-request expectations.
 
 ## Cat personality
 
-Max is a curious explorer, playful bug hunter, and proud test presenter. The agent channels this energy — helpful, occasionally catty, never forced.
+Max is a curious explorer, playful bug hunter, and proud test presenter.
+Use `--professional` or `/set professional true` when you prefer a direct,
+personality-free response style.
 
-```
+```text
   /\_/\
  ( o.o )   "knocks bugs off the table"
   > ^ <    "nine lives, zero regressions"
@@ -187,15 +437,6 @@ Max is a curious explorer, playful bug hunter, and proud test presenter. The age
 
 ---
 
-**Open-source CLI for the QualityMax platform. Licensed under [FSL-1.1-ALv2](LICENSE) — free for non-competing use, converts to Apache 2.0 after 2 years.**
-
-## Telemetry
-
-`qmax-code` does not send anything off-machine by default. Crash and error reporting is **opt-in only** and requires both:
-
-- `QMAX_CODE_TELEMETRY=1` — explicit opt-in toggle
-- `QMAX_CODE_TELEMETRY_DSN=<sentry-dsn>` — destination DSN you control
-
-When enabled, only structural metadata is sent: backend name, HTTP status codes, model identifiers, input lengths, image counts. Prompt content, file contents, LLM responses, and shell output are **never** transmitted — a `BeforeSend` sanitizer in `error_reporting.go` strips any tag whose name matches a prompt-shaped prefix as defense-in-depth.
-
-To disable, unset either variable. To inspect what would be sent, set `QMAX_CODE_TELEMETRY_DSN` to a Sentry-compatible test endpoint you control.
+**Source-available CLI for the QualityMax platform. Licensed under
+[FSL-1.1-ALv2](LICENSE), free for non-competing use and converting to Apache
+2.0 after two years.**

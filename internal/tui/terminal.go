@@ -399,7 +399,9 @@ func (t *Terminal) PrintBanner(version string, ctx *api.SessionContext) {
 	fmt.Printf("  %s%s%s\n\n", ColorDim, subtitles[idx], ColorReset)
 
 	// Show context info
-	if ctx.ProjectID > 0 {
+	if ctx.LocalOnly {
+		fmt.Printf("  %s▸ Mode: standalone local-only (QualityMax cloud disabled)%s\n", themeStatusColor, ColorReset)
+	} else if ctx.ProjectID > 0 {
 		fmt.Printf("  %s▸ Project #%d active%s\n", themeStatusColor, ctx.ProjectID, ColorReset)
 	}
 
@@ -416,8 +418,10 @@ func (t *Terminal) PrintBanner(version string, ctx *api.SessionContext) {
 		}
 	default:
 		// API mode — show direct API or qmax CLI connection status.
-		if ctx.API != nil {
-			fmt.Printf("  %s▸ Mode: standalone (direct API)%s\n", themeStatusColor, ColorReset)
+		if ctx.LocalOnly {
+			fmt.Printf("  %s▸ Backend: configured local inference path%s\n", themeStatusColor, ColorReset)
+		} else if ctx.API != nil {
+			fmt.Printf("  %s▸ Mode: connected (direct QualityMax API)%s\n", themeStatusColor, ColorReset)
 			if ctx.Auth != nil && ctx.Auth.Email != "" {
 				fmt.Printf("  %s▸ Logged in as: %s%s\n", themeStatusColor, ctx.Auth.Email, ColorReset)
 			}
@@ -710,11 +714,14 @@ func (t *Terminal) PrintStatusInfo(ctx *api.SessionContext, usage api.TokenUsage
 	fmt.Printf("  %s\n", styleSystem.Render("qmax-code Status"))
 
 	// Connection status (primary)
-	if ctx.API != nil && ctx.Auth != nil && ctx.Auth.IsAuthenticated() {
+	if ctx.LocalOnly {
+		fmt.Printf("  %-20s %s\n", "Mode:", "Standalone local-only")
+		fmt.Printf("  %-20s %s\n", "QualityMax:", "Disabled")
+	} else if ctx.API != nil && ctx.Auth != nil && ctx.Auth.IsAuthenticated() {
 		fmt.Printf("  %-20s %s%s Connected%s\n", "QualityMax:", themeStatusColor, "●", ColorReset)
 		fmt.Printf("  %-20s %s\n", "Logged in as:", ctx.Auth.Email)
 		fmt.Printf("  %-20s %s\n", "API:", ctx.Auth.GetCloudURL())
-		fmt.Printf("  %-20s standalone (direct API)\n", "Mode:")
+		fmt.Printf("  %-20s connected (direct QualityMax API)\n", "Mode:")
 	} else if ctx.QMaxBin != "" {
 		fmt.Printf("  %-20s %s%s Connected (via CLI)%s\n", "QualityMax:", themeStatusColor, "●", ColorReset)
 		if ctx.QMaxCfg.Email != "" {
@@ -727,7 +734,11 @@ func (t *Terminal) PrintStatusInfo(ctx *api.SessionContext, usage api.TokenUsage
 	}
 
 	fmt.Println()
-	fmt.Printf("  %-20s #%d\n", "Active project:", ctx.ProjectID)
+	if ctx.LocalOnly {
+		fmt.Printf("  %-20s %s\n", "Active project:", "none (local workspace)")
+	} else {
+		fmt.Printf("  %-20s #%d\n", "Active project:", ctx.ProjectID)
+	}
 	fmt.Printf("  %-20s %s\n", "Model:", model)
 	fmt.Printf("  %-20s %d in / %d out\n", "Session tokens:", usage.InputTokens, usage.OutputTokens)
 	fmt.Printf("  %-20s $%.4f\n", "Est. cost:", usage.EstimatedCost(model))

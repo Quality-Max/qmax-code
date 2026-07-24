@@ -36,9 +36,10 @@ func main() {
 	saveSession := flag.Bool("save-session", false, "Save this session on exit (overrides auto-save setting)")
 	verbose := flag.Bool("verbose", false, "Show tool calls and raw responses")
 	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
-	quiet := flag.Bool("q", false, "Quiet mode — no banner, minimal output (for CI)")
+	quiet := flag.Bool("q", false, "Reserved for future quiet/CI mode")
 	showVersion := flag.Bool("version", false, "Show version")
 	backendFlag := flag.String("backend", "", "Orchestration backend: cc, codex, cerebras, opencode, or api (overrides saved config)")
+	localFlag := flag.Bool("local", false, "Standalone local-only mode: skip QualityMax login and expose only local workspace tools")
 	flag.Parse()
 	_ = quiet // reserved for future CI mode
 
@@ -178,6 +179,13 @@ func main() {
 
 	// Load persistent user config
 	appConfig := api.LoadQMaxCodeConfig()
+	localOnly := resolveLocalOnly(*localFlag, appConfig.LocalOnly, sysutil.EnvEnabled(api.LocalOnlyEnv))
+	if localOnly {
+		// CLI backends spawn qmax-code serve --mcp in a descendant process.
+		// The explicit hand-off preserves an ephemeral --local choice even when
+		// local_only is false in the persisted config.
+		_ = os.Setenv(api.LocalOnlyEnv, "1")
+	}
 	// --save-session is an explicit per-run opt-in. It must override a
 	// persisted auto_save=false setting without changing that setting on disk.
 	applySaveSessionFlag(appConfig, *saveSession)
@@ -229,26 +237,27 @@ func main() {
 		anthropicKey = appConfig.AnthropicKey
 	}
 
-	// Load auth (new standalone mode)
-	auth := api.LoadAuth()
-
-	// Load qmax config for cloud URL and auth token (legacy)
-	qmaxCfg := api.LoadQMaxConfig()
-	if *cloudURL != "" {
-		qmaxCfg.CloudURL = *cloudURL
-	}
-
-	// Discover qmax binary (optional in standalone mode)
-	qmaxBin := api.DiscoverQMaxBinary()
-
-	// Initialize API client if authenticated (standalone mode)
+	// QualityMax state is deliberately not loaded in standalone local-only
+	// mode. This prevents stale saved auth or a legacy qmax CLI from silently
+	// re-enabling cloud tools.
+	var auth *api.AuthConfig
+	var qmaxCfg api.QMaxConfig
+	var qmaxBin string
 	var apiClient *api.APIClient
-	if auth != nil && auth.IsAuthenticated() {
-		apiClient = api.NewAPIClient(auth)
+	if !localOnly {
+		auth = api.LoadAuth()
+		qmaxCfg = api.LoadQMaxConfig()
+		if *cloudURL != "" {
+			qmaxCfg.CloudURL = *cloudURL
+		}
+		qmaxBin = api.DiscoverQMaxBinary()
+		if auth != nil && auth.IsAuthenticated() {
+			apiClient = api.NewAPIClient(auth)
+		}
 	}
 
 	// If no qmax CLI and no API client, run full interactive setup
-	if qmaxBin == "" && apiClient == nil {
+	if shouldRunInteractiveSetup(localOnly, qmaxBin, apiClient != nil) {
 		setupAuth, setupProjectID, setupErr := setup.RunInteractive()
 		if setupErr != nil {
 			fmt.Fprintln(os.Stderr, "Setup failed:", setupErr)
@@ -288,7 +297,6 @@ func main() {
 			appConfig.OrchPermissionMode = consent.PermissionMode
 			appConfig.OrchGlobalInstall = consent.GlobalInstall
 			_ = appConfig.Save()
-			anthropicKey = "__cc_mode__" // skip Anthropic key gate below
 		}
 	} else if cliBackend == "codex" {
 		codexBin := agent.FindCodex()
@@ -307,10 +315,9 @@ func main() {
 			appConfig.OrchPermissionMode = consent.PermissionMode
 			appConfig.OrchGlobalInstall = consent.GlobalInstall
 			_ = appConfig.Save()
-			anthropicKey = "__codex_mode__" // skip Anthropic key gate below
 		}
 	} else if cliBackend == "cerebras" {
-		// Cerebras drives the native qmax agent loop (full tool set, native
+		// Cerebras drives the native qmax agent loop (mode-filtered tool set, native
 		// function calling) via its OpenAI-compatible API. No Anthropic key,
 		// no external CLI, no MCP subprocess — qmax owns the loop directly.
 		if appConfig.CerebrasKey == "" {
@@ -339,7 +346,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
 			exitWithReceipt(1)
 		}
-		anthropicKey = "__cerebras_mode__" // skip Anthropic key gate below
 	} else if cliBackend == "opencode" {
 		openCodeBin := agent.FindOpenCode()
 		if openCodeBin == "" {
@@ -356,12 +362,12 @@ func main() {
 		} else {
 			appConfig.OrchPermissionMode = consent.PermissionMode
 			_ = appConfig.Save()
-			anthropicKey = "__opencode_mode__" // skip Anthropic key gate below
 		}
 	}
 
 	// If connected but missing Anthropic key, prompt for it (skipped in CLI backend modes).
-	if cliBackend == "" && anthropicKey == "" {
+	ollamaConfigured := appConfig.OllamaURL != "" && appConfig.OllamaModel != ""
+	if cliBackend == "" && anthropicKey == "" && !(localOnly && ollamaConfigured) {
 		fmt.Println()
 		fmt.Println("  Anthropic API key needed (this powers the AI).")
 		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
@@ -376,28 +382,35 @@ func main() {
 		}
 	}
 
-	if cliBackend == "" && anthropicKey == "" {
+	if cliBackend == "" && anthropicKey == "" && !(localOnly && ollamaConfigured) {
 		fmt.Fprintln(os.Stderr, "\nError: Anthropic API key required.")
 		fmt.Fprintln(os.Stderr, "  export ANTHROPIC_API_KEY=sk-ant-...")
 		fmt.Fprintln(os.Stderr, "  Or use a CLI backend (no API key needed):")
 		fmt.Fprintln(os.Stderr, "    qmax-code config set backend cc      # Claude Code login / Agent SDK credit")
 		fmt.Fprintln(os.Stderr, "    qmax-code config set backend codex   # OpenAI/Codex subscription")
+		if localOnly {
+			fmt.Fprintln(os.Stderr, "    qmax-code config set ollama_url http://127.0.0.1:11434")
+			fmt.Fprintln(os.Stderr, "    qmax-code config set ollama_model <model>")
+		}
 		exitWithReceipt(1)
 	}
-
 	// Detect project from cwd if not set via flag; fall back to saved config
 	detectedProjectID := *projectID
 	var projectFile string
-	if detectedProjectID == 0 {
+	if !localOnly && detectedProjectID == 0 {
 		detectedProjectID, projectFile = api.DetectProjectFromCwd()
 	}
-	if detectedProjectID == 0 && appConfig.DefaultProject > 0 {
+	if !localOnly && detectedProjectID == 0 && appConfig.DefaultProject > 0 {
 		detectedProjectID = appConfig.DefaultProject
+	}
+	if localOnly {
+		detectedProjectID = 0
 	}
 
 	// Build session context
 	ctx := &api.SessionContext{
 		ProjectID:   detectedProjectID,
+		LocalOnly:   localOnly,
 		QMaxCfg:     qmaxCfg,
 		QMaxBin:     qmaxBin,
 		QMaxInfo:    api.ProbeQMaxStatus(qmaxBin),
@@ -406,7 +419,7 @@ func main() {
 		API:         apiClient,
 		Auth:        auth,
 		Backend:     appConfig.Backend,
-		LiveFeed:    appConfig.LiveFeed,
+		LiveFeed:    appConfig.LiveFeed && !localOnly,
 	}
 
 	// Build agent with smart model routing
@@ -517,8 +530,8 @@ func main() {
 			_, err := cliAgent.Run(prompt, term)
 			return err
 		}
-		if ag.Cerebras != nil {
-			// Cerebras runs the full native tool loop, streaming UI to a Terminal.
+		if shouldUseStreamingBuiltIn(ag) {
+			// Cerebras and Ollama run the native streaming tool loop.
 			// repl.Run owns the Logger in interactive mode; create one here so the
 			// one-shot tool loop (which logs each tool call) doesn't nil-panic.
 			if ag.Logger == nil {
@@ -573,7 +586,7 @@ func main() {
 		}
 		ag.History = sess.Messages
 		ag.Usage = sess.Usage
-		if sess.ProjectID > 0 {
+		if !ag.Cfg.Context.LocalOnly && sess.ProjectID > 0 {
 			ag.Cfg.Context.ProjectID = sess.ProjectID
 		}
 		fmt.Printf("Resumed session %s (%d turns)\n", sess.ID, sess.Turns)
@@ -603,6 +616,18 @@ func applySaveSessionFlag(cfg *api.Config, enabled bool) {
 	if enabled {
 		cfg.AutoSave = true
 	}
+}
+
+func resolveLocalOnly(flagEnabled, persisted, envEnabled bool) bool {
+	return flagEnabled || persisted || envEnabled
+}
+
+func shouldRunInteractiveSetup(localOnly bool, qmaxBin string, hasAPIClient bool) bool {
+	return !localOnly && qmaxBin == "" && !hasAPIClient
+}
+
+func shouldUseStreamingBuiltIn(ag *agent.Agent) bool {
+	return ag != nil && (ag.Cerebras != nil || (ag.Ollama != nil && ag.Mode != agent.OllamaModeOff))
 }
 
 // shouldSaveOneShotSession gates the one-shot session write: only persist

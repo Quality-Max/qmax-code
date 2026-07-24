@@ -17,7 +17,7 @@ func TestWriteOpenCodeConfigProducesProviderBlockAndMCP(t *testing.T) {
 	t.Setenv("QMAX_PC_ZAI_CODING_PLAN", "zai-secret")
 
 	cfg := &api.Config{EnabledProviders: []string{"zai-coding-plan", "groq"}}
-	path, err := WriteOpenCodeConfig(cfg, &api.SessionContext{ProjectID: 7}, "standard")
+	path, err := WriteOpenCodeConfig(cfg, &api.SessionContext{ProjectID: 7, LocalOnly: true}, "standard")
 	if err != nil {
 		t.Fatalf("WriteOpenCodeConfig: %v", err)
 	}
@@ -34,6 +34,14 @@ func TestWriteOpenCodeConfigProducesProviderBlockAndMCP(t *testing.T) {
 	mcp, ok := root["mcp"].(map[string]any)
 	if !ok || mcp["qmax"] == nil {
 		t.Fatalf("expected mcp.qmax entry, got %v", root["mcp"])
+	}
+	qmaxMCP, ok := mcp["qmax"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected mcp.qmax map, got %T", mcp["qmax"])
+	}
+	mcpEnv, ok := qmaxMCP["environment"].(map[string]any)
+	if !ok || mcpEnv[api.LocalOnlyEnv] != "1" {
+		t.Fatalf("standalone MCP environment missing %s=1: %v", api.LocalOnlyEnv, qmaxMCP["environment"])
 	}
 
 	// Custom provider (zai) gets a block; known provider (groq) does not.

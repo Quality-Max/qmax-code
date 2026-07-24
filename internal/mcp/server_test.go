@@ -73,6 +73,58 @@ func TestDispatchRecoversFromPanic(t *testing.T) {
 	}
 }
 
+func TestStandaloneToolsListContainsOnlyWorkspaceTools(t *testing.T) {
+	req := request{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/list",
+	}
+	resp := dispatch(req, &api.SessionContext{LocalOnly: true}, "test")
+	if resp.Error != nil {
+		t.Fatalf("tools/list error: %+v", resp.Error)
+	}
+
+	result, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("result type = %T, want map", resp.Result)
+	}
+	tools, ok := result["tools"].([]toolDef)
+	if !ok {
+		t.Fatalf("tools type = %T, want []toolDef", result["tools"])
+	}
+	want := map[string]bool{
+		"read_file":   true,
+		"run_command": true,
+		"edit_file":   true,
+		"write_file":  true,
+	}
+	if len(tools) != len(want) {
+		t.Fatalf("standalone MCP tools = %d, want %d: %+v", len(tools), len(want), tools)
+	}
+	for _, tool := range tools {
+		if !want[tool.Name] {
+			t.Errorf("standalone MCP exposed non-local tool %q", tool.Name)
+		}
+	}
+}
+
+func TestStandaloneToolsCallBlocksUndisclosedCloudTool(t *testing.T) {
+	req := request{
+		JSONRPC: "2.0",
+		ID:      2,
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"list_projects","arguments":{}}`),
+	}
+	resp := dispatch(req, &api.SessionContext{LocalOnly: true}, "test")
+	data, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	if !strings.Contains(string(data), "unavailable in standalone mode") {
+		t.Fatalf("cloud tool call was not blocked: %s", data)
+	}
+}
+
 // TestServeMCPOutputIsCleanJSON drives the serve loop through a standard
 // initialize → tools/list handshake and asserts every non-empty line on the
 // output writer is valid JSON-RPC. This is the output contract the rmcp

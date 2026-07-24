@@ -266,6 +266,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			term.PrintSystem("Conversation cleared.")
 			continue
 		case strings.HasPrefix(input, "/project "):
+			if ag.Cfg.Context.LocalOnly {
+				printStandaloneCloudUnavailable(term, "/project")
+				continue
+			}
 			id := strings.TrimPrefix(input, "/project ")
 			var pid int
 			if _, err := fmt.Sscanf(id, "%d", &pid); err == nil {
@@ -319,7 +323,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				ag.History = sess.Messages
 				ag.Usage = sess.Usage
 				sessionID = sess.ID
-				if sess.ProjectID > 0 {
+				if !ag.Cfg.Context.LocalOnly && sess.ProjectID > 0 {
 					ag.Cfg.Context.ProjectID = sess.ProjectID
 				}
 				term.SetSessionPrompt(sessionID)
@@ -356,7 +360,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				ag.History = sess.Messages
 				ag.Usage = sess.Usage
 				sessionID = sess.ID
-				if sess.ProjectID > 0 {
+				if !ag.Cfg.Context.LocalOnly && sess.ProjectID > 0 {
 					ag.Cfg.Context.ProjectID = sess.ProjectID
 				}
 				term.SetSessionPrompt(sessionID)
@@ -372,7 +376,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 			continue
 		case input == "/config":
-			printConfigInfo(ag.AppConfig, term)
+			printConfigInfo(ag.AppConfig, ag.Cfg.Context, term)
 			continue
 		case input == "/providers" || strings.HasPrefix(input, "/providers "):
 			handleProviders(input, ag, term)
@@ -542,6 +546,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				continue
 			}
 
+			if result.Backend == "" && !anthropicBackendAvailable(ag, term) {
+				continue
+			}
+
 			// ── Validate the chosen CLI is actually installed ─────────────────
 			switch result.Backend {
 			case "cc":
@@ -644,6 +652,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			continue
 
 		case input == "/cloudsync":
+			if ag.Cfg.Context.LocalOnly {
+				printStandaloneCloudUnavailable(term, "/cloudsync")
+				continue
+			}
 			cfg := ag.AppConfig
 			if cfg == nil {
 				term.PrintError("api.Config not loaded.")
@@ -691,6 +703,9 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			// If same backend requested, turn it off (toggle behaviour).
 			if cfg.Backend == wantBackend && wantBackend != "" {
 				wantBackend = ""
+			}
+			if wantBackend == "" && !anthropicBackendAvailable(ag, term) {
+				continue
 			}
 
 			// opencode pre-flight — validate BEFORE tearing down the active agent
@@ -819,6 +834,9 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			arg := strings.TrimSpace(strings.TrimPrefix(input, "/gemma"))
 
 			if strings.EqualFold(arg, "off") || strings.EqualFold(arg, "api") {
+				if !anthropicBackendAvailable(ag, term) {
+					continue
+				}
 				deactivateEmbeddedBackends(ag)
 				if cliAgent != nil {
 					cliAgent.Cleanup()
@@ -886,7 +904,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		case input == "/ollama":
 			// Cycle through modes: off → chat → full → off
 			cfg := ag.AppConfig
-			if cfg == nil || cfg.OllamaURL == "" {
+			if cfg == nil || cfg.OllamaURL == "" || cfg.OllamaModel == "" {
 				term.PrintError("Ollama not configured. Set it first:")
 				term.PrintSystem("  qmax-code config set ollama_url https://user:pass@llm.example.com")
 				term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
@@ -904,6 +922,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				cliAgent = nil
 			}
 			ag.Cerebras = nil
+			if ag.Cfg.AnthropicKey == "" {
+				ag.Mode = agent.OllamaModeFull
+				term.PrintSystem(fmt.Sprintf("Ollama remains in FULL mode (%s): no Anthropic fallback is configured.", ag.Ollama.AgentModel))
+				continue
+			}
 			switch ag.Mode {
 			case agent.OllamaModeOff:
 				ag.Mode = agent.OllamaModeChat
@@ -924,6 +947,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			handleKeys(ag, term)
 			continue
 		case input == "/browserfeed" || strings.HasPrefix(input, "/browserfeed "):
+			if ag.Cfg.Context.LocalOnly {
+				printStandaloneCloudUnavailable(term, "/browserfeed")
+				continue
+			}
 			arg := strings.TrimSpace(strings.TrimPrefix(input, "/browserfeed"))
 			mode := blockModeQuarter
 			if strings.HasPrefix(arg, "--half ") || arg == "--half" {
@@ -941,6 +968,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 			continue
 		case input == "/live" || strings.HasPrefix(input, "/live "):
+			if ag.Cfg.Context.LocalOnly {
+				printStandaloneCloudUnavailable(term, "/live")
+				continue
+			}
 			arg := strings.TrimSpace(strings.TrimPrefix(input, "/live"))
 			cfg := ag.AppConfig
 			if cfg == nil {
@@ -992,6 +1023,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 			continue
 		case input == "/feed":
+			if ag.Cfg.Context.LocalOnly {
+				printStandaloneCloudUnavailable(term, "/feed")
+				continue
+			}
 			url := ag.Cfg.Context.LastLiveURL
 			if url == "" {
 				term.PrintSystem("No live feed URL captured yet.")
@@ -1266,6 +1301,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 // handleConnect runs the browser-based auth flow from within the REPL.
 func handleConnect(ag *agent.Agent, term *tui.Terminal) {
 	ctx := ag.Cfg.Context
+	if ctx.LocalOnly {
+		printStandaloneCloudUnavailable(term, "/connect")
+		return
+	}
 
 	// Already connected?
 	if ctx.Auth != nil && ctx.Auth.IsAuthenticated() {
@@ -1420,52 +1459,64 @@ func handleKeys(ag *agent.Agent, term *tui.Terminal) {
 func printHelp() {
 	fmt.Println(`
 Commands:
-  /connect       Log in to QualityMax (opens browser)
-  /disconnect    Log out and clear saved credentials
-  /reconnect     Restore the active CC/Codex MCP transport
-  /status        Connection status + session info
-  /project <id>  Set the active project
-  /context       Show current session context
-  /cost          Show session token usage and estimated cost
-  /orch          Cycle orchestration backend: off → CC → Codex → off
-  /theme         Live-preview color scheme picker
-  /cloudsync     Toggle cloud session sync (enabled/disabled)
-   /cc            Switch to Claude Code backend (no QM API key; Agent SDK credit)
-   /codex         Switch to Codex CLI backend (OpenAI subscription, no API tokens)
-   /opencode      Switch to opencode backend (bring-your-own Z.AI / Groq / OpenRouter)
-   /providers     Enable/disable opencode providers per-user (/providers enable groq)
-   /api           Switch back to direct Anthropic API
-   /gemma [none|low|medium|high|off]
-                  Activate Gemma 4 31B on Cerebras (multimodal + reasoning)
-   /ollama        Toggle Ollama on/off (self-hosted LLM for chat)
-  /set output_verbose true|false
-                 Toggle compact vs detailed Codex/CC answers
-  /config        Show current config settings
-  /keys          Set API keys (interactive menu)
-  /screenshot    Capture a screenshot and analyze it
-  /paste         Paste from clipboard (image or text)
-  /set <k> <v>   Update config (model, project, professional, autosave, cloud_sync, budget, ollama)
-  /save          Save current session
-  /sessions      List recent sessions
-  /resume [id]   Resume a session (default: last)
-  /clear         Clear conversation history
-  /help          Show this help
-  /quit          Exit
+  /orch             Pick backend, model, and effort
+  /api              Switch to direct Anthropic API
+  /cc               Switch to Claude Code (Agent SDK credit)
+  /codex            Switch to Codex CLI
+  /opencode         Switch to OpenCode (opt-in providers)
+  /gemma [none|low|medium|high|off]
+                    Activate Gemma 4 on Cerebras, or return to API
+  /ollama           Toggle the configured Ollama backend
+  /providers        List opt-in OpenCode providers
+  /providers enable|disable <id>
+                    Manage Z.AI, Groq, or OpenRouter
+  /reconnect        Restore the active CC/Codex MCP transport
+  /skills           List 27 qmax QA skills + install status
+  /skills install   Refresh skills for CC, Codex, and OpenCode
 
-api.Config examples:
-  /set model sonnet         Change default model
-  /set project 42           Change default project
-  /set professional true    Disable cat personality
-  /set autosave false       Disable auto-save on exit
-  /set budget 100000        Set max token budget warning
-  /set cloud_sync true       Enable cloud session sync
-  /set cloud_sync false      Disable cloud session sync
-  /set ollama on            Enable self-hosted LLM for chat (saves API costs)
-  /set ollama off           Disable Ollama, use Claude for all calls
-  /set backend cc           Use Claude Code login (Agent SDK credit for --print)
-  /set backend codex        Use OpenAI Codex subscription (no API key needed)
-  /set backend api          Use Anthropic API directly (default)
-  /set theme ocean          Switch color theme (historic, ocean, neon, ember, aurora · paper, sky, sparkling, radiance, goldenhour)
+  /connect          Log in to QualityMax (opens browser)
+  /disconnect       Log out and clear saved credentials
+  /status           Connection, session, model, and usage info
+  /project <id>     Set the active QualityMax project
+  /context          Show current session context
+  /cost             Show token usage and estimated cost
+
+  /live [on|off]    Toggle live browser feed for tests/crawls
+  /feed             Open the most recent live browser feed
+  /browserfeed URL  Open a compatible sandbox noVNC feed
+  /screenshot       Capture and analyze a screenshot
+  /paste            Paste clipboard image or text
+
+  /sessions         Pick a saved session
+  /resume [id]      Resume a session (default: last)
+  /save             Save the current session
+  /queue            Show queued prompts
+  /queue <prompt>   Add a queued prompt
+  /queue clear      Clear queued prompts
+  /clear            Clear conversation history
+
+  /theme            Live-preview color scheme picker
+  /cloudsync        Toggle cloud session sync
+  /config           Show current configuration
+  /keys             Set API keys (interactive)
+  /set <key> <val>  Update a setting
+  /help             Show this help
+  /quit             Exit
+
+Configuration examples:
+  /set model sonnet
+  /set project 42
+  /set local_only true
+  /set professional true
+  /set autosave false
+  /set output_verbose true
+  /set budget 100000
+  /set cloud_sync true
+  /set live_feed true
+  /set backend codex
+  /set cerebras_model gemma
+  /set cerebras_reasoning_effort high
+  /set theme ocean
 
 Queue:
   /queue                    Show pending queue
@@ -1481,12 +1532,30 @@ Shortcuts:
 
 Models (--model flag):
   auto            Smart routing: haiku for chat, sonnet for tools (default)
-  sonnet          Claude Sonnet (all requests)
-  opus            Claude Opus (most capable, all requests)
+  sonnet          Claude Sonnet (all direct-API requests)
+  opus            Claude Opus (all direct-API requests)
   haiku           Claude Haiku (cheapest, all requests)
 
 Flags:
+  -p "prompt"     Run once and exit
+  --local         Standalone mode: no QualityMax login or cloud tools
+  --backend NAME  Override backend: api, cc, codex, cerebras, opencode
+  --resume ID     Resume a saved session (or "last")
+  --save-session  Force saving this run (built-in backends)
   --professional  Disable cat personality for this session
+  --verbose       Show tool calls and raw responses
+
+Other CLI commands:
+  qmax-code login [--api-key KEY]
+  qmax-code config [show|set|unset|reset]
+  qmax-code receipt [list|show|verify] [id|latest]
+  qmax-code cc connect
+  qmax-code codex connect
+
+Docs:
+  README.md
+  docs/ORCHESTRATION.md
+  docs/COMMANDS.md
 
 Examples:
   "test the login flow"
@@ -1516,13 +1585,19 @@ func reconnectMCPTransport(cliAgent agent.CLIAgent, term *tui.Terminal) {
 	}
 }
 
-func printConfigInfo(cfg *api.Config, term *tui.Terminal) {
+func printConfigInfo(cfg *api.Config, ctx *api.SessionContext, term *tui.Terminal) {
 	if cfg == nil {
 		term.PrintSystem("No config loaded (using defaults).")
 		return
 	}
 	fmt.Println()
 	fmt.Printf("  %s\n", "qmax-code api.Config (~/.qmax-code/config.json)")
+	activeMode := "connected"
+	if ctx != nil && ctx.LocalOnly {
+		activeMode = "standalone local-only"
+	}
+	fmt.Printf("  %-20s %s\n", "Active mode:", activeMode)
+	fmt.Printf("  %-20s %v\n", "Local-only default:", cfg.LocalOnly)
 	fmt.Printf("  %-20s %s\n", "Default model:", cfg.DefaultModel)
 	fmt.Printf("  %-20s %d\n", "Default project:", cfg.DefaultProject)
 	fmt.Printf("  %-20s %v\n", "Professional:", cfg.Professional)
@@ -1560,7 +1635,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 	parts := strings.Fields(input)
 	if len(parts) < 3 {
 		term.PrintError("Usage: /set <key> <value>")
-		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme")
+		term.PrintSystem("Keys: model, project, local_only, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme")
 		return
 	}
 	key := strings.ToLower(parts[1])
@@ -1572,6 +1647,19 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 	}
 
 	switch key {
+	case "local_only", "local-only", "local":
+		switch strings.ToLower(value) {
+		case "true", "1", "yes", "on":
+			cfg.LocalOnly = true
+			term.PrintSystem("Standalone local-only mode will be enabled after restart.")
+		case "false", "0", "no", "off":
+			cfg.LocalOnly = false
+			term.PrintSystem("Standalone local-only mode will be disabled after restart.")
+		default:
+			term.PrintError("Value must be true or false.")
+			return
+		}
+
 	case "model":
 		if !api.IsValidClaudeModelName(value) {
 			term.PrintError("Valid models: " + api.ValidClaudeModelsHelp())
@@ -1581,6 +1669,10 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 		term.PrintSystem(fmt.Sprintf("Default model set to: %s", cfg.DefaultModel))
 
 	case "project":
+		if ag.Cfg.Context.LocalOnly {
+			printStandaloneCloudUnavailable(term, "/set project")
+			return
+		}
 		var pid int
 		if _, err := fmt.Sscanf(value, "%d", &pid); err != nil || pid < 0 {
 			term.PrintError("Project ID must be a non-negative integer.")
@@ -1634,6 +1726,10 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 		}
 
 	case "cloud_sync", "cloudsync":
+		if ag.Cfg.Context.LocalOnly {
+			printStandaloneCloudUnavailable(term, "/set cloud_sync")
+			return
+		}
 		switch strings.ToLower(value) {
 		case "true", "1", "yes", "on":
 			v := true
@@ -1649,6 +1745,10 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 		}
 
 	case "live_feed", "live-feed", "livefeed":
+		if ag.Cfg.Context.LocalOnly {
+			printStandaloneCloudUnavailable(term, "/set live_feed")
+			return
+		}
 		switch strings.ToLower(value) {
 		case "true", "1", "yes", "on":
 			cfg.LiveFeed = true
@@ -1673,6 +1773,10 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 		term.PrintSystem(fmt.Sprintf("Token budget set to: %d", budget))
 
 	case "apikey":
+		if ag.Cfg.Context.LocalOnly {
+			printStandaloneCloudUnavailable(term, "/set apikey")
+			return
+		}
 		// Allow pasting API key directly: /set apikey qm-...
 		auth, err := api.LoginWithAPIKey(value)
 		if err != nil {
@@ -1701,6 +1805,10 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 			ag.Ollama = agent.NewOllamaClient(cfg)
 			term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", sysutil.MaskURL(cfg.OllamaURL), cfg.OllamaModel))
 		case "false", "0", "no", "off", "disabled":
+			if ag.Cfg.Context.LocalOnly && ag.Cfg.Context.Backend == "" && ag.Cfg.AnthropicKey == "" {
+				term.PrintError("Cannot disable Ollama: no Anthropic API key or CLI backend is active.")
+				return
+			}
 			ag.Ollama = nil
 			term.PrintSystem("Ollama disabled. Using Claude for all calls.")
 		default:
@@ -1794,7 +1902,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme")
+		term.PrintSystem("Keys: model, project, local_only, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme")
 		return
 	}
 
@@ -1806,18 +1914,28 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 	}
 }
 
+func printStandaloneCloudUnavailable(term *tui.Terminal, command string) {
+	term.PrintSystem(fmt.Sprintf("%s is unavailable in standalone local-only mode.", command))
+	term.PrintSystem("Restart without --local, or run `qmax-code config set local_only false` and restart, to enable QualityMax services.")
+}
+
 func printContext(ctx *api.SessionContext, term *tui.Terminal) {
-	term.PrintSystem(fmt.Sprintf("Project: #%d", ctx.ProjectID))
-	if ctx.ProjectFile != "" {
-		term.PrintSystem(fmt.Sprintf("Detected from: %s", ctx.ProjectFile))
+	if ctx.LocalOnly {
+		term.PrintSystem("Mode: standalone local-only (QualityMax services disabled)")
+	} else {
+		term.PrintSystem("Mode: connected")
+		term.PrintSystem(fmt.Sprintf("Project: #%d", ctx.ProjectID))
+		if ctx.ProjectFile != "" {
+			term.PrintSystem(fmt.Sprintf("Detected from: %s", ctx.ProjectFile))
+		}
+		if ctx.QMaxCfg.CloudURL != "" {
+			term.PrintSystem(fmt.Sprintf("Cloud: %s", ctx.QMaxCfg.CloudURL))
+		}
+		if ctx.QMaxBin != "" {
+			term.PrintSystem(fmt.Sprintf("qmax binary: %s", ctx.QMaxBin))
+		}
+		term.PrintSystem(fmt.Sprintf("Authenticated: %v", ctx.QMaxCfg.Token != ""))
 	}
-	if ctx.QMaxCfg.CloudURL != "" {
-		term.PrintSystem(fmt.Sprintf("Cloud: %s", ctx.QMaxCfg.CloudURL))
-	}
-	if ctx.QMaxBin != "" {
-		term.PrintSystem(fmt.Sprintf("qmax binary: %s", ctx.QMaxBin))
-	}
-	term.PrintSystem(fmt.Sprintf("Authenticated: %v", ctx.QMaxCfg.Token != ""))
 	if gi := ctx.GitInfo; gi != nil {
 		if gi.Branch != "" {
 			term.PrintSystem(fmt.Sprintf("Git branch: %s", gi.Branch))
@@ -1844,6 +1962,15 @@ func formatDuration(d time.Duration) string {
 func deactivateEmbeddedBackends(ag *agent.Agent) {
 	ag.Mode = agent.OllamaModeOff
 	ag.Cerebras = nil
+}
+
+func anthropicBackendAvailable(ag *agent.Agent, term *tui.Terminal) bool {
+	if ag != nil && ag.Cfg.AnthropicKey != "" {
+		return true
+	}
+	term.PrintError("Anthropic API is not configured.")
+	term.PrintSystem("Set an Anthropic key with /keys, or keep/select another inference backend.")
+	return false
 }
 
 // buildOpenCodeModelEntries resolves the picker rows for the opencode backend:

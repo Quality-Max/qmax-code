@@ -13,6 +13,12 @@ import (
 type Config struct {
 	DefaultModel   string `json:"default_model,omitempty"` // "auto", "sonnet", "opus", "haiku"
 	DefaultProject int    `json:"default_project,omitempty"`
+	// LocalOnly starts qmax-code without QualityMax authentication or cloud
+	// tools. Inference still uses the selected user-owned backend, while the
+	// tool catalog is limited to workspace file operations and allowlisted
+	// local commands. The --local flag enables the same behavior for one run
+	// without changing this persisted preference.
+	LocalOnly bool `json:"local_only,omitempty"`
 	// DefaultFramework is set by the first-run wizard based on filesystem
 	// detection (Cargo.toml → rust_cargo, go.mod → go_test, etc.). The agent
 	// reads this to default the `framework` param on generate_test_code so
@@ -29,11 +35,11 @@ type Config struct {
 	OllamaModel      string `json:"ollama_model,omitempty"`       // e.g. "gemma3:4b-it-q4_K_M" (chat)
 	OllamaAgentModel string `json:"ollama_agent_model,omitempty"` // e.g. "gemma3:12b-it-q4_K_M" (tools, heavier tasks)
 
-	// Cerebras integration — drive the native agent loop (full tool set) through
+	// Cerebras integration — drive the native agent loop through
 	// Cerebras's OpenAI-compatible inference, which is fast and low-cost. Selected
 	// via backend="cerebras". Unlike the Ollama path (prompt-based dispatch over a
-	// handful of actions), Cerebras uses native function-calling against the full
-	// qmax tool set, so it can handle all coding tasks directly.
+	// handful of actions), Cerebras uses native function-calling against the
+	// active connected or standalone qmax tool set.
 	// The API key is stored in the OS keychain, never in JSON.
 	CerebrasKey     string `json:"-"`
 	CerebrasModel   string `json:"cerebras_model,omitempty"`    // default "gpt-oss-120b"; "gemma-4-31b" for Gemma 4
@@ -115,6 +121,7 @@ type Config struct {
 
 const QmaxCodeConfigDir = ".qmax-code"
 const qmaxCodeConfigFile = "config.json"
+const LocalOnlyEnv = "QMAX_LOCAL_ONLY"
 
 // LoadQMaxCodeConfig reads persistent user preferences from ~/.qmax-code/config.json
 // and loads the Anthropic key from the OS keychain.

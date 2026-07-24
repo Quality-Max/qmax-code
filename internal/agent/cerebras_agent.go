@@ -11,9 +11,9 @@ import (
 )
 
 // RunCerebrasAgent runs a complete conversation turn through Cerebras using
-// native OpenAI function-calling against the full qmax tool set. It owns the
-// whole multi-round tool loop (call → execute tools → feed results → repeat)
-// and returns the final assistant text plus whether it succeeded.
+// native OpenAI function-calling against the active mode's qmax tool set. It
+// owns the whole multi-round tool loop (call → execute tools → feed results →
+// repeat) and returns the final assistant text plus whether it succeeded.
 //
 // On any hard failure it returns ok=false. There is no Claude fallback here:
 // when backend=cerebras the user has no Anthropic key, so we surface the error

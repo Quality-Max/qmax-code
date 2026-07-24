@@ -39,7 +39,7 @@ type SlashMenuItem struct {
 
 var slashMenuItems = []SlashMenuItem{
 	{"/help", "Show help"},
-	{"/orch", "Model + effort picker (CC / Codex / API)"},
+	{"/orch", "Backend + model + effort picker"},
 	{"/theme", "Live-preview color scheme picker"},
 	{"/cloudsync", "Toggle cloud session sync (enabled/disabled)"},
 	{"/live", "Toggle live browser feed for test runs / AI crawls (off by default)"},
