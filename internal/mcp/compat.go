@@ -147,9 +147,7 @@ func buildAuthenticatedToolList(cloudTools []toolDef) []toolDef {
 		out = append(out, tool)
 	}
 
-	for _, local := range buildToolList(true) {
-		out = append(out, local)
-	}
+	out = append(out, buildToolList(true)...)
 
 	goDefs := make(map[string]toolDef)
 	for _, tool := range buildToolList(false) {
