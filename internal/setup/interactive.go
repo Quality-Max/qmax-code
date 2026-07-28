@@ -2,10 +2,12 @@ package setup
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -49,16 +51,100 @@ type cliPollResponse struct {
 	UserID string `json:"user_id,omitempty"`
 }
 
+type apiTokenResponse struct {
+	Token string `json:"token"`
+}
+
+type httpDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
+const cliAPITokenLifetimeDays = 90
+
+func newBrowserLoginHTTPClient() *http.Client {
+	client := httpx.NewClient(10 * time.Second)
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return client
+}
+
+func mintCLIAPIToken(ctx context.Context, client httpDoer, cloudURL, accessToken string) (string, error) {
+	body, err := json.Marshal(map[string]any{
+		"name":         "qmax-code CLI",
+		"expires_days": cliAPITokenLifetimeDays,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode API token request: %w", err)
+	}
+
+	req, err := httpx.NewRequest(
+		ctx,
+		http.MethodPost,
+		strings.TrimRight(cloudURL, "/")+"/api/auth/api-token",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", fmt.Errorf("build API token request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("create API token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("create API token failed (HTTP %d)", resp.StatusCode)
+	}
+
+	var result apiTokenResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode API token response: %w", err)
+	}
+	if !strings.HasPrefix(result.Token, "qm-") || len(result.Token) == len("qm-") {
+		return "", fmt.Errorf("create API token returned an invalid token")
+	}
+	return result.Token, nil
+}
+
+func completeBrowserLogin(
+	ctx context.Context,
+	client httpDoer,
+	cloudURL string,
+	poll cliPollResponse,
+	saveAuth func(*api.AuthConfig) error,
+) (*api.AuthConfig, error) {
+	apiToken, err := mintCLIAPIToken(ctx, client, cloudURL, poll.Token)
+	if err != nil {
+		return nil, fmt.Errorf("browser authorized but API token setup failed: %w", err)
+	}
+	cfg := &api.AuthConfig{
+		APIKey:   apiToken,
+		Email:    poll.Email,
+		UserID:   poll.UserID,
+		CloudURL: cloudURL,
+	}
+	if err := saveAuth(cfg); err != nil {
+		return cfg, fmt.Errorf("logged in but failed to save: %w", err)
+	}
+	return cfg, nil
+}
+
 // LoginViaBrowser performs Railway-style browser login:
-// 1. POST /api/auth/cli-login → get code + auth URL
-// 2. Open browser to auth URL
-// 3. Poll /api/auth/cli-poll until authorized or expired
+//  1. POST /api/auth/cli-login → get code + auth URL
+//  2. Open browser to auth URL
+//  3. Poll /api/auth/cli-poll until authorized or expired
+//  4. Exchange the user access token for a registered API token that works
+//     with both the REST API and the cloud MCP endpoint
 func LoginViaBrowser() (*api.AuthConfig, error) {
 	cloudURL := os.Getenv("QUALITYMAX_URL")
 	if cloudURL == "" {
 		cloudURL = api.DefaultCloudURL
 	}
-	client := httpx.NewClient(10 * time.Second)
+	client := newBrowserLoginHTTPClient()
 
 	// Step 1: Get a CLI auth code
 	req, err := httpx.NewRequest(context.Background(), "POST", cloudURL+"/api/auth/cli-login", nil)
@@ -120,16 +206,7 @@ func LoginViaBrowser() (*api.AuthConfig, error) {
 
 		switch poll.Status {
 		case "authorized":
-			cfg := &api.AuthConfig{
-				APIKey:   poll.Token,
-				Email:    poll.Email,
-				UserID:   poll.UserID,
-				CloudURL: cloudURL,
-			}
-			if err := api.SaveAuth(cfg); err != nil {
-				return cfg, fmt.Errorf("logged in but failed to save: %w", err)
-			}
-			return cfg, nil
+			return completeBrowserLogin(context.Background(), client, cloudURL, poll, api.SaveAuth)
 
 		case "expired":
 			return nil, fmt.Errorf("auth code expired — please try again")
