@@ -247,6 +247,13 @@ var localOnlyToolNames = map[string]bool{
 	"write_file":  true,
 }
 
+// IsLocalTool reports whether name is implemented entirely inside qmax-code
+// and therefore must never be forwarded to QualityMax cloud. MCP uses this as
+// an execution boundary, not merely a discovery filter.
+func IsLocalTool(name string) bool {
+	return localOnlyToolNames[name]
+}
+
 // BuildToolDefs returns the connected-mode public tool definitions exposed to
 // the LLM agent. Experimental tools are filtered out unless
 // QMAX_EXPERIMENTAL=1 is set.
