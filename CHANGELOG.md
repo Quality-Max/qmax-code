@@ -4,6 +4,25 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.22.1] - 2026-08-03
+
+### Fixed
+- `serve --mcp` now routes authenticated QualityMax tool calls through the
+  cloud MCP endpoint instead of calling the REST API directly. Calls made via
+  the local MCP server were previously invisible to the platform — they never
+  set trace context, so they produced no session history — and they returned
+  UI-shaped REST payloads carrying every script's full source, which no
+  server-side response budget could reach. Local tools, standalone mode, and
+  REST lifecycle traffic are unchanged (#158).
+- Browser login now mints an MCP-compatible token, so the cloud routing above
+  is actually usable straight after `qmax-code` sign-in rather than silently
+  falling back (#159).
+
+### Note
+- These fixes merged on 2026-07-28 but were never released: the v1.22.0 tag
+  points at the commit immediately before them, so no published build has
+  contained them until now.
+
 ## [1.22.0] - 2026-07-24
 
 ### Added
