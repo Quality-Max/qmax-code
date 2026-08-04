@@ -56,14 +56,21 @@ func PlanWindowFromConfig(cfg *Config) *PlanWindow {
 }
 
 // Record folds one completed turn into the window. If no window is open, or the
-// open one has elapsed, a fresh window starts at now. Token counts may be zero
-// for backends that do not report usage — the time window is still tracked, so
-// "when it resets" stays accurate even when "how full" is unknown.
+// open one has reached its reset time, a fresh window starts at now. Token
+// counts may be zero for backends that do not report usage — the time window is
+// still tracked, so "when it resets" stays accurate even when "how full" is
+// unknown.
+//
+// Rollover uses the window's effective reset time rather than WindowLen alone.
+// When a provider reported an authoritative reset — a 429 carrying Retry-After,
+// say — that time wins over the local estimate, so a turn the provider accepts
+// after it opens a fresh window instead of landing in the exhausted one and
+// leaving the UI showing a limit that no longer applies.
 func (w *PlanWindow) Record(now time.Time, inputToks, outputToks int) {
 	if w == nil {
 		return
 	}
-	if w.StartedAt.IsZero() || now.Sub(w.StartedAt) >= w.WindowLen {
+	if w.StartedAt.IsZero() || !now.Before(w.ResetAt()) {
 		w.reset(now)
 	}
 	w.Turns++

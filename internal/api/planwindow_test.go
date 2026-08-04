@@ -124,3 +124,52 @@ func TestPlanWindowFromConfigDefault(t *testing.T) {
 		t.Errorf("configured window = %v, want 3h", got)
 	}
 }
+
+func TestRecordRollsOverAtProviderReportedReset(t *testing.T) {
+	// The failure this guards: the provider says the quota frees at 13:30, but
+	// Record only rolled over after the full 5-hour WindowLen, so the first
+	// accepted turn after 13:30 landed in the exhausted window and the UI kept
+	// showing a limit that no longer applied.
+	start := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	reset := start.Add(90 * time.Minute)
+
+	w := NewPlanWindow(5 * time.Hour)
+	w.Record(start, 100, 20)
+	w.MarkExhausted(start.Add(time.Minute), reset)
+
+	// Before the provider's reset, the window stays exhausted.
+	w.Record(reset.Add(-time.Minute), 10, 5)
+	if !w.Exhausted {
+		t.Fatal("a turn before the reported reset must not clear the exhausted window")
+	}
+
+	// At or after it, a new window opens.
+	w.Record(reset, 30, 7)
+	if w.Exhausted {
+		t.Fatal("a turn at the reported reset must open a fresh window")
+	}
+	if !w.StartedAt.Equal(reset) {
+		t.Fatalf("StartedAt = %v, want %v", w.StartedAt, reset)
+	}
+	if w.Turns != 1 || w.InputToks != 30 || w.OutputToks != 7 {
+		t.Fatalf("fresh window carried old totals: turns=%d in=%d out=%d", w.Turns, w.InputToks, w.OutputToks)
+	}
+	if !w.ExhaustedReset.IsZero() {
+		t.Fatalf("ExhaustedReset must clear on rollover, got %v", w.ExhaustedReset)
+	}
+}
+
+func TestRecordStillRollsOverOnWindowLengthWithoutAProviderReset(t *testing.T) {
+	start := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	w := NewPlanWindow(5 * time.Hour)
+	w.Record(start, 10, 10)
+
+	w.Record(start.Add(4*time.Hour), 5, 5)
+	if w.Turns != 2 {
+		t.Fatalf("a turn inside the window must accumulate, got Turns = %d", w.Turns)
+	}
+	w.Record(start.Add(5*time.Hour), 1, 1)
+	if w.Turns != 1 || !w.StartedAt.Equal(start.Add(5*time.Hour)) {
+		t.Fatalf("window must roll over at WindowLen: turns=%d startedAt=%v", w.Turns, w.StartedAt)
+	}
+}

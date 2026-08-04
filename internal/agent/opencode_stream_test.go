@@ -99,3 +99,64 @@ func TestOpenCodeParseUsageTokens(t *testing.T) {
 		})
 	}
 }
+
+// ocMultiStepStream models a turn that calls a tool: opencode emits usage on
+// each step-finish, so the turn's real cost is the sum across steps. Keeping
+// only the last step — as the parser previously did by overwriting — reports
+// 30/6 for a turn that actually cost 150/45.
+const ocMultiStepStream = `{"type":"step_start","timestamp":1784907423206,"sessionID":"ses_multi","part":{"id":"prt_s1","type":"step-start"}}
+{"type":"tool","timestamp":1784907423500,"sessionID":"ses_multi","part":{"id":"prt_t1","type":"tool","tool":"read"}}
+{"type":"step_finish","timestamp":1784907423900,"sessionID":"ses_multi","part":{"id":"prt_s1","type":"step-finish"},"tokens":{"input":120,"output":39}}
+{"type":"text","timestamp":1784907424583,"sessionID":"ses_multi","part":{"id":"prt_b","type":"text","text":"done"}}
+{"type":"step_finish","timestamp":1784907424900,"sessionID":"ses_multi","part":{"id":"prt_s2","type":"step-finish"},"tokens":{"input":30,"output":6}}`
+
+func TestOpenCodeAccumulatesUsageAcrossSteps(t *testing.T) {
+	a := &OpenCodeAgent{}
+	result := a.parseStream(strings.NewReader(ocMultiStepStream), &tui.Terminal{})
+
+	if result != "done" {
+		t.Errorf("result = %q, want %q", result, "done")
+	}
+	in, out, ok := a.LastTurnStats()
+	if !ok {
+		t.Fatal("a stream carrying usage must report stats")
+	}
+	if in != 150 || out != 45 {
+		t.Fatalf("LastTurnStats = %d/%d, want 150/45 summed across both steps", in, out)
+	}
+}
+
+// ocRepeatedStepStream re-emits one step-finish, which opencode does for
+// snapshot-style events. The same step must not be counted twice.
+const ocRepeatedStepStream = `{"type":"step_finish","timestamp":1784907423900,"sessionID":"ses_rep","part":{"id":"prt_s1","type":"step-finish"},"tokens":{"input":100,"output":20}}
+{"type":"step_finish","timestamp":1784907423900,"sessionID":"ses_rep","part":{"id":"prt_s1","type":"step-finish"},"tokens":{"input":100,"output":20}}`
+
+func TestOpenCodeDoesNotDoubleCountARepeatedStep(t *testing.T) {
+	a := &OpenCodeAgent{}
+	a.parseStream(strings.NewReader(ocRepeatedStepStream), &tui.Terminal{})
+
+	in, out, ok := a.LastTurnStats()
+	if !ok {
+		t.Fatal("expected usage to be reported")
+	}
+	if in != 100 || out != 20 {
+		t.Fatalf("LastTurnStats = %d/%d, want 100/20 counted once", in, out)
+	}
+}
+
+// ocDualShapeStream carries the same usage in two locations, which different
+// opencode/provider versions do. They are one payload, not two counts.
+const ocDualShapeStream = `{"type":"step_finish","timestamp":1784907423900,"sessionID":"ses_dual","part":{"id":"prt_s1","type":"step-finish","tokens":{"input":80,"output":10}},"tokens":{"input":80,"output":10}}`
+
+func TestOpenCodeCountsOneCanonicalPayloadPerEvent(t *testing.T) {
+	a := &OpenCodeAgent{}
+	a.parseStream(strings.NewReader(ocDualShapeStream), &tui.Terminal{})
+
+	in, out, ok := a.LastTurnStats()
+	if !ok {
+		t.Fatal("expected usage to be reported")
+	}
+	if in != 80 || out != 10 {
+		t.Fatalf("LastTurnStats = %d/%d, want 80/10 — the shapes are one payload", in, out)
+	}
+}

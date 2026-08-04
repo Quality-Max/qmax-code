@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -275,6 +276,32 @@ type ocTokens struct {
 	Completion int `json:"completion"`
 }
 
+// tokens returns the one canonical usage payload carried by an event. The four
+// locations are the same numbers reported by different opencode/provider
+// versions, so the first populated shape wins rather than being summed.
+func (e *ocEvent) tokens() (in, out int, ok bool) {
+	for _, tk := range []*ocTokens{e.Tokens, e.Usage, e.Part.Tokens, e.Part.Usage} {
+		if i, o := tk.in(), tk.out(); i > 0 || o > 0 {
+			return i, o, true
+		}
+	}
+	return 0, 0, false
+}
+
+// usageKey identifies the step an event's usage belongs to, so a re-emitted
+// step is not counted twice. An empty result means the event carries nothing
+// stable to key on and must be counted as its own step — undercounting a
+// multi-step turn is the failure this accumulation exists to prevent.
+func (e *ocEvent) usageKey() string {
+	if e.Part.ID != "" {
+		return "part:" + e.Part.ID
+	}
+	if e.Timestamp != 0 {
+		return "ts:" + e.Type + ":" + strconv.FormatInt(e.Timestamp, 10)
+	}
+	return ""
+}
+
 func (t *ocTokens) in() int {
 	if t == nil {
 		return 0
@@ -321,6 +348,7 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 	textByPart := map[string]string{} // part id → latest full text
 	var order []string                // text part ids in first-seen order
 	seenTool := map[string]bool{}     // tool part ids already announced
+	countedUsage := map[string]bool{} // usage keys already folded into the turn total
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -344,11 +372,23 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 			a.handleOCError(ev.Error, term)
 		}
 
-		// Capture token usage from whichever shape/location carried it.
-		for _, tk := range []*ocTokens{ev.Tokens, ev.Usage, ev.Part.Tokens, ev.Part.Usage} {
-			if in, out := tk.in(), tk.out(); in > 0 || out > 0 {
+		// Accumulate token usage across the turn. opencode reports usage once
+		// per step (step-finish), so a turn that calls tools carries several
+		// token-bearing events; overwriting would keep only the final step and
+		// undercount every multi-step turn. The four shapes below are the same
+		// usage in different places rather than separate counts, so exactly one
+		// canonical payload is taken per event, and any step already counted is
+		// skipped in case opencode re-emits it.
+		if in, out, ok := ev.tokens(); ok {
+			key := ev.usageKey()
+			if key == "" || !countedUsage[key] {
+				if key != "" {
+					countedUsage[key] = true
+				}
 				a.mu.Lock()
-				a.lastTurnIn, a.lastTurnOut, a.lastTurnOK = in, out, true
+				a.lastTurnIn += in
+				a.lastTurnOut += out
+				a.lastTurnOK = true
 				a.mu.Unlock()
 			}
 		}

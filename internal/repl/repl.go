@@ -167,11 +167,22 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 	var lastTurnDur time.Duration
 	var lastContextTokens int
 
-	// Coding-plan usage window — tracks the subscription plan's rolling 5-hour
-	// limit for the cc/codex/opencode backends so the status bar and /plan can
-	// show how much is spent and when it resets. Non-plan backends never open a
-	// window, so it stays inert for them.
-	planWindow := api.PlanWindowFromConfig(ag.AppConfig)
+	// Coding-plan usage windows — one tracker per subscription quota, so the
+	// status bar and /plan can show how much of the rolling 5-hour limit is
+	// spent and when it resets. /cc, /codex, and /opencode switch between
+	// independent plans mid-session, so a single shared tracker would combine
+	// turns and exhaustion state belonging to different subscriptions.
+	// Non-plan backends never record, so their trackers stay inert.
+	planWindows := map[string]*api.PlanWindow{}
+	planWindowFor := func(backend string) *api.PlanWindow {
+		key := planWindowKey(backend, ag.AppConfig)
+		w, ok := planWindows[key]
+		if !ok {
+			w = api.PlanWindowFromConfig(ag.AppConfig)
+			planWindows[key] = w
+		}
+		return w
+	}
 
 	inputStatus := func() *tui.StatusInfo {
 		backend := "api"
@@ -189,6 +200,8 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				permissionMode = ag.AppConfig.OrchPermissionMode
 			}
 		}
+		// Report the window belonging to the backend that is actually active.
+		planWindow := planWindowFor(backend)
 		return &tui.StatusInfo{
 			Backend:        backend,
 			Model:          model,
@@ -306,16 +319,16 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			reconnectMCPTransport(cliAgent, term)
 			continue
 		case input == "/status":
-			term.PrintStatusInfo(ag.Cfg.Context, ag.Usage, ag.Cfg.Model, planWindow)
+			term.PrintStatusInfo(ag.Cfg.Context, ag.Usage, ag.Cfg.Model, planWindowFor(currentBackend(ag)))
 			continue
 		case input == "/cost":
-			term.PrintCostSummary(ag.Usage, ag.Cfg.Model, planWindow)
+			term.PrintCostSummary(ag.Usage, ag.Cfg.Model, planWindowFor(currentBackend(ag)))
 			continue
 		case input == "/plan":
-			if !planWindow.Started() {
+			if w := planWindowFor(currentBackend(ag)); !w.Started() {
 				term.PrintSystem("No coding-plan window yet — run a turn on a cc/codex/opencode backend first.")
 			} else {
-				term.PrintPlanWindow(planWindow)
+				term.PrintPlanWindow(w)
 			}
 			continue
 		case input == "/resume" || strings.HasPrefix(input, "/resume "):
@@ -1206,8 +1219,9 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.StartThinking()
 				llmResult, err = cliAgent.Run(cleanInput, term)
 				term.StopThinking()
+
+				turnIn, turnOut := 0, 0
 				if err == nil {
-					turnIn, turnOut := 0, 0
 					if stats, ok := cliAgent.(agent.TurnStatsProvider); ok {
 						if inputTokens, outputTokens, reported := stats.LastTurnStats(); reported {
 							ag.Usage.InputTokens += inputTokens
@@ -1218,18 +1232,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 							turnIn, turnOut = inputTokens, outputTokens
 						}
 					}
-					// Advance the coding-plan usage window for subscription
-					// backends — even when the harness reported no token usage,
-					// the rolling 5-hour clock still ticks on each turn.
-					if isPlanBackend(currentBackend(ag)) {
-						now := time.Now()
-						planWindow.Record(now, turnIn, turnOut)
-						if lim, ok := cliAgent.(agent.PlanLimitReporter); ok {
-							if reset, hit := lim.LastPlanLimit(); hit {
-								planWindow.MarkExhausted(now, reset)
-							}
-						}
-					}
+				}
+
+				if isPlanBackend(currentBackend(ag)) {
+					recordPlanTurn(planWindowFor(currentBackend(ag)), time.Now(), err, turnIn, turnOut, cliAgent)
+				}
+
+				if err == nil {
 					// Mirror the turn into ag.History so autoSave records it.
 					ag.History = append(ag.History,
 						api.Message{Role: "user", Content: cleanInput},
@@ -1498,6 +1507,41 @@ func isPlanBackend(backend string) bool {
 	default:
 		return false
 	}
+}
+
+// recordPlanTurn folds one CLI-backend turn into its plan usage window.
+//
+// It runs whether or not the turn returned an error. A successful turn advances
+// the window: even when the harness reported no token usage, the rolling clock
+// still ticks. A limit hit is consumed either way, because a refusal that
+// produces no assistant output makes the subprocess exit non-zero — reading the
+// reporter only on success would set the agent's limit flag and never mark the
+// window exhausted, which is the state the whole feature exists to show.
+func recordPlanTurn(w *api.PlanWindow, now time.Time, runErr error, turnIn, turnOut int, cliAgent any) {
+	if w == nil {
+		return
+	}
+	if runErr == nil {
+		w.Record(now, turnIn, turnOut)
+	}
+	if lim, ok := cliAgent.(agent.PlanLimitReporter); ok {
+		if reset, hit := lim.LastPlanLimit(); hit {
+			w.MarkExhausted(now, reset)
+		}
+	}
+}
+
+// planWindowKey identifies the subscription quota a backend draws on, so each
+// plan gets its own usage window. OpenCode fronts several providers whose plans
+// are metered separately, so its key carries the provider segment of the
+// configured provider/model override.
+func planWindowKey(backend string, cfg *api.Config) string {
+	if backend == "opencode" && cfg != nil && cfg.ModelOverride != "" {
+		if provider, _, found := strings.Cut(cfg.ModelOverride, "/"); found && provider != "" {
+			return "opencode/" + provider
+		}
+	}
+	return backend
 }
 
 // currentBackend returns the active backend id ("" for the direct API path).
