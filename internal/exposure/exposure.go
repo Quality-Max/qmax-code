@@ -25,14 +25,14 @@ import (
 // the prompt (CatLLMPrompt), and the model's answer comes back as that entry's
 // response bytes. CatLLMCompletion is reserved for any future response-side
 // accounting (and keeps the taxonomy symmetric with how humans describe LLM
-// traffic); Classify does not emit it today. CatMCPTraffic is reserved for
-// outbound MCP-over-HTTP egress — qmax-code's MCP server is stdio-only today,
-// so no request is classified as MCP yet, but the constant documents the slot.
+// traffic); Classify does not emit it today. Outbound MCP-over-HTTP clients
+// explicitly apply CatMCPTraffic because the URL alone does not identify the
+// protocol reliably.
 const (
 	CatLLMPrompt     = "llm-prompt"     // outbound inference request carrying a prompt
 	CatLLMCompletion = "llm-completion" // reserved: response-side LLM accounting
 	CatCloudAPI      = "cloud-api"      // QualityMax cloud REST API (projects, scripts, integrations)
-	CatMCPTraffic    = "mcp-traffic"    // reserved: outbound MCP-over-HTTP egress
+	CatMCPTraffic    = "mcp-traffic"    // outbound MCP-over-HTTP egress
 	CatTelemetry     = "telemetry"      // opt-in error-reporting envelope
 	CatVNCControl    = "vnc-control"    // noVNC WebSocket handshake/control channel
 	CatControl       = "control"        // metadata only: auth check, login poll, health/reachability probes

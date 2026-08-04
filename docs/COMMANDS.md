@@ -1,6 +1,6 @@
 # Command reference
 
-This reference describes the qmax-code v1.21 command-line and interactive
+This reference describes the qmax-code v1.22 command-line and interactive
 surfaces. Run `qmax-code --help` for the flags compiled into your installed
 version and `/help` for its REPL commands.
 

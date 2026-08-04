@@ -15,9 +15,10 @@
 
 # qmax-code
 
+[![Latest release](https://img.shields.io/github/v/release/Quality-Max/qmax-code?label=release&color=217a45)](https://github.com/Quality-Max/qmax-code/releases/latest)
 [![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-2ea44f.svg)](LICENSE)
 [![Future License: Apache 2.0](https://img.shields.io/badge/future%20license-Apache%202.0-blue.svg)](LICENSE)
-[![Made with Go](https://img.shields.io/badge/made%20with-Go-00ADD8.svg)](https://go.dev/)
+[![Made with Go](https://img.shields.io/badge/made%20with-Go%201.24+-00ADD8.svg)](https://go.dev/)
 [![Announcement](https://img.shields.io/badge/announcement-2026--05--01-7c6cf0.svg)](https://qualitymax.io/blog/qmax-code-open-source)
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/qualitymax)
@@ -34,6 +35,16 @@ Use the built-in agent with Anthropic, Cerebras, or Ollama, or use
 **orchestration mode** to run Claude Code, Codex, or OpenCode with the same qmax
 QA tools through MCP.
 
+![Five open QualityMax tools and where qmax-code sits among them](docs/img/family.svg)
+
+qmax-code is the terminal agent that drives a QA session. It sits alongside
+[free-qa-skills](https://github.com/Quality-Max/free-qa-skills) (read-only
+audits inside a coding agent), [qmax-mcp](https://github.com/Quality-Max/qmax-mcp)
+(scan a page, generate a repro, run it locally),
+[9lives](https://github.com/Quality-Max/9lives) (heal broken selectors), and
+[qmax-local-agent](https://github.com/Quality-Max/qmax-local-agent) (let the
+cloud reach a private network). Only hosted QualityMax needs an account.
+
 > **License:** Source-available under the
 > [Functional Source License (FSL-1.1-ALv2)](LICENSE), created by
 > [Sentry](https://fsl.software). It is free for non-competing use, including
@@ -41,6 +52,8 @@ QA tools through MCP.
 > professional services. Each release converts to Apache 2.0 after two years.
 
 ## What qmax-code can do
+
+![Plan, generate, execute, review, and ship, over a local repository lane](docs/img/lifecycle.svg)
 
 - **Plan and manage QA work:** list and manage projects and test cases, enhance
   cases, find coverage gaps, and import requirements or repositories.
@@ -64,11 +77,24 @@ Some advanced surfaces—k6, QTML, framework export/trigger operations, and
 background-job health—remain experimental and are only exposed when
 `QMAX_EXPERIMENTAL=1`.
 
-## What is new in v1.21
+## What is new
 
-- **Standalone local-only mode:** start with `--local` (or persist
+### v1.22
+
+- **Cloud-routed MCP tool calls (v1.22.1):** `serve --mcp` now routes
+  authenticated QualityMax tool calls through the cloud MCP endpoint instead of
+  calling the REST API directly. Calls made through the local MCP server were
+  previously invisible to the platform — they set no trace context, so they
+  produced no session history — and they returned UI-shaped REST payloads
+  carrying every script's full source. Browser login now mints an
+  MCP-compatible token, so the routing works immediately after sign-in.
+- **Standalone local-only mode (v1.22.0):** start with `--local` (or persist
   `local_only=true`) to skip QualityMax onboarding and expose only workspace
-  file, command, and planning tools.
+  file, command, and planning tools. MCP children inherit the mode, and
+  execution-time checks reject direct calls to hidden QualityMax tools.
+
+### v1.21
+
 - **Exposure Receipts:** every session that makes an outbound LLM or QualityMax
   API request writes a signed local egress manifest that can be inspected and
   verified offline.
@@ -188,20 +214,7 @@ a separate model and it does not create several agents. It selects which
 inference engine handles the conversation while keeping qmax-code as the host
 for terminal UX, QualityMax context, and tools.
 
-```text
-you
- │
- ▼
-qmax-code REPL ── /orch chooses one backend
- │
- ├─ built-in loop: Anthropic API / Cerebras / Ollama
- │
- └─ CLI agent: Claude Code / Codex / OpenCode
-                    │
-                    └─ embedded qmax MCP server
-                         ├─ connected: QualityMax + local QA tools
-                         └─ --local: workspace tools only
-```
+![The /orch picker selects one backend; mode decides which tools exist](docs/img/orchestration.svg)
 
 For CLI backends, qmax-code launches the selected agent as a subprocess and
 serves qmax tools through its embedded MCP server. On first activation you

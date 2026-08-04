@@ -23,6 +23,41 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   Provider errors carrying an HTTP status code (auth, quota, 5xx) are shown;
   benign status-code-less events that opencode 1.0.x emits even on successful
   turns are suppressed unless output is verbose, so they don't become noise.
+- A coding-plan limit is now recorded even when the turn returns an error. A
+  refusal that produces no assistant output exits non-zero, so reading the
+  limit reporter only on success left the window un-exhausted — the exact
+  state the feature exists to show.
+- The usage window now rolls over at its effective reset time. When a provider
+  reports an authoritative reset earlier than the local window length, the
+  first accepted turn after it opens a fresh window instead of landing in the
+  exhausted one and showing a limit that no longer applies.
+- Usage windows are tracked per subscription quota. `/cc`, `/codex`, and
+  `/opencode` switch between independent plans mid-session, so a single shared
+  tracker combined turns and exhaustion state across separate subscriptions.
+  OpenCode is keyed per provider, since its providers meter separately.
+- OpenCode no longer undercounts multi-step turns. Usage was overwritten on
+  every token-bearing event, keeping only the final step, while opencode emits
+  usage on each `step-finish` — so a turn that called tools lost every earlier
+  step. Usage now accumulates across steps.
+
+## [1.22.1] - 2026-08-03
+
+### Fixed
+- `serve --mcp` now routes authenticated QualityMax tool calls through the
+  cloud MCP endpoint instead of calling the REST API directly. Calls made via
+  the local MCP server were previously invisible to the platform — they never
+  set trace context, so they produced no session history — and they returned
+  UI-shaped REST payloads carrying every script's full source, which no
+  server-side response budget could reach. Local tools, standalone mode, and
+  REST lifecycle traffic are unchanged (#158).
+- Browser login now mints an MCP-compatible token, so the cloud routing above
+  is actually usable straight after `qmax-code` sign-in rather than silently
+  falling back (#159).
+
+### Note
+- These fixes merged on 2026-07-28 but were never released: the v1.22.0 tag
+  points at the commit immediately before them, so no published build has
+  contained them until now.
 
 ## [1.22.0] - 2026-07-24
 
