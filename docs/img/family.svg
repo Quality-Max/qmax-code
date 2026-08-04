@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="390" viewBox="0 0 1000 390" role="img" aria-labelledby="title desc">
+  <title id="title">Where qmax-code sits among the QualityMax tools</title>
+  <desc id="desc">free-qa-skills audits, qmax-mcp proves one change, 9lives repairs broken tests, qmax-code orchestrates the session from a terminal, qmax-local-agent gives the cloud reach into a private network, and hosted QualityMax manages the QA program. Only the hosted service requires an account.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #14213d; }
+    .card { fill: #f7faff; stroke: #3159a7; stroke-width: 2; rx: 14; }
+    .self { fill: #eaf7ef; stroke: #217a45; stroke-width: 3.5; rx: 14; }
+    .cloud { fill: #fff6e5; stroke: #a76400; stroke-width: 2; stroke-dasharray: 8 6; rx: 14; }
+    .title { font-size: 20px; font-weight: 700; }
+    .name { font-size: 16px; font-weight: 700; }
+    .verb { font-size: 12.5px; font-weight: 700; letter-spacing: .06em; fill: #3159a7; }
+    .verbself { font-size: 12.5px; font-weight: 700; letter-spacing: .06em; fill: #217a45; }
+    .verbcloud { font-size: 12.5px; font-weight: 700; letter-spacing: .06em; fill: #a76400; }
+    .small { font-size: 13.5px; }
+    .muted { font-size: 13.5px; fill: #52596b; }
+    .you { font-size: 13px; font-weight: 700; fill: #217a45; }
+  </style>
+
+  <text x="500" y="30" text-anchor="middle" class="title">Five open tools, one QA program</text>
+
+  <rect x="24" y="52" width="304" height="112" class="card"/>
+  <text x="176" y="78" text-anchor="middle" class="verb">AUDIT</text>
+  <text x="176" y="103" text-anchor="middle" class="name">free-qa-skills</text>
+  <text x="176" y="128" text-anchor="middle" class="small">27 read-only QA skills, run</text>
+  <text x="176" y="148" text-anchor="middle" class="small">inside a coding agent</text>
+
+  <rect x="348" y="52" width="304" height="112" class="card"/>
+  <text x="500" y="78" text-anchor="middle" class="verb">PROVE</text>
+  <text x="500" y="103" text-anchor="middle" class="name">qmax-mcp</text>
+  <text x="500" y="128" text-anchor="middle" class="small">scan a page, generate a repro,</text>
+  <text x="500" y="148" text-anchor="middle" class="small">run it locally. No account.</text>
+
+  <rect x="672" y="52" width="304" height="112" class="card"/>
+  <text x="824" y="78" text-anchor="middle" class="verb">REPAIR</text>
+  <text x="824" y="103" text-anchor="middle" class="name">9lives</text>
+  <text x="824" y="128" text-anchor="middle" class="small">heal broken selectors and</text>
+  <text x="824" y="148" text-anchor="middle" class="small">show a diff for approval</text>
+
+  <rect x="24" y="188" width="304" height="112" class="self"/>
+  <text x="176" y="214" text-anchor="middle" class="verbself">ORCHESTRATE — YOU ARE HERE</text>
+  <text x="176" y="239" text-anchor="middle" class="name">qmax-code</text>
+  <text x="176" y="264" text-anchor="middle" class="small">the terminal agent that drives</text>
+  <text x="176" y="284" text-anchor="middle" class="small">the session, connected or local</text>
+
+  <rect x="348" y="188" width="304" height="112" class="card"/>
+  <text x="500" y="214" text-anchor="middle" class="verb">REACH</text>
+  <text x="500" y="239" text-anchor="middle" class="name">qmax-local-agent</text>
+  <text x="500" y="264" text-anchor="middle" class="small">lets the cloud run tests inside</text>
+  <text x="500" y="284" text-anchor="middle" class="small">a private network or CI runner</text>
+
+  <rect x="672" y="188" width="304" height="112" class="cloud"/>
+  <text x="824" y="214" text-anchor="middle" class="verbcloud">MANAGE — ACCOUNT REQUIRED</text>
+  <text x="824" y="239" text-anchor="middle" class="name">Hosted QualityMax</text>
+  <text x="824" y="264" text-anchor="middle" class="small">projects, suites, runs,</text>
+  <text x="824" y="284" text-anchor="middle" class="small">and observability</text>
+
+  <text x="500" y="336" text-anchor="middle" class="muted">Skills find issues · qmax-mcp proves a change · 9lives repairs the test · qmax-code runs the session · hosted QualityMax keeps the program</text>
+  <text x="500" y="366" text-anchor="middle" class="muted">Everything except the amber card works without a QualityMax account.</text>
+</svg>
