@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="272" viewBox="0 0 1000 272" role="img" aria-labelledby="title desc">
+  <title id="title">What qmax-code covers across the QA lifecycle</title>
+  <desc id="desc">Five connected stages — plan, generate, execute, review, ship — sitting on top of a local repository lane that also works without a QualityMax account.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #14213d; }
+    .stage { fill: #f7faff; stroke: #3159a7; stroke-width: 2; rx: 12; }
+    .base { fill: #eaf7ef; stroke: #217a45; stroke-width: 2; rx: 12; }
+    .arrow { stroke: #415a77; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+    .title { font-size: 20px; font-weight: 700; }
+    .kicker { font-size: 13px; font-weight: 700; letter-spacing: .07em; fill: #3159a7; }
+    .small { font-size: 12.5px; }
+    .baselabel { font-size: 14px; font-weight: 700; }
+    .muted { font-size: 12.5px; fill: #52596b; }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#415a77"/>
+    </marker>
+  </defs>
+
+  <text x="500" y="30" text-anchor="middle" class="title">One agent across the QA lifecycle</text>
+
+  <rect x="12" y="56" width="176" height="112" class="stage"/>
+  <text x="100" y="82" text-anchor="middle" class="kicker">PLAN</text>
+  <text x="100" y="107" text-anchor="middle" class="small">projects and test cases</text>
+  <text x="100" y="127" text-anchor="middle" class="small">coverage gaps</text>
+  <text x="100" y="147" text-anchor="middle" class="small">requirement imports</text>
+  <path d="M188 112 H208" class="arrow"/>
+
+  <rect x="212" y="56" width="176" height="112" class="stage"/>
+  <text x="300" y="82" text-anchor="middle" class="kicker">GENERATE</text>
+  <text x="300" y="107" text-anchor="middle" class="small">Playwright · pytest</text>
+  <text x="300" y="127" text-anchor="middle" class="small">Go · Rust</text>
+  <text x="300" y="147" text-anchor="middle" class="small">from crawls or cases</text>
+  <path d="M388 112 H408" class="arrow"/>
+
+  <rect x="412" y="56" width="176" height="112" class="stage"/>
+  <text x="500" y="82" text-anchor="middle" class="kicker">EXECUTE</text>
+  <text x="500" y="107" text-anchor="middle" class="small">cloud browser runs</text>
+  <text x="500" y="127" text-anchor="middle" class="small">native Go/Rust runner</text>
+  <text x="500" y="147" text-anchor="middle" class="small">or locally</text>
+  <path d="M588 112 H608" class="arrow"/>
+
+  <rect x="612" y="56" width="176" height="112" class="stage"/>
+  <text x="700" y="82" text-anchor="middle" class="kicker">REVIEW</text>
+  <text x="700" y="107" text-anchor="middle" class="small">quality and coverage</text>
+  <text x="700" y="127" text-anchor="middle" class="small">security and risk</text>
+  <text x="700" y="147" text-anchor="middle" class="small">saved preferences</text>
+  <path d="M788 112 H808" class="arrow"/>
+
+  <rect x="812" y="56" width="176" height="112" class="stage"/>
+  <text x="900" y="82" text-anchor="middle" class="kicker">SHIP</text>
+  <text x="900" y="107" text-anchor="middle" class="small">open test PRs</text>
+  <text x="900" y="127" text-anchor="middle" class="small">generate a GitHub</text>
+  <text x="900" y="147" text-anchor="middle" class="small">Actions workflow</text>
+
+  <rect x="12" y="188" width="976" height="52" class="base"/>
+  <text x="500" y="211" text-anchor="middle" class="baselabel">Local repository lane — read, edit, search, run allowlisted commands and tests</text>
+  <text x="500" y="231" text-anchor="middle" class="muted">This lane is what standalone --local mode keeps. The stages above need a QualityMax connection.</text>
+</svg>
