@@ -2,6 +2,8 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.22.2] - 2026-08-04
+
 ## [Unreleased]
 
 ## [1.22.1] - 2026-08-03
