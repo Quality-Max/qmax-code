@@ -41,6 +41,12 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   every token-bearing event, keeping only the final step, while opencode emits
   usage on each `step-finish` — so a turn that called tools lost every earlier
   step. Usage now accumulates across steps.
+- The egress recorder no longer races net/http's asynchronous request-body
+  write. `RoundTrip` returns as soon as the response headers arrive, so reading
+  the body-completion flag synchronously could snapshot mid-write and record a
+  fully-sent request body as incomplete (`ReqBytes=0`, empty SHA-256) — the
+  flake behind the red Go Tests run on v1.22.2. The recorder now waits for the
+  transport to close the body before capturing its byte count and hash.
 
 ## [1.22.1] - 2026-08-03
 
