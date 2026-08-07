@@ -6,11 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -88,6 +90,113 @@ func TestRecordsRequestHashAndSize(t *testing.T) {
 	}
 }
 
+// TestConcurrentRealRequestsRecordCompleteBody hammers the real transport with
+// many simultaneous requests. net/http writes each request body on its own
+// goroutine and returns from RoundTrip when the response headers arrive, so a
+// naive read of the completeness flag races that write and intermittently
+// records a fully-sent body as incomplete (bytes:0, hash:""). Every request
+// here sends the same fully-consumed body, so every receipt entry must report
+// the complete byte count and hash. Run with -race and -count to exercise it.
+func TestConcurrentRealRequestsRecordCompleteBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	body := strings.Repeat("prompt-", 1000) // ~7KB
+	wantBytes := int64(len(body))
+	wantHash := sha256.Sum256([]byte(body))
+	client := NewClient(10 * time.Second)
+
+	const n = 64
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, rec := receipt.Begin(context.Background(), "test:concurrent")
+			req, err := NewRequest(ctx, http.MethodPost, srv.URL+"/v1/messages", strings.NewReader(body))
+			if err != nil {
+				errs <- err
+				return
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				errs <- err
+				return
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+
+			if rec.EntryCount() != 1 {
+				errs <- fmt.Errorf("entries = %d, want 1", rec.EntryCount())
+				return
+			}
+			e := rec.Entries[0]
+			if e.ReqBytes != wantBytes || e.ReqSHA256 != hex.EncodeToString(wantHash[:]) {
+				errs <- fmt.Errorf("recorded incomplete body: bytes=%d hash=%q note=%q", e.ReqBytes, e.ReqSHA256, e.Note)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+}
+
+// TestFullBodyRecordedWhenTransportFinishesWritingAfterResponse reproduces the
+// ordering net/http actually exhibits: RoundTrip returns as soon as the
+// response headers arrive, while the request body is still being written (and
+// therefore hashed) on a separate goroutine. The recorder must wait for that
+// write to settle before reading the completeness flag; otherwise it snapshots
+// mid-write and signs a fully-sent body as incomplete. The fake transport here
+// closes the body only after a release signal fired past RoundTrip's return,
+// so the assertion below fails deterministically without the completion barrier.
+func TestFullBodyRecordedWhenTransportFinishesWritingAfterResponse(t *testing.T) {
+	rec := receipt.NewCurrent("test:async-write")
+	body := strings.Repeat("prompt-", 1000)
+
+	release := make(chan struct{})
+	transport := &receiptTransport{base: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		// Model net/http: hand back the response now, finish reading and closing
+		// the body later on another goroutine.
+		go func() {
+			<-release
+			_, _ = io.Copy(io.Discard, req.Body)
+			_ = req.Body.Close()
+		}()
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+
+	req, err := NewRequest(context.Background(), http.MethodPost, "http://example.test/v1/messages", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+
+	// Release the write only after RoundTrip has had time to return and (in the
+	// unfixed code) snapshot the still-empty body.
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		close(release)
+	}()
+
+	if _, err := transport.RoundTrip(req); err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+
+	if rec.EntryCount() != 1 {
+		t.Fatalf("entries = %d, want 1", rec.EntryCount())
+	}
+	e := rec.Entries[0]
+	wantHash := sha256.Sum256([]byte(body))
+	if e.ReqBytes != int64(len(body)) || e.ReqSHA256 != hex.EncodeToString(wantHash[:]) {
+		t.Errorf("recorded body = bytes:%d hash:%q note:%q, want the complete byte count and hash", e.ReqBytes, e.ReqSHA256, e.Note)
+	}
+}
+
 // TestTransportErrorStillRecorded proves an egress attempt that never connects
 // is still accounted for — no request leaves the machine unrecorded.
 func TestTransportErrorStillRecorded(t *testing.T) {
@@ -149,6 +258,10 @@ func TestIncompleteRequestBodyIsNotSignedAsACompleteHash(t *testing.T) {
 		if _, err := req.Body.Read(buf); err != nil {
 			t.Fatalf("read partial body: %v", err)
 		}
+		// A conformant RoundTripper always closes the request body once it is
+		// done with it; model that so the recorder can observe that the write
+		// has settled without draining the body through EOF.
+		_ = req.Body.Close()
 		return &http.Response{StatusCode: http.StatusRequestEntityTooLarge, Body: io.NopCloser(strings.NewReader(""))}, nil
 	})}
 	if _, err := transport.RoundTrip(req); err != nil {
@@ -291,7 +404,7 @@ func TestFailedWebSocketHandshakeIsRecorded(t *testing.T) {
 
 func TestHashingBodySnapshotConcurrentWithRead(t *testing.T) {
 	body := bytes.Repeat([]byte("x"), 64*1024)
-	hb := &hashingBody{rc: io.NopCloser(bytes.NewReader(body)), h: sha256.New()}
+	hb := newHashingBody(io.NopCloser(bytes.NewReader(body)))
 	done := make(chan error, 1)
 	go func() {
 		buf := make([]byte, 1)

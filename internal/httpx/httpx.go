@@ -145,6 +145,17 @@ type hashingBody struct {
 	// A server can respond before consuming a request body, in which case a
 	// prefix hash would be misleading and must not be signed as complete.
 	complete bool
+	// closed is closed exactly once, when the transport closes the request body.
+	// A conformant RoundTripper always closes req.Body after it finishes writing
+	// it (including the final EOF read), so waiting on closed lets RoundTrip read
+	// `complete` after the async body-write goroutine has settled rather than
+	// racing it. See RoundTrip for why that race exists.
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func newHashingBody(rc io.ReadCloser) *hashingBody {
+	return &hashingBody{rc: rc, h: sha256.New(), closed: make(chan struct{})}
 }
 
 func (b *hashingBody) Read(p []byte) (int, error) {
@@ -161,7 +172,12 @@ func (b *hashingBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (b *hashingBody) Close() error { return b.rc.Close() }
+func (b *hashingBody) Close() error {
+	if b.closed != nil {
+		b.closeOnce.Do(func() { close(b.closed) })
+	}
+	return b.rc.Close()
+}
 
 func (b *hashingBody) snapshot() (bytes int64, sha256 string, complete bool) {
 	b.mu.Lock()
@@ -190,11 +206,27 @@ func (t *receiptTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// Wrap the body so it is hashed+counted as it streams to the wire.
 	var hb *hashingBody
 	if req.Body != nil {
-		hb = &hashingBody{rc: req.Body, h: sha256.New()}
+		hb = newHashingBody(req.Body)
 		req.Body = hb
 	}
 
 	resp, err := t.base.RoundTrip(req)
+
+	// net/http writes the request body on a separate goroutine and returns from
+	// RoundTrip as soon as the response headers arrive — which can happen before
+	// that goroutine has read the body through EOF and marked it complete. On a
+	// successful round trip, wait for the transport to close the body (a
+	// conformant RoundTripper always does, once the write has finished) so
+	// `complete` reflects the settled write instead of a race. The wait is
+	// bounded by the request context, which the client's Timeout cancels. On a
+	// transport error the write was aborted and the body is legitimately
+	// incomplete, so there is nothing to wait for.
+	if hb != nil && err == nil {
+		select {
+		case <-hb.closed:
+		case <-req.Context().Done():
+		}
+	}
 
 	// A body hash is only trustworthy after EOF. If a peer responds before the
 	// body is drained, report the metadata as unavailable rather than signing a
