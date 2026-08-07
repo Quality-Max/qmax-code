@@ -694,8 +694,9 @@ func (t *Terminal) PrintTokenUsage(usage api.TokenUsage) {
 			usage.InputTokens, usage.OutputTokens, usage.TotalTokens(), usage.Requests))))
 }
 
-// PrintCostSummary shows detailed cost info for /cost command.
-func (t *Terminal) PrintCostSummary(usage api.TokenUsage, model string) {
+// PrintCostSummary shows detailed cost info for /cost command. When plan is
+// non-nil and a coding-plan window is open, its usage is appended.
+func (t *Terminal) PrintCostSummary(usage api.TokenUsage, model string, plan *api.PlanWindow) {
 	cost := usage.EstimatedCost(model)
 	fmt.Printf("\n")
 	fmt.Printf("  %s\n", styleSystem.Render("Session Token Usage"))
@@ -706,10 +707,38 @@ func (t *Terminal) PrintCostSummary(usage api.TokenUsage, model string) {
 	fmt.Printf("  %-20s $%.4f\n", "Estimated cost:", cost)
 	fmt.Printf("  %-20s %s\n", "Model:", model)
 	fmt.Println()
+	t.PrintPlanWindow(plan)
+}
+
+// PrintPlanWindow renders the subscription coding-plan usage window (the
+// rolling 5-hour limit shared by cc / codex / opencode backends). It is a
+// no-op when plan is nil or no window has opened yet, so it is safe to call
+// unconditionally from /plan, /cost, and /status.
+func (t *Terminal) PrintPlanWindow(plan *api.PlanWindow) {
+	if plan == nil || !plan.Started() {
+		return
+	}
+	now := time.Now()
+	fmt.Printf("  %s\n", styleSystem.Render("Coding-plan Usage Window"))
+	fmt.Printf("  %-20s %.0fh rolling\n", "Window length:", plan.WindowLen.Hours())
+	fmt.Printf("  %-20s %s\n", "Elapsed:", compactDuration(plan.Elapsed(now)))
+	if plan.Exhausted {
+		fmt.Printf("  %-20s %s%s limit reached%s\n", "Status:", ColorYellow, "●", ColorReset)
+	}
+	fmt.Printf("  %-20s %s (at %s)\n", "Resets in:",
+		compactDuration(plan.Remaining(now)), plan.ResetAt().Local().Format("15:04"))
+	fmt.Printf("  %-20s %d\n", "Turns this window:", plan.Turns)
+	if plan.TotalTokens() > 0 {
+		fmt.Printf("  %-20s %d in / %d out\n", "Tokens this window:", plan.InputToks, plan.OutputToks)
+	} else {
+		fmt.Printf("  %-20s (backend reports no token usage)\n", "Tokens this window:")
+	}
+	fmt.Println("  Time-based estimate; the provider's real limit may differ.")
+	fmt.Println()
 }
 
 // PrintStatusInfo shows qmax status and session info for /status command.
-func (t *Terminal) PrintStatusInfo(ctx *api.SessionContext, usage api.TokenUsage, model string) {
+func (t *Terminal) PrintStatusInfo(ctx *api.SessionContext, usage api.TokenUsage, model string, plan *api.PlanWindow) {
 	fmt.Println()
 	fmt.Printf("  %s\n", styleSystem.Render("qmax-code Status"))
 
@@ -742,6 +771,10 @@ func (t *Terminal) PrintStatusInfo(ctx *api.SessionContext, usage api.TokenUsage
 	fmt.Printf("  %-20s %s\n", "Model:", model)
 	fmt.Printf("  %-20s %d in / %d out\n", "Session tokens:", usage.InputTokens, usage.OutputTokens)
 	fmt.Printf("  %-20s $%.4f\n", "Est. cost:", usage.EstimatedCost(model))
+	if plan != nil && plan.Started() {
+		fmt.Printf("  %-20s resets in %s (%d turns)\n", "Plan window:",
+			compactDuration(plan.Remaining(time.Now())), plan.Turns)
+	}
 	fmt.Println()
 }
 

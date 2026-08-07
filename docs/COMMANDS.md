@@ -94,6 +94,7 @@ Supported keys:
 | `auto_save` | Boolean |
 | `output_verbose` | Boolean; compact vs. detailed CLI-backend answers |
 | `max_token_budget` | Integer token budget |
+| `plan_window_hours` | Integer; subscription coding-plan rolling window length (0 or unset = 5-hour default) |
 | `ollama_url` | HTTP(S) Ollama endpoint |
 | `ollama_model` | Ollama chat/full-agent model |
 | `ollama_agent_model` | Optional heavier Ollama agent model |
@@ -155,6 +156,7 @@ behavior.
 | `/context` | Show current session context. |
 | `/status` | Show connection, session, usage, and model information. |
 | `/cost` | Show token usage and estimated model cost. |
+| `/plan` | Show the subscription coding-plan usage window: elapsed, turns, and time until the rolling 5-hour limit resets (cc/codex/opencode backends). |
 
 In standalone mode, `/connect` and `/project` explain how to return to connected
 mode. `/status`, `/context`, and `/config` identify the active standalone

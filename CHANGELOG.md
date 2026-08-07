@@ -4,6 +4,42 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Added
+- Coding-plan usage-window tracking for the subscription orchestration backends
+  (Claude Code, Codex, and OpenCode + Z.AI GLM). qmax-code now tracks the plan's
+  rolling 5-hour limit — when it opens, how many turns/tokens it has used, and
+  when it resets — and surfaces it in the input status bar and a new `/plan`
+  command (also summarized in `/status` and `/cost`). The window length is
+  configurable via `plan_window_hours` (default 5).
+- OpenCode and Codex backends now report per-turn token usage (previously only
+  Claude Code did), feeding both the session cost totals and the plan window.
+
+### Fixed
+- OpenCode error events (`{"type":"error", ...}`) were parsed and surfaced
+  instead of being silently dropped. In particular, a `429` / usage-limit
+  refusal — the exact signal that the coding-plan window is full — now prints a
+  clear "coding-plan limit reached" message and marks the window exhausted,
+  reading the provider's reset time from rate-limit headers when present.
+  Provider errors carrying an HTTP status code (auth, quota, 5xx) are shown;
+  benign status-code-less events that opencode 1.0.x emits even on successful
+  turns are suppressed unless output is verbose, so they don't become noise.
+- A coding-plan limit is now recorded even when the turn returns an error. A
+  refusal that produces no assistant output exits non-zero, so reading the
+  limit reporter only on success left the window un-exhausted — the exact
+  state the feature exists to show.
+- The usage window now rolls over at its effective reset time. When a provider
+  reports an authoritative reset earlier than the local window length, the
+  first accepted turn after it opens a fresh window instead of landing in the
+  exhausted one and showing a limit that no longer applies.
+- Usage windows are tracked per subscription quota. `/cc`, `/codex`, and
+  `/opencode` switch between independent plans mid-session, so a single shared
+  tracker combined turns and exhaustion state across separate subscriptions.
+  OpenCode is keyed per provider, since its providers meter separately.
+- OpenCode no longer undercounts multi-step turns. Usage was overwritten on
+  every token-bearing event, keeping only the final step, while opencode emits
+  usage on each `step-finish` — so a turn that called tools lost every earlier
+  step. Usage now accumulates across steps.
+
 ## [1.22.1] - 2026-08-03
 
 ### Fixed

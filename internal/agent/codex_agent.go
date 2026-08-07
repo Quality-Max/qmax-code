@@ -40,6 +40,11 @@ type CodexAgent struct {
 	permissionMode string // "standard" (Codex prompts per-action) | "unattended" (--dangerously-bypass-approvals-and-sandbox)
 	sctx           *api.SessionContext
 	history        []codexTurn // conversation history managed on our side
+	lastTurnIn     int         // token usage of the most recent turn, when codex reports it
+	lastTurnOut    int
+	lastTurnOK     bool
+	lastLimitHit   bool      // true if the plan limit was hit this turn
+	lastLimitReset time.Time // provider-reported reset (usually zero for codex)
 	mu             sync.Mutex
 	runMu          sync.Mutex
 	runCancel      context.CancelFunc // non-nil while Run() is active
@@ -150,6 +155,11 @@ func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		return "", fmt.Errorf("MCP config: %w", err)
 	}
 
+	a.mu.Lock()
+	a.lastTurnIn, a.lastTurnOut, a.lastTurnOK = 0, 0, false
+	a.lastLimitHit, a.lastLimitReset = false, time.Time{}
+	a.mu.Unlock()
+
 	// Build the full prompt: QA system prompt + conversation history + current message.
 	prompt := a.buildPrompt(userMsg)
 
@@ -193,6 +203,7 @@ func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		a.inspectCodexEvent(line, term)
 		text := extractCodexMessage(line)
 		if text != "" {
 			term.StreamText(text + "\n")
@@ -286,6 +297,79 @@ func (a *CodexAgent) Cancel() {
 
 // Cleanup is a no-op for CodexAgent (no temp files to remove).
 func (a *CodexAgent) Cleanup() {}
+
+// codexEvent is a tolerant view of a `codex exec --json` event line, capturing
+// the token-usage and error fields qmax-code needs for the coding-plan window.
+// Field names are best-effort across codex versions (confirm against a real
+// run); the time-based window works even when none are populated.
+type codexEvent struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+	Error   string `json:"error"`
+
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	Usage        *struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+		Input        int `json:"input"`
+		Output       int `json:"output"`
+	} `json:"usage"`
+}
+
+// inspectCodexEvent folds token usage from a codex event line into the turn
+// stats and surfaces plan-limit errors that would otherwise be invisible (codex
+// prints them to its JSON stream, not always to stderr).
+func (a *CodexAgent) inspectCodexEvent(line string, term *tui.Terminal) {
+	var ev codexEvent
+	if json.Unmarshal([]byte(line), &ev) != nil {
+		return
+	}
+
+	in, out := ev.InputTokens, ev.OutputTokens
+	if ev.Usage != nil {
+		if ev.Usage.InputTokens > 0 || ev.Usage.OutputTokens > 0 {
+			in, out = ev.Usage.InputTokens, ev.Usage.OutputTokens
+		} else if ev.Usage.Input > 0 || ev.Usage.Output > 0 {
+			in, out = ev.Usage.Input, ev.Usage.Output
+		}
+	}
+	if in > 0 || out > 0 {
+		a.mu.Lock()
+		a.lastTurnIn, a.lastTurnOut, a.lastTurnOK = in, out, true
+		a.mu.Unlock()
+	}
+
+	if strings.Contains(ev.Type, "error") || ev.Error != "" {
+		msg := ev.Error
+		if msg == "" {
+			msg = ev.Message
+		}
+		if isPlanLimitMessage(msg) {
+			a.mu.Lock()
+			a.lastLimitHit = true
+			a.mu.Unlock()
+			term.PrintError("Coding-plan limit reached — " + msg + " (see /plan)")
+		}
+	}
+}
+
+// LastTurnStats returns codex's token usage for the most recent turn, when its
+// stream carried any. Satisfies TurnStatsProvider.
+func (a *CodexAgent) LastTurnStats() (inputTokens, outputTokens int, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastTurnIn, a.lastTurnOut, a.lastTurnOK
+}
+
+// LastPlanLimit reports whether the plan limit was hit on the most recent turn.
+// codex errors carry no reset header, so the reset time is the zero value and
+// the window falls back to its time estimate. Satisfies PlanLimitReporter.
+func (a *CodexAgent) LastPlanLimit() (reset time.Time, hit bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastLimitReset, a.lastLimitHit
+}
 
 // extractCodexMessage parses a JSONL line from `codex exec --json` and returns
 // the assistant text if the event is an item.completed with type "agent_message".
