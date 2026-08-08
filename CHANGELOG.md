@@ -2,9 +2,9 @@
 
 All notable changes to qmax-code. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [1.22.2] - 2026-08-04
-
 ## [Unreleased]
+
+## [1.23.0] - 2026-08-08
 
 ### Added
 - Coding-plan usage-window tracking for the subscription orchestration backends
@@ -47,6 +47,8 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   fully-sent request body as incomplete (`ReqBytes=0`, empty SHA-256) — the
   flake behind the red Go Tests run on v1.22.2. The recorder now waits for the
   transport to close the body before capturing its byte count and hash.
+
+## [1.22.2] - 2026-08-04
 
 ## [1.22.1] - 2026-08-03
 
