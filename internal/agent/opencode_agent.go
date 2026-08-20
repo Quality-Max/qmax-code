@@ -45,6 +45,7 @@ type OpenCodeAgent struct {
 	cfg            *api.Config
 	sctx           *api.SessionContext
 	lastToolName   string
+	fileSnaps      map[string]fileSnapshot // opencode tool part id → pre-edit snapshot
 	lastTurnIn     int  // token usage of the most recent turn (from opencode's stream)
 	lastTurnOut    int
 	lastTurnOK     bool      // true once a usage event carried tokens this turn
@@ -259,12 +260,14 @@ type ocEvent struct {
 }
 
 type ocPart struct {
-	ID     string    `json:"id"`
-	Type   string    `json:"type"`
-	Text   string    `json:"text"`
-	Tool   string    `json:"tool"`
-	Tokens *ocTokens `json:"tokens,omitempty"`
-	Usage  *ocTokens `json:"usage,omitempty"`
+	ID     string          `json:"id"`
+	Type   string          `json:"type"`
+	Text   string          `json:"text"`
+	Tool   string          `json:"tool"`
+	State  string          `json:"state,omitempty"`  // tool parts: pending|running|completed|error
+	Input  json.RawMessage `json:"input,omitempty"`  // tool parts: tool input (has file path)
+	Tokens *ocTokens       `json:"tokens,omitempty"`
+	Usage  *ocTokens       `json:"usage,omitempty"`
 }
 
 // ocTokens tolerates the common token-count field names emitted by opencode and
@@ -416,13 +419,34 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 			textByPart[id] = text
 
 		case ev.Part.Type == "tool" || ev.Type == "tool":
-			if ev.Part.Tool == "" || seenTool[ev.Part.ID] {
+			if ev.Part.Tool == "" {
+				continue
+			}
+			// A tool part reaching a terminal state may have changed a file —
+			// render the live diff before the next output block streams.
+			if ev.Part.State == "completed" || ev.Part.State == "error" {
+				a.mu.Lock()
+				snap, haveSnap := a.fileSnaps[ev.Part.ID]
+				delete(a.fileSnaps, ev.Part.ID)
+				a.mu.Unlock()
+				if haveSnap {
+					printFileDiff(term, snap)
+				}
+				continue
+			}
+			if seenTool[ev.Part.ID] {
 				continue
 			}
 			seenTool[ev.Part.ID] = true
 			displayName := stripMCPPrefix(ev.Part.Tool)
 			a.mu.Lock()
 			a.lastToolName = displayName
+			if snap := takeFileSnapshotRaw(ev.Part.Tool, toolPathFromRaw(ev.Part.Input)); snap.path != "" {
+				if a.fileSnaps == nil {
+					a.fileSnaps = map[string]fileSnapshot{}
+				}
+				a.fileSnaps[ev.Part.ID] = snap
+			}
 			a.mu.Unlock()
 			term.PrintToolIcon(displayName)
 			if !a.outputVerbose {

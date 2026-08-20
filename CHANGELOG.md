@@ -4,6 +4,14 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Added
+- Live code-change diffs in the TUI while the agent works. Every file-editing
+  tool call — built-in `edit_file`/`write_file`, Claude Code's `Edit`/`Write`,
+  and OpenCode's edit/write — now renders a compact colored diff (`path +N −M`
+  header, capped +/- lines with ellipsized context) as soon as the edit lands,
+  consistently across all backends. Context lines are collapsed and full-file
+  rewrites are capped at 40 diff lines so the transcript stays readable.
+
 ## [1.23.0] - 2026-08-08
 
 ### Added
