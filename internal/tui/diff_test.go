@@ -143,3 +143,67 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+func TestComputeDiffTrailingNewlineOnly(t *testing.T) {
+	out := RenderFileDiff("f.go", "a\nb\n", "a\nb")
+	if out == "" {
+		t.Fatal("trailing-newline-only change must render, got empty")
+	}
+	if !strings.Contains(out, "trailing newline removed") {
+		t.Fatalf("missing newline marker: %q", out)
+	}
+	ops := ComputeDiff("a\n", "a")
+	added, removed := DiffStat(ops)
+	if added != 1 || removed != 1 {
+		t.Fatalf("newline-only stat = +%d −%d, want +1 −1", added, removed)
+	}
+}
+
+func TestComputeDiffOrdersRemovesBeforeAdds(t *testing.T) {
+	// Interleavable middle; every contiguous change run must list − lines
+	// before + lines.
+	ops := ComputeDiff("a\nx\nb\nx\nc\n", "a\ny\nb\ny\nc\n")
+	runPlusFirst := false
+	sawPlus := false
+	for _, op := range ops {
+		switch op.T {
+		case "-":
+			if sawPlus {
+				runPlusFirst = true
+			}
+		case "+":
+			sawPlus = true
+		case " ", "…":
+			sawPlus = false
+		}
+	}
+	if runPlusFirst {
+		t.Fatalf("change run has + before −: %v", ops)
+	}
+}
+
+func TestComputeDiffContextAdjacentToChange(t *testing.T) {
+	// Change at the end: shown context must be the lines immediately above.
+	ops := ComputeDiff("l1\nl2\nl3\nl4\nend\n", "l1\nl2\nl3\nl4\nEND\n")
+	var ctx []string
+	for _, op := range ops {
+		if op.T == " " {
+			ctx = append(ctx, op.S)
+		}
+	}
+	if len(ctx) == 0 || ctx[len(ctx)-1] != "l4" {
+		t.Fatalf("context nearest the change should be l4, got %v", ctx)
+	}
+	// Change at the start: context nearest the change should be l2 (the line
+	// right after).
+	ops = ComputeDiff("start\nl1\nl2\nl3\nl4\n", "START\nl1\nl2\nl3\nl4\n")
+	ctx = nil
+	for _, op := range ops {
+		if op.T == " " {
+			ctx = append(ctx, op.S)
+		}
+	}
+	if len(ctx) == 0 || ctx[0] != "l1" {
+		t.Fatalf("context nearest the change should be l1, got %v", ctx)
+	}
+}

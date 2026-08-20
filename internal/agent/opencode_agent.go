@@ -432,7 +432,6 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 				if haveSnap {
 					printFileDiff(term, snap)
 				}
-				continue
 			}
 			if seenTool[ev.Part.ID] {
 				continue
@@ -441,11 +440,15 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 			displayName := stripMCPPrefix(ev.Part.Tool)
 			a.mu.Lock()
 			a.lastToolName = displayName
-			if snap := takeFileSnapshotRaw(ev.Part.Tool, toolPathFromRaw(ev.Part.Input)); snap.path != "" {
-				if a.fileSnaps == nil {
-					a.fileSnaps = map[string]fileSnapshot{}
+			// Snapshot only while the edit is still ahead of us; a part first
+			// seen in a terminal state has already run (nothing to diff).
+			if ev.Part.State != "completed" && ev.Part.State != "error" {
+				if snap := takeFileSnapshotRaw(ev.Part.Tool, toolPathFromRaw(ev.Part.Input)); snap.path != "" {
+					if a.fileSnaps == nil {
+						a.fileSnaps = map[string]fileSnapshot{}
+					}
+					a.fileSnaps[ev.Part.ID] = snap
 				}
-				a.fileSnaps[ev.Part.ID] = snap
 			}
 			a.mu.Unlock()
 			term.PrintToolIcon(displayName)

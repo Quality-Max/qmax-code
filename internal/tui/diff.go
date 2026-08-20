@@ -39,7 +39,7 @@ func ComputeDiff(oldContent, newContent string) []DiffLine {
 	newMid := newL[p : len(newL)-s]
 
 	var ops []DiffLine
-	ops = append(ops, ctxRun(oldL[:p])...)
+	ops = append(ops, prefixRun(oldL[:p])...)
 	if len(oldMid)*len(newMid) > lcsCellCap {
 		ops = append(ops, markRun(len(oldMid))...)
 		for _, l := range oldMid {
@@ -51,10 +51,59 @@ func ComputeDiff(oldContent, newContent string) []DiffLine {
 	} else {
 		ops = append(ops, lcsDiff(oldMid, newMid)...)
 	}
-	ops = append(ops, ctxRun(oldL[len(oldL)-s:])...)
-	return ops
+	ops = append(ops, suffixRun(oldL[len(oldL)-s:])...)
+	if added, removed := DiffStat(ops); added == 0 && removed == 0 && oldContent != newContent {
+		// Only a trailing-newline difference: represent it explicitly so the
+		// edit is visible instead of rendering as no change.
+		last := ""
+		if n := len(oldL); n > 0 {
+			last = oldL[n-1]
+		}
+		if last == "" && len(newL) > 0 {
+			last = newL[len(newL)-1]
+		}
+		marker := "trailing newline added"
+		if strings.HasSuffix(oldContent, "\n") && !strings.HasSuffix(newContent, "\n") {
+			marker = "trailing newline removed"
+		}
+		ops = append(ops,
+			DiffLine{T: "-", S: last},
+			DiffLine{T: "+", S: last},
+			DiffLine{T: "\\", S: marker},
+		)
+	}
+	return orderChanges(ops)
 }
 
+// orderChanges rewrites each contiguous +/- run so all removed lines precede
+// added lines, matching conventional unified-diff ordering.
+func orderChanges(ops []DiffLine) []DiffLine {
+	out := make([]DiffLine, 0, len(ops))
+	i := 0
+	for i < len(ops) {
+		if ops[i].T != "-" && ops[i].T != "+" {
+			out = append(out, ops[i])
+			i++
+			continue
+		}
+		j := i
+		for j < len(ops) && (ops[j].T == "-" || ops[j].T == "+") {
+			j++
+		}
+		for k := i; k < j; k++ {
+			if ops[k].T == "-" {
+				out = append(out, ops[k])
+			}
+		}
+		for k := i; k < j; k++ {
+			if ops[k].T == "+" {
+				out = append(out, ops[k])
+			}
+		}
+		i = j
+	}
+	return out
+}
 // lcsDiff diffs two slices via a standard LCS table with op reconstruction.
 func lcsDiff(a, b []string) []DiffLine {
 	n, m := len(a), len(b)
@@ -134,19 +183,36 @@ func collapseContext(ops []DiffLine) []DiffLine {
 	return out
 }
 
-// ctxRun renders a leading/trailing trimmed run: two context lines plus an
-// ellipsis when longer.
-func ctxRun(lines []string) []DiffLine {
+// prefixRun renders the trimmed common prefix, keeping the lines closest to
+// the change (the last ones) with the ellipsis before them.
+func prefixRun(lines []string) []DiffLine {
+	return edgeRun(lines, false)
+}
+
+// suffixRun renders the trimmed common suffix, keeping the lines closest to
+// the change (the first ones) with the ellipsis after them.
+func suffixRun(lines []string) []DiffLine {
+	return edgeRun(lines, true)
+}
+
+func edgeRun(lines []string, keepFirst bool) []DiffLine {
 	if len(lines) == 0 {
 		return nil
 	}
 	const keep = 2
 	var out []DiffLine
-	for i := 0; i < keep && i < len(lines); i++ {
-		out = append(out, DiffLine{T: " ", S: lines[i]})
-	}
-	if len(lines) > keep {
+	if keepFirst {
+		for i := 0; i < keep && i < len(lines); i++ {
+			out = append(out, DiffLine{T: " ", S: lines[i]})
+		}
 		out = append(out, markRun(len(lines)-keep)...)
+		return out
+	}
+	out = append(out, markRun(len(lines)-keep)...)
+	for i := len(lines) - keep; i < len(lines); i++ {
+		if i >= 0 {
+			out = append(out, DiffLine{T: " ", S: lines[i]})
+		}
 	}
 	return out
 }
@@ -238,6 +304,8 @@ func RenderFileDiff(path, oldContent, newContent string) string {
 			b.WriteString(styleError.Render("- " + line))
 		case "…":
 			b.WriteString(styleDim.Render("  ⋯ " + line))
+		case "\\":
+			b.WriteString(styleDim.Render("  \\ " + line))
 		default:
 			b.WriteString(styleDim.Render("  " + line))
 		}
