@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 func TestIsFileEditTool(t *testing.T) {
@@ -92,4 +94,24 @@ func TestTakeFileSnapshotRaw(t *testing.T) {
 	if s := takeFileSnapshotRaw("opencode.bash", path); s.path != "" {
 		t.Fatal("non-edit tool must not snapshot")
 	}
+}
+
+func TestPrintFileDiffTargetDeletedAfterSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gone.go")
+	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snap := takeFileSnapshot("edit_file", map[string]interface{}{"path": path})
+	if snap.path == "" {
+		t.Fatal("expected snapshot")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	// Zero-value Terminal is safe here: printFileDiff must return before any
+	// emit because the snapshot target no longer exists.
+	term := &tui.Terminal{}
+	printFileDiff(term, snap) // must not panic or print
+	printFileDiff(nil, snap)  // nil terminal tolerated
 }
