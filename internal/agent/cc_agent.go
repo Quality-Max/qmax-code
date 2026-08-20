@@ -73,6 +73,7 @@ type CCAgent struct {
 	mcpConfigInfo  os.FileInfo
 	sctx           *api.SessionContext
 	lastToolName   string // track last tool name for result display
+	fileSnaps      map[string]fileSnapshot // CC tool_use id → pre-edit snapshot
 	lastTurnIn     int    // token usage of the most recent turn (from CC's result event)
 	lastTurnOut    int
 	lastTurnOK     bool // true once a result event carried usage this turn
@@ -607,6 +608,12 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 					displayName := stripMCPPrefix(block.Name)
 					a.mu.Lock()
 					a.lastToolName = displayName
+					if snap := takeFileSnapshot(block.Name, block.Input); snap.path != "" {
+						if a.fileSnaps == nil {
+							a.fileSnaps = map[string]fileSnapshot{}
+						}
+						a.fileSnaps[block.ID] = snap
+					}
 					a.mu.Unlock()
 					term.PrintToolIcon(displayName)
 					if a.outputVerbose {
@@ -627,7 +634,12 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 				if block.Type == "tool_result" {
 					a.mu.Lock()
 					toolName := a.lastToolName
+					snap, haveSnap := a.fileSnaps[block.ToolUseID]
+					delete(a.fileSnaps, block.ToolUseID)
 					a.mu.Unlock()
+					if haveSnap {
+						printFileDiff(term, snap)
+					}
 					content := extractToolResultText(block.Content)
 					if a.outputVerbose {
 						term.PrintToolResult(toolName, tui.TruncateStr(content, 200))

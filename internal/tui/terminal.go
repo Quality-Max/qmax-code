@@ -536,6 +536,22 @@ func (t *Terminal) PrintToolIcon(name string) {
 	t.emit(fmt.Sprintf("  %s %s", icon, styleTool.Render(displayName)))
 }
 
+// PrintFileDiff shows a live code change under the current tool line.
+// Renders nothing when the content is unchanged.
+func (t *Terminal) PrintFileDiff(path, oldContent, newContent string) {
+	out := RenderFileDiff(path, oldContent, newContent)
+	if out == "" {
+		return
+	}
+	t.StopThinking() // erase spinner before diff display
+	if t.streaming {
+		t.streaming = false
+		t.emit("\n")
+	}
+	t.toolStreak = false // diff block is its own visual group
+	t.emit(out)
+}
+
 // PrintToolStart shows a tool invocation with its input summary.
 func (t *Terminal) PrintToolStart(name string, input interface{}) {
 	summary := formatToolInput(input)

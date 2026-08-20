@@ -865,7 +865,9 @@ func (a *Agent) executeToolCallsWithUI(toolCalls []api.ContentBlock, term *tui.T
 	var results []api.ContentBlock
 	for _, block := range toolCalls {
 		a.Logger.Info("tool", block.Name, map[string]interface{}{"cost": ToolCost(block.Name)})
+		snap := takeFileSnapshot(block.Name, strMapInput(block.Input))
 		output := executeTool(block.Name, block.Input, a.Cfg.Context, ctx, term)
+		printFileDiff(term, snap)
 
 		// update_plan renders a dedicated checklist from its input rather than
 		// the generic tool-result line (which would just echo {total,done}).
