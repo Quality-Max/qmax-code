@@ -70,9 +70,6 @@ func TestComputeDiffCollapsesLongContext(t *testing.T) {
 		if op.T == "…" {
 			sawEllipsis = true
 		}
-		if op.T == " " && op.S == "line" && !sawEllipsis {
-			// context before the ellipsis is fine; the point is the run collapses
-		}
 	}
 	if !sawEllipsis {
 		t.Fatalf("expected an ellipsis marker for the 50-line unchanged run, got %v", ops)
