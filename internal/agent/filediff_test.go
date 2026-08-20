@@ -83,7 +83,9 @@ func TestTakeFileSnapshotAndDiff(t *testing.T) {
 func TestTakeFileSnapshotRaw(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "f.txt")
-	os.WriteFile(path, []byte("x"), 0o644)
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if s := takeFileSnapshotRaw("opencode.edit", path); s.path == "" || s.old != "x" {
 		t.Fatalf("raw snapshot = %+v", s)
 	}
