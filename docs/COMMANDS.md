@@ -156,6 +156,7 @@ behavior.
 | `/context` | Show current session context. |
 | `/status` | Show connection, session, usage, and model information. |
 | `/cost` | Show token usage and estimated model cost. |
+| `/update` | Check for a newer qmax-code release and install it when found. |
 | `/plan` | Show the subscription coding-plan usage window: elapsed, turns, and time until the rolling 5-hour limit resets (cc/codex/opencode backends). |
 
 In standalone mode, `/connect` and `/project` explain how to return to connected
