@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/qualitymax/qmax-code/internal/httpx"
 )
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -154,11 +157,13 @@ type ghRelease struct {
 }
 
 // fetchLatest retrieves the latest release metadata from the GitHub API.
+// Egress goes through internal/httpx so the request is receipt-recorded and
+// passes the repo's egress guard.
 func fetchLatest(client *http.Client) (*ghRelease, error) {
 	if client == nil {
-		client = &http.Client{Timeout: requestTimeout}
+		client = httpx.NewClient(requestTimeout)
 	}
-	req, err := http.NewRequest(http.MethodGet, latestRelease, nil)
+	req, err := httpx.NewRequest(context.Background(), http.MethodGet, latestRelease, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -252,8 +257,12 @@ func MarkSkipped(version string) {
 
 // Download fetches the release archive and returns its bytes.
 func (r *Release) Download() ([]byte, error) {
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Get(r.Asset)
+	client := httpx.NewClient(5 * time.Minute)
+	req, err := httpx.NewRequest(context.Background(), http.MethodGet, r.Asset, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
