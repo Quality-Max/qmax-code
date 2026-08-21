@@ -74,6 +74,12 @@ type turnViewportModel struct {
 	cancelFn     func()
 	scrollOffset int   // wrapped-display-lines back from the live tail; 0 = following it
 	diffMarks    []int // raw-line indices into m.live where a diff block starts
+	// crPending is the unsanitized incomplete last line (no trailing '\n'),
+	// which may still contain bare '\r' redraw markers. The displayed live
+	// buffer holds only the collapsed form; keeping the raw pending line lets
+	// a '\r' in a later chunk overwrite this one, matching a real terminal
+	// across emit boundaries.
+	crPending string
 }
 
 func newTurnViewportModel(prompt string, status *StatusInfo, cancelFn func()) turnViewportModel {
@@ -142,9 +148,7 @@ func (m *turnViewportModel) appendOutput(text string) {
 	if m.live == nil {
 		m.live = &strings.Builder{}
 	}
-	text = stripCROverwrites(text)
-	m.output.WriteString(text)
-	m.live.WriteString(text)
+	m.writeSanitized(text)
 	m.revision++
 
 	// Retain enough output to restore useful scrollback after the viewport
@@ -172,7 +176,70 @@ func (m *turnViewportModel) appendOutput(text string) {
 		// diffMarks are line indices into m.live; re-anchor them to the
 		// trimmed buffer so a jump doesn't land on the wrong line.
 		m.diffMarks = rebaseLineMarks(m.diffMarks, old, kept)
+		// The pending incomplete line lives at the tail; reconstruct it
+		// from the kept (already-collapsed) suffix so a later '\r' can
+		// still overwrite that last displayed line.
+		m.crPending = incompleteLine(kept)
 	}
+}
+
+func (m *turnViewportModel) writeSanitized(text string) {
+	write := func(s string) {
+		if s == "" {
+			return
+		}
+		m.output.WriteString(s)
+		m.live.WriteString(s)
+	}
+
+	// Fast path: no carriage returns in flight, so each chunk can append
+	// directly. Still track the incomplete last line so a later '\r' can
+	// overwrite it.
+	if !strings.ContainsRune(m.crPending, '\r') && !strings.ContainsRune(text, '\r') {
+		write(text)
+		if i := strings.LastIndexByte(text, '\n'); i >= 0 {
+			m.crPending = text[i+1:]
+		} else {
+			m.crPending += text
+		}
+		return
+	}
+
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	if m.crPending != "" {
+		dropExactSuffix(m.output, stripCROverwrites(m.crPending))
+		dropExactSuffix(m.live, stripCROverwrites(m.crPending))
+	}
+	combined := m.crPending + text
+	if i := strings.LastIndexByte(combined, '\n'); i >= 0 {
+		write(stripCROverwrites(combined[:i+1]))
+		m.crPending = combined[i+1:]
+	} else {
+		m.crPending = combined
+	}
+	write(stripCROverwrites(m.crPending))
+}
+
+func dropExactSuffix(b *strings.Builder, suffix string) {
+	if b == nil || suffix == "" {
+		return
+	}
+	s := b.String()
+	if !strings.HasSuffix(s, suffix) {
+		return
+	}
+	b.Reset()
+	b.WriteString(s[:len(s)-len(suffix)])
+}
+
+func incompleteLine(s string) string {
+	if s == "" || strings.HasSuffix(s, "\n") {
+		return ""
+	}
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		return s[i+1:]
+	}
+	return s
 }
 
 // stripCROverwrites collapses text carrying a real terminal's raw '\r'
@@ -194,9 +261,23 @@ func stripCROverwrites(s string) string {
 	}
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		if idx := strings.LastIndexByte(line, '\r'); idx >= 0 {
-			lines[i] = line[idx+1:]
+		if !strings.ContainsRune(line, '\r') {
+			continue
 		}
+		// Last non-empty CR-delimited frame. A trailing '\r' (cursor
+		// returned, nothing written yet) still shows the previous frame
+		// instead of going blank until the next chunk arrives.
+		parts := strings.Split(line, "\r")
+		chosen := parts[len(parts)-1]
+		if chosen == "" {
+			for j := len(parts) - 2; j >= 0; j-- {
+				if parts[j] != "" {
+					chosen = parts[j]
+					break
+				}
+			}
+		}
+		lines[i] = chosen
 	}
 	return strings.Join(lines, "\n")
 }
@@ -207,6 +288,8 @@ func stripCROverwrites(s string) string {
 // without disturbing anything emitted before it. rawLen is clamped to each
 // buffer's length so a concurrent trim (above) can't underflow the slice.
 func (m *turnViewportModel) replaceTail(rawLen int, rendered string) {
+	// The tail being replaced includes any unsanitized pending line.
+	m.crPending = ""
 	trim := func(b *strings.Builder) {
 		if b == nil {
 			return
@@ -515,14 +598,21 @@ func (m *turnViewportModel) jumpToMark(dir int) {
 	}
 	wrappedStart[len(rawLines)] = total
 
+	maxLines := m.outputMaxLines()
 	targets := make([]int, 0, len(m.diffMarks))
 	for _, ln := range m.diffMarks {
 		if ln < 0 || ln >= len(wrappedStart) {
 			continue
 		}
-		// Convert the mark's forward position to "lines back from the
-		// bottom", matching scrollOffset's convention.
-		targets = append(targets, total-wrappedStart[ln])
+		// visibleOutput shows lines[end-maxLines:end] with
+		// end = total - offset. To put raw line ln at the top,
+		// end-maxLines == wrappedStart[ln], so
+		// offset = total - wrappedStart[ln] - maxLines.
+		target := total - wrappedStart[ln] - maxLines
+		if target < 0 {
+			target = 0
+		}
+		targets = append(targets, target)
 	}
 	if len(targets) == 0 {
 		return

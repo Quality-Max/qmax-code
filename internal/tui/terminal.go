@@ -485,8 +485,11 @@ func (t *Terminal) FinishMarkdown(fullText string) {
 		t.streamBuf.Reset()
 		if renderedOK {
 			// Swap the raw streamed text already in the live buffer for the
-			// rendered version instead of appending both.
-			p.Send(turnReplaceTailMsg{rawLen: len(raw), rendered: rendered})
+			// rendered version instead of appending both. The live buffer
+			// stores stripCROverwrites(raw), which is shorter than raw when
+			// the stream contained '\r' progress redraws — using the
+			// stripped length keeps replaceTail from eating preceding output.
+			p.Send(turnReplaceTailMsg{rawLen: len(stripCROverwrites(raw)), rendered: rendered})
 			return
 		}
 		if !strings.HasSuffix(fullText, "\n") {
