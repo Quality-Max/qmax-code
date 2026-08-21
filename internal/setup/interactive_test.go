@@ -359,3 +359,49 @@ func TestRecoverFromEmptyKeyRetryBranchAsksForKeyAgain(t *testing.T) {
 		t.Fatal("retry branch must not persist standalone mode")
 	}
 }
+
+func TestRecoverFromEmptyKeyRetryBranchAcceptsValidKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/me" {
+			t.Errorf("path = %q, want /api/me", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer retry-success" {
+			t.Errorf("Authorization = %q, want stripped retry key", got)
+		}
+		_, _ = w.Write([]byte(`{"email":"retry@example.test","id":"retry-user"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("QUALITYMAX_URL", server.URL)
+
+	// The recovery menu reads "1" from piped stdin. Stub the secret prompt so
+	// this test can deterministically model the key entered after that choice.
+	originalPrompt := promptAPIKey
+	promptAPIKey = func(string) string { return "qm-retry-success" }
+	defer func() { promptAPIKey = originalPrompt }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatalf("write retry choice: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	auth, err := recoverFromEmptyKey()
+	if err != nil {
+		t.Fatalf("recoverFromEmptyKey() error = %v", err)
+	}
+	if auth == nil || auth.APIKey != "qm-retry-success" {
+		t.Fatalf("auth = %+v, want successful retry config", auth)
+	}
+	if auth.Email != "retry@example.test" || auth.UserID != "retry-user" {
+		t.Fatalf("auth metadata = %+v", auth)
+	}
+}

@@ -30,6 +30,10 @@ var (
 
 	// ErrEmptyAPIKey is returned when the API key prompt ends with no input.
 	ErrEmptyAPIKey = errors.New("no API key provided")
+
+	// promptAPIKey is kept as a seam for the recovery-flow tests. Production
+	// always uses ReadSecret, so API keys remain read without echoing them.
+	promptAPIKey = ReadSecret
 )
 
 // LoginInteractive prompts the user to paste their API key.
@@ -412,7 +416,7 @@ func useStandaloneMode() error {
 
 // loginWithKeyPrompt asks the user to paste their API key.
 func loginWithKeyPrompt() (*api.AuthConfig, error) {
-	key := ReadSecret("  Paste your API key (qm-...): ")
+	key := promptAPIKey("  Paste your API key (qm-...): ")
 
 	if key == "" {
 		return nil, ErrEmptyAPIKey
