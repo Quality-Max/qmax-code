@@ -164,9 +164,16 @@ func TestExtractBinaryZip(t *testing.T) {
 	bin := bytes.Repeat([]byte("y"), 4096)
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	fw, _ := zw.Create("qmax-code-windows-amd64.exe")
-	fw.Write(bin)
-	zw.Close()
+	fw, err := zw.Create("qmax-code-windows-amd64.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write(bin); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
 	got, err := extractBinary(buf.Bytes(), "windows")
 	if err != nil {
 		t.Fatal(err)
@@ -182,9 +189,16 @@ func TestApplySwapsBinary(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		var buf bytes.Buffer
 		zw := zip.NewWriter(&buf)
-		fw, _ := zw.Create(fmt.Sprintf("qmax-code-windows-%s.exe", runtime.GOARCH))
-		fw.Write(newBin)
-		zw.Close()
+		fw, err := zw.Create(fmt.Sprintf("qmax-code-windows-%s.exe", runtime.GOARCH))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fw.Write(newBin); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
 		archive = buf.Bytes()
 	} else {
 		archive = makeTarGz(t, fmt.Sprintf("qmax-code-%s-%s", runtime.GOOS, runtime.GOARCH), string(newBin))
