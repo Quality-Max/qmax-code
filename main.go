@@ -21,11 +21,13 @@ import (
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
-var Version = "1.26.0"
+var Version = "1.26.1"
 
 const Name = "qmax-code"
 
 func main() {
+	tui.EnsureTTYNewlines()
+
 	// Flags
 	projectID := flag.Int("project-id", 0, "Default project ID for this session")
 	model := flag.String("model", "", "Claude model: auto (haiku+sonnet), sonnet, opus, haiku, or full ID")
@@ -259,8 +261,11 @@ func main() {
 		}
 	}
 
-	// If no qmax CLI and no API client, run full interactive setup
-	if shouldRunInteractiveSetup(localOnly, qmaxBin, apiClient != nil) {
+	// First-run onboarding when qmax-code itself has no credentials.
+	// A leftover `qmax` CLI on PATH must not skip this: the chooser
+	// (browser login / signup / API key / standalone) is how this
+	// binary gets configured, independent of the legacy CLI.
+	if shouldRunInteractiveSetup(localOnly, apiClient != nil) {
 		// Headless one-shot companion to the QUA-580 guard above: onboarding
 		// is interactive (browser login or key paste), so a piped stdin would
 		// either hang on the poll loop or consume the piped bytes as menu
@@ -659,8 +664,8 @@ func resolveLocalOnly(flagEnabled, persisted, envEnabled bool) bool {
 	return flagEnabled || persisted || envEnabled
 }
 
-func shouldRunInteractiveSetup(localOnly bool, qmaxBin string, hasAPIClient bool) bool {
-	return !localOnly && qmaxBin == "" && !hasAPIClient
+func shouldRunInteractiveSetup(localOnly bool, hasAPIClient bool) bool {
+	return !localOnly && !hasAPIClient
 }
 
 // headlessSetupFallback reports whether interactive onboarding must be

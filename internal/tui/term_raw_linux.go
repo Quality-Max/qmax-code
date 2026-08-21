@@ -20,6 +20,7 @@ func EnableRawMode() (*TermState, error) {
 	}
 	raw := *old
 	raw.Lflag &^= unix.ECHO | unix.ICANON
+	raw.Oflag |= unix.OPOST | unix.ONLCR
 	raw.Cc[unix.VMIN] = 1
 	raw.Cc[unix.VTIME] = 0
 	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &raw); err != nil {
@@ -30,6 +31,30 @@ func EnableRawMode() (*TermState, error) {
 
 func RestoreTermMode(state *TermState) {
 	if state != nil {
-		_ = unix.IoctlSetTermios(int(os.Stdin.Fd()), unix.TCSETS, &state.old)
+		restored := state.old
+		restored.Oflag |= unix.OPOST | unix.ONLCR
+		_ = unix.IoctlSetTermios(int(os.Stdin.Fd()), unix.TCSETS, &restored)
+	}
+}
+
+// EnsureTTYNewlines turns output-postprocessing back on so '\n' returns the
+// cursor to column 0. A previous process that died in full raw mode (Bubble
+// Tea) can leave OPOST/ONLCR off, which makes every later line staircase.
+func EnsureTTYNewlines() {
+	seen := map[int]struct{}{}
+	for _, fd := range []int{int(os.Stdin.Fd()), int(os.Stdout.Fd())} {
+		if _, dup := seen[fd]; dup {
+			continue
+		}
+		seen[fd] = struct{}{}
+		t, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+		if err != nil {
+			continue
+		}
+		if t.Oflag&unix.OPOST != 0 && t.Oflag&unix.ONLCR != 0 {
+			continue
+		}
+		t.Oflag |= unix.OPOST | unix.ONLCR
+		_ = unix.IoctlSetTermios(fd, unix.TCSETS, t)
 	}
 }
