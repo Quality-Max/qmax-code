@@ -282,13 +282,16 @@ func main() {
 					// The user chose standalone local mode during onboarding.
 					// setup already persisted local_only=true; mirror the
 					// startup path so descendants (MCP serve, CLI backends)
-					// inherit the choice for this process too.
+					// inherit the choice for this process too. Mutate the
+					// in-memory config rather than reloading from disk — a
+					// reload would discard per-run overrides (--backend,
+					// --professional, --save-session) applied earlier.
 					localOnly = true
 					_ = os.Setenv(api.LocalOnlyEnv, "1")
 					auth = nil
 					apiClient = nil
 					qmaxCfg = api.QMaxConfig{}
-					appConfig = api.LoadQMaxCodeConfig()
+					appConfig.LocalOnly = true
 				} else {
 					fmt.Fprintln(os.Stderr, "Setup failed:", setupErr)
 					exitWithReceipt(1)

@@ -394,7 +394,13 @@ func useStandaloneMode() error {
 	cfg := api.LoadQMaxCodeConfig()
 	if !cfg.LocalOnly {
 		cfg.LocalOnly = true
-		_ = cfg.Save()
+		if err := cfg.Save(); err != nil {
+			// Don't fail the flow: this run still switches to standalone in
+			// memory. But a silent no-persist would confusingly re-run
+			// onboarding on the next launch, so say so.
+			fmt.Printf("  Note: could not save standalone preference (%s).\n", err)
+			fmt.Println("  This session is standalone; next launch may ask again.")
+		}
 	}
 	return ErrStandaloneSkip
 }
@@ -659,7 +665,18 @@ func PromptChoice(prompt string, options []string) int {
 }
 
 // promptChoiceNumeric prints the classic "Choice (1-N, default 1)" prompt.
+// It reproduces the pre-chooser output contract (full option list, then the
+// prompt) so non-TTY consumers — CI, expect scripts, AI-generated harnesses
+// — keep parsing stdout the same way.
 func promptChoiceNumeric(options []string) int {
+	for i, opt := range options {
+		if i == 0 {
+			fmt.Printf("    \033[36m› %s\033[0m\n", opt) // highlight first
+		} else {
+			fmt.Printf("      %s\n", opt)
+		}
+	}
+	fmt.Println()
 	fmt.Print("  Choice (1-" + strconv.Itoa(len(options)) + ", default 1): ")
 	reader := bufio.NewReader(os.Stdin)
 	line, _ := reader.ReadString('\n')
