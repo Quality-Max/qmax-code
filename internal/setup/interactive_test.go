@@ -258,3 +258,62 @@ func TestLoginWithKeyPromptEmptyInputReturnsSentinel(t *testing.T) {
 		t.Fatalf("loginWithKeyPrompt() error = %v, want ErrEmptyAPIKey", err)
 	}
 }
+
+func TestRecoverFromEmptyKeyStandaloneBranch(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", t.TempDir())
+	defer os.Setenv("HOME", origHome)
+
+	// Piped stdin → PromptChoice takes the numeric fallback; "2" selects
+	// "Skip — use standalone local mode".
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("2\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	_, err = recoverFromEmptyKey()
+	if !errors.Is(err, ErrStandaloneSkip) {
+		t.Fatalf("recoverFromEmptyKey() error = %v, want ErrStandaloneSkip", err)
+	}
+	if cfg := api.LoadQMaxCodeConfig(); !cfg.LocalOnly {
+		t.Fatal("standalone branch did not persist local_only")
+	}
+}
+
+func TestRecoverFromEmptyKeyRetryBranchAsksForKeyAgain(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", t.TempDir())
+	defer os.Setenv("HOME", origHome)
+
+	// "1" selects "Try again — paste a key"; the retry prompt then hits EOF
+	// (numeric reader buffers the whole pipe) and must surface the sentinel
+	// again rather than a generic failure.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	_, err = recoverFromEmptyKey()
+	if !errors.Is(err, ErrEmptyAPIKey) {
+		t.Fatalf("recoverFromEmptyKey() error = %v, want ErrEmptyAPIKey from retry prompt", err)
+	}
+	if cfg := api.LoadQMaxCodeConfig(); cfg.LocalOnly {
+		t.Fatal("retry branch must not persist standalone mode")
+	}
+}

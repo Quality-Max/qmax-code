@@ -271,17 +271,7 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 	case 2: // I have an API key
 		auth, err = loginWithKeyPrompt()
 		if errors.Is(err, ErrEmptyAPIKey) {
-			// Empty paste is usually "I don't actually have a key" — offer
-			// the standalone exit instead of failing the whole setup.
-			retry := PromptChoice("  No key entered. What now?", []string{
-				"Try again — paste a key",
-				"Skip — use standalone local mode",
-			})
-			if retry == 0 {
-				auth, err = loginWithKeyPrompt()
-			} else {
-				err = useStandaloneMode()
-			}
+			auth, err = recoverFromEmptyKey()
 		}
 	case 3: // Skip — standalone local mode
 		err = useStandaloneMode()
@@ -386,6 +376,21 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 	fmt.Println()
 
 	return auth, projectID, nil
+}
+
+// recoverFromEmptyKey handles an empty API-key paste: usually "I don't
+// actually have a key" — offer the standalone exit instead of failing the
+// whole setup. Returns the retry result, or ErrStandaloneSkip when the
+// user picks standalone.
+func recoverFromEmptyKey() (*api.AuthConfig, error) {
+	retry := PromptChoice("  No key entered. What now?", []string{
+		"Try again — paste a key",
+		"Skip — use standalone local mode",
+	})
+	if retry == 0 {
+		return loginWithKeyPrompt()
+	}
+	return nil, useStandaloneMode()
 }
 
 // useStandaloneMode persists local_only=true so the choice survives restarts,
@@ -596,12 +601,28 @@ func PromptChoice(prompt string, options []string) int {
 	typed := ""
 	printMenu(sel, typed)
 
+	// chooserAllowedBytes is the closed set of input bytes the chooser acts
+	// on. Anything else — including bytes of ANSI sequences we never emit
+	// ourselves (screen clears, buffer switches) — is dropped unread, so
+	// injected terminal-control bytes cannot pass through this loop.
+	chooserAllowedBytes := map[byte]bool{
+		'\r': true, '\n': true, // confirm
+		3:   true, // Ctrl+C cancel
+		27:  true, // ESC (arrow sequence introducer; payload checked below)
+		'j': true, 'k': true,
+		'1': true, '2': true, '3': true, '4': true, '5': true,
+		'6': true, '7': true, '8': true, '9': true,
+	}
+
 	buf := make([]byte, 1)
 	for {
 		n, _ := os.Stdin.Read(buf)
 		if n == 0 {
 			tui.RestoreTermMode(oldState)
 			return promptChoiceNumeric(options)
+		}
+		if !chooserAllowedBytes[buf[0]] {
+			continue // not a byte we interpret — ignore it
 		}
 		switch buf[0] {
 		case '\r', '\n':
