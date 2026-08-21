@@ -4,6 +4,16 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Added
+- Self-update with a startup proposal. When a newer release exists in the
+  public releases repo, qmax-code offers to install it at startup
+  ("Update now? [y/N]"); accepting downloads the platform archive, extracts
+  the binary, and atomically replaces the running executable (a restart
+  picks up the new version). Checks hit the GitHub API at most once per 24 h,
+  a declined version is never re-offered, and dev builds skip the check
+  entirely. Also available on demand via `/update`. Disable with
+  `QMAX_NO_UPDATE_CHECK=1`.
+
 ## [1.24.0] - 2026-08-21
 
 ### Added

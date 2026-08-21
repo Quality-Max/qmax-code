@@ -22,6 +22,7 @@ import (
 	"github.com/qualitymax/qmax-code/internal/setup"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
 	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/qualitymax/qmax-code/internal/update"
 	"github.com/qualitymax/qmax-code/internal/vnc"
 )
 
@@ -156,6 +157,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			maybePrintSDKCreditBanner()
 		}
 
+		// Self-update proposal: when a newer release exists, offer to install
+		// it (y/N). Rate-limited to once per day; a declined version is not
+		// re-offered. Disable with QMAX_NO_UPDATE_CHECK=1.
+		maybeProposeUpdate(term, version)
+
 		fmt.Println()
 	}
 	term.SetSessionPrompt(sessionID)
@@ -277,6 +283,18 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			saveAndExit()
 			fmt.Fprintf(os.Stderr, "Goodbye!\n")
 			return
+		case input == "/update":
+			rel, err := update.Check(version)
+			switch {
+			case err != nil:
+				fmt.Printf("  %s✗ %v%s\n", tui.ColorRed, err, tui.ColorReset)
+			case rel == nil:
+				fmt.Printf("  %s✓ qmax-code %s is up to date%s\n", tui.ColorGreen, version, tui.ColorReset)
+			default:
+				fmt.Printf("  Update available: %s (you have %s)\n", rel.Version, version)
+				applyUpdate(term, rel)
+			}
+
 		case input == "/help":
 			printHelp()
 			continue
@@ -2263,6 +2281,46 @@ var sdkCreditCutover = time.Date(2026, time.June, 15, 0, 0, 0, 0, time.Local)
 // Persistence lives in ~/.qmax-code/sdk_credit_banner_seen. The file holds
 // the YYYY-MM-DD of the last shown banner; if it matches today we stay
 // silent. Best-effort: any read/write failure simply re-shows.
+// maybeProposeUpdate offers a self-update when a newer release exists.
+func maybeProposeUpdate(term *tui.Terminal, current string) {
+	rel := update.MaybeCheck(current)
+	if rel == nil {
+		return
+	}
+	fmt.Printf("  %sUpdate available: %s%s (you have %s)\n",
+		tui.ColorYellow, rel.Version, tui.ColorReset, current)
+	fmt.Printf("  %sUpdate now? [y/N] %s", tui.ColorBold, tui.ColorReset)
+	answer, err := term.ReadConsent()
+	if err != nil {
+		update.MarkSkipped(rel.Version) // non-interactive stdin: don't loop
+		return
+	}
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	if answer != "y" && answer != "yes" {
+		update.MarkSkipped(rel.Version)
+		fmt.Printf("  %sSkipped — /update checks again anytime.%s\n", tui.ColorDim, tui.ColorReset)
+		return
+	}
+	applyUpdate(term, rel)
+}
+
+// applyUpdate installs a release over the running binary and reports the
+// outcome. The current process keeps running; the new version is used after
+// the next start.
+func applyUpdate(term *tui.Terminal, rel *update.Release) {
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Printf("  %s✗ Update failed: %v%s\n", tui.ColorRed, err, tui.ColorReset)
+		return
+	}
+	if err := rel.Apply(exe); err != nil {
+		fmt.Printf("  %s✗ Update failed: %v%s\n", tui.ColorRed, err, tui.ColorReset)
+		return
+	}
+	fmt.Printf("  %s✓ Updated to %s — restart qmax-code to use it%s\n",
+		tui.ColorGreen, rel.Version, tui.ColorReset)
+}
+
 func maybePrintSDKCreditBanner() {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
