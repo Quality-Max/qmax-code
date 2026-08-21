@@ -1,12 +1,14 @@
 package setup
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/qualitymax/qmax-code/internal/api"
@@ -210,6 +212,46 @@ func TestParseChoiceLine(t *testing.T) {
 			t.Parallel()
 			if got := parseChoiceLine(tt.line, tt.n); got != tt.want {
 				t.Fatalf("parseChoiceLine(%q, %d) = %d, want %d", tt.line, tt.n, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChooseFromRawInputNavigation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{name: "down arrow", input: "\x1b[B\n", want: 1},
+		{name: "up arrow", input: "j\x1b[A\n", want: 0},
+		{name: "vim and arrow navigation", input: "j\x1b[Bk\n", want: 1},
+		{name: "direct digit", input: "3\n", want: 2},
+		{name: "ordinary key after escape is preserved", input: "\x1bj\n", want: 1},
+		{name: "malformed CSI is ignored as a unit", input: "\x1b[?1049hj\n", want: 1},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			redraws := 0
+			got, confirmed := chooseFromRawInput(
+				bufio.NewReader(strings.NewReader(tt.input)),
+				4,
+				func(int, string) { redraws++ },
+			)
+			if !confirmed {
+				t.Fatal("raw input did not confirm a selection")
+			}
+			if got != tt.want {
+				t.Fatalf("selection = %d, want %d", got, tt.want)
+			}
+			if redraws == 0 {
+				t.Fatal("navigation did not request a menu redraw")
 			}
 		})
 	}

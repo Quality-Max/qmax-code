@@ -597,91 +597,129 @@ func PromptChoice(prompt string, options []string) int {
 		printMenu(sel, typed)
 	}
 
-	sel := 0
-	typed := ""
-	printMenu(sel, typed)
-
-	// chooserAllowedBytes is the closed set of input bytes the chooser acts
-	// on. Anything else — including bytes of ANSI sequences we never emit
-	// ourselves (screen clears, buffer switches) — is dropped unread, so
-	// injected terminal-control bytes cannot pass through this loop.
-	chooserAllowedBytes := map[byte]bool{
-		'\r': true, '\n': true, // confirm
-		3:   true, // Ctrl+C cancel
-		27:  true, // ESC (arrow sequence introducer; payload checked below)
-		'j': true, 'k': true,
-		'1': true, '2': true, '3': true, '4': true, '5': true,
-		'6': true, '7': true, '8': true, '9': true,
+	printMenu(0, "")
+	selection, confirmed := chooseFromRawInput(bufio.NewReader(os.Stdin), len(options), redraw)
+	if !confirmed {
+		tui.RestoreTermMode(oldState)
+		return promptChoiceNumeric(options)
 	}
 
-	buf := make([]byte, 1)
+	tui.RestoreTermMode(oldState)
+	fmt.Println()
+	fmt.Printf("  Selected: %s\n", options[selection])
+	return selection
+}
+
+type chooserEvent uint8
+
+const (
+	chooserNoop chooserEvent = iota
+	chooserConfirm
+	chooserCancel
+	chooserUp
+	chooserDown
+	chooserDigit
+)
+
+// chooseFromRawInput owns the raw chooser state. Keeping the byte parser
+// separate from terminal setup makes its navigation behavior deterministic to
+// test, while PromptChoice remains responsible for rendering and raw mode.
+func chooseFromRawInput(reader *bufio.Reader, optionCount int, redraw func(int, string)) (int, bool) {
+	sel, typed := 0, ""
 	for {
-		n, _ := os.Stdin.Read(buf)
-		if n == 0 {
-			tui.RestoreTermMode(oldState)
-			return promptChoiceNumeric(options)
+		event, digit, ok := readChooserEvent(reader)
+		if !ok {
+			return 0, false
 		}
-		if !chooserAllowedBytes[buf[0]] {
-			continue // not a byte we interpret — ignore it
-		}
-		switch buf[0] {
-		case '\r', '\n':
-			tui.RestoreTermMode(oldState)
-			fmt.Println()
-			if typed != "" {
-				if idx := parseChoiceLine(typed, len(options)); idx >= 0 {
-					sel = idx
-				}
-			}
-			fmt.Printf("  Selected: %s\n", options[sel])
-			return sel
-		case 3: // Ctrl+C — cancel with the default (first) option
-			tui.RestoreTermMode(oldState)
-			fmt.Println()
-			return 0
-		case 27: // ESC — expect '[' then A/B
-			b2 := make([]byte, 1)
-			if n2, _ := os.Stdin.Read(b2); n2 == 1 && b2[0] == '[' {
-				b3 := make([]byte, 1)
-				if n3, _ := os.Stdin.Read(b3); n3 == 1 {
-					switch b3[0] {
-					case 'A': // up
-						if sel > 0 {
-							sel--
-							typed = ""
-							redraw(sel, typed)
-						}
-					case 'B': // down
-						if sel < len(options)-1 {
-							sel++
-							typed = ""
-							redraw(sel, typed)
-						}
-					}
-				}
-			}
-		case 'k':
+
+		switch event {
+		case chooserConfirm:
+			return sel, true
+		case chooserCancel:
+			return 0, true
+		case chooserUp:
 			if sel > 0 {
 				sel--
 				typed = ""
 				redraw(sel, typed)
 			}
-		case 'j':
-			if sel < len(options)-1 {
+		case chooserDown:
+			if sel < optionCount-1 {
 				sel++
 				typed = ""
 				redraw(sel, typed)
 			}
-		default:
-			if buf[0] >= '1' && buf[0] <= '9' {
-				candidate := typed + string(buf[0])
-				if idx := parseChoiceLine(candidate, len(options)); idx >= 0 {
-					sel = idx
-					typed = candidate
-					redraw(sel, typed)
-				}
+		case chooserDigit:
+			candidate := typed + string(digit)
+			if idx := parseChoiceLine(candidate, optionCount); idx >= 0 {
+				sel = idx
+				typed = candidate
+				redraw(sel, typed)
 			}
 		}
+	}
+}
+
+// readChooserEvent accepts only the keys the chooser supports. Escape input
+// must be exactly CSI A/B; malformed CSI sequences are consumed as input, not
+// echoed or executed. A non-CSI byte after Escape is unread so it is handled
+// normally on the following iteration.
+func readChooserEvent(reader *bufio.Reader) (chooserEvent, byte, bool) {
+	b, err := reader.ReadByte()
+	if err != nil {
+		return chooserNoop, 0, false
+	}
+
+	switch b {
+	case '\r', '\n':
+		return chooserConfirm, 0, true
+	case 3:
+		return chooserCancel, 0, true
+	case 'j':
+		return chooserDown, 0, true
+	case 'k':
+		return chooserUp, 0, true
+	case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return chooserDigit, b, true
+	case 27:
+		return readEscapeEvent(reader)
+	default:
+		return chooserNoop, 0, true
+	}
+}
+
+func readEscapeEvent(reader *bufio.Reader) (chooserEvent, byte, bool) {
+	second, err := reader.ReadByte()
+	if err != nil {
+		return chooserNoop, 0, true
+	}
+	if second != '[' {
+		// Escape itself is a no-op, but the next ordinary key still belongs to
+		// the user. Put it back so the normal allowlist handles it.
+		_ = reader.UnreadByte()
+		return chooserNoop, 0, true
+	}
+
+	third, err := reader.ReadByte()
+	if err != nil {
+		return chooserNoop, 0, true
+	}
+	switch third {
+	case 'A':
+		return chooserUp, 0, true
+	case 'B':
+		return chooserDown, 0, true
+	default:
+		// A CSI sequence has no meaning to this chooser unless it is A/B.
+		// Consume it through its final byte so no part can be reinterpreted as
+		// menu input (for example, ESC [ ? 1 B).
+		for third < 0x40 || third > 0x7e {
+			third, err = reader.ReadByte()
+			if err != nil {
+				break
+			}
+		}
+		return chooserNoop, 0, true
 	}
 }
 
