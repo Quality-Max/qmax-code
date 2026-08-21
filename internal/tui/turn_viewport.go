@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -25,6 +26,18 @@ type turnActivityMsg string
 type turnDoneMsg struct{}
 type turnTickMsg time.Time
 
+// turnReplaceTailMsg swaps the most recently appended rawLen bytes of the
+// output/live buffers for rendered — used to upgrade raw streamed markdown
+// to its glamour-rendered form once a text block finishes.
+type turnReplaceTailMsg struct {
+	rawLen   int
+	rendered string
+}
+
+// turnMarkMsg records the current position in the live buffer as a
+// diff-hunk landmark, letting Alt+↓/Alt+↑ jump straight to it later.
+type turnMarkMsg struct{}
+
 const (
 	maxLiveOutput       = 64 * 1024
 	keptLiveOutput      = 48 * 1024
@@ -43,22 +56,24 @@ type turnViewportCache struct {
 }
 
 type turnViewportModel struct {
-	prompt   string
-	status   *StatusInfo
-	output   *strings.Builder
-	live     *strings.Builder
-	revision uint64
-	cache    *turnViewportCache
-	text     []rune
-	cursor   int
-	width    int
-	height   int
-	thinking bool
-	activity string
-	frame    int
-	done     bool
-	result   TurnInputResult
-	cancelFn func()
+	prompt       string
+	status       *StatusInfo
+	output       *strings.Builder
+	live         *strings.Builder
+	revision     uint64
+	cache        *turnViewportCache
+	text         []rune
+	cursor       int
+	width        int
+	height       int
+	thinking     bool
+	activity     string
+	frame        int
+	done         bool
+	result       TurnInputResult
+	cancelFn     func()
+	scrollOffset int   // wrapped-display-lines back from the live tail; 0 = following it
+	diffMarks    []int // raw-line indices into m.live where a diff block starts
 }
 
 func newTurnViewportModel(prompt string, status *StatusInfo, cancelFn func()) turnViewportModel {
@@ -87,6 +102,14 @@ func (m turnViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case turnOutputMsg:
 		m.appendOutput(string(msg))
+		return m, nil
+	case turnReplaceTailMsg:
+		m.replaceTail(msg.rawLen, msg.rendered)
+		return m, nil
+	case turnMarkMsg:
+		if m.live != nil {
+			m.diffMarks = append(m.diffMarks, strings.Count(m.live.String(), "\n"))
+		}
 		return m, nil
 	case turnThinkingMsg:
 		m.thinking = bool(msg)
@@ -119,6 +142,7 @@ func (m *turnViewportModel) appendOutput(text string) {
 	if m.live == nil {
 		m.live = &strings.Builder{}
 	}
+	text = stripCROverwrites(text)
 	m.output.WriteString(text)
 	m.live.WriteString(text)
 	m.revision++
@@ -139,12 +163,88 @@ func (m *turnViewportModel) appendOutput(text string) {
 	// this as a separate buffer bounds wrapping work even for a huge line with
 	// no newline, where a byte offset into the full ANSI stream would be unsafe.
 	if m.live.Len() > maxLiveOutput {
-		kept := safeOutputSuffix(m.live.String(), keptLiveOutput)
+		old := m.live.String()
+		kept := safeOutputSuffix(old, keptLiveOutput)
 		next := &strings.Builder{}
 		next.Grow(len(kept))
 		next.WriteString(kept)
 		m.live = next
+		// diffMarks are line indices into m.live; re-anchor them to the
+		// trimmed buffer so a jump doesn't land on the wrong line.
+		m.diffMarks = rebaseLineMarks(m.diffMarks, old, kept)
 	}
+}
+
+// stripCROverwrites collapses text carrying a real terminal's raw '\r'
+// in-place progress redraws (git clone, npm install, pip, docker, curl -#,
+// etc., piped through a tool call) down to the final state of each line —
+// the way a real terminal would display it. Left as literal bytes, a bare
+// '\r' in this append-only buffer doesn't erase anything; it just makes the
+// real terminal overwrite part of a later, unrelated line once the buffer is
+// finally printed, producing garbled/overlapping text.
+func stripCROverwrites(s string) string {
+	if !strings.ContainsRune(s, '\r') {
+		return s
+	}
+	// Normalize CRLF line endings first so they're left untouched below —
+	// only a bare '\r' (not immediately followed by '\n') is a redraw marker.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	if !strings.ContainsRune(s, '\r') {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if idx := strings.LastIndexByte(line, '\r'); idx >= 0 {
+			lines[i] = line[idx+1:]
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// replaceTail swaps the most recently appended rawLen bytes of both the
+// scrollback and live buffers for rendered. Used to upgrade raw streamed
+// markdown to its glamour-rendered form once a text block completes,
+// without disturbing anything emitted before it. rawLen is clamped to each
+// buffer's length so a concurrent trim (above) can't underflow the slice.
+func (m *turnViewportModel) replaceTail(rawLen int, rendered string) {
+	trim := func(b *strings.Builder) {
+		if b == nil {
+			return
+		}
+		s := b.String()
+		n := rawLen
+		if n > len(s) {
+			n = len(s)
+		}
+		b.Reset()
+		b.WriteString(s[:len(s)-n])
+	}
+	trim(m.output)
+	trim(m.live)
+	m.appendOutput(rendered)
+}
+
+// rebaseLineMarks re-anchors raw-line-index marks after a buffer's front has
+// been trimmed. Marks that fell within the dropped prefix are discarded; the
+// rest are shifted down by the number of complete lines removed. When kept
+// isn't an exact byte suffix of old (the ANSI-stripping fallback in
+// safeOutputSuffix for one huge unbroken line), the marks can't be rebased
+// safely, so all of them are dropped rather than risk a dangling index.
+func rebaseLineMarks(marks []int, old, kept string) []int {
+	if len(marks) == 0 {
+		return marks
+	}
+	if !strings.HasSuffix(old, kept) {
+		return nil
+	}
+	droppedLines := strings.Count(old[:len(old)-len(kept)], "\n")
+	out := make([]int, 0, len(marks))
+	for _, ln := range marks {
+		if ln >= droppedLines {
+			out = append(out, ln-droppedLines)
+		}
+	}
+	return out
 }
 
 func safeOutputSuffix(out string, keep int) string {
@@ -171,6 +271,29 @@ func safeOutputSuffix(out string, keep int) string {
 
 func (m turnViewportModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
+	case tea.KeyUp:
+		if msg.Alt {
+			m.jumpToMark(-1) // previous diff/code-change block
+		} else {
+			m.scrollOffset++ // clamped against actual content in visibleOutput
+		}
+		return m, nil
+	case tea.KeyDown:
+		if msg.Alt {
+			m.jumpToMark(1) // next diff/code-change block
+		} else if m.scrollOffset > 0 {
+			m.scrollOffset--
+		}
+		return m, nil
+	case tea.KeyPgUp:
+		m.scrollOffset += m.outputMaxLines()
+		return m, nil
+	case tea.KeyPgDown:
+		m.scrollOffset -= m.outputMaxLines()
+		if m.scrollOffset < 0 {
+			m.scrollOffset = 0
+		}
+		return m, nil
 	case tea.KeyEnter:
 		text := strings.TrimSpace(string(m.text))
 		if text == "" {
@@ -285,7 +408,9 @@ func (m turnViewportModel) View() string {
 	if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n") {
 		b.WriteString("\n")
 	}
-	if m.activity != "" {
+	if m.scrollOffset > 0 {
+		b.WriteString(fmt.Sprintf("  %s↑ scrolled back • ↓ or Alt+↓ toward live%s\n", ColorDim, ColorReset))
+	} else if m.activity != "" {
 		b.WriteString(fmt.Sprintf("  %s%s%s\n", ColorDim, m.activity, ColorReset))
 	} else if m.thinking {
 		frame := spinnerFrames[m.frame%len(spinnerFrames)]
@@ -293,7 +418,7 @@ func (m turnViewportModel) View() string {
 	}
 	b.WriteString(input.renderInputBox(string(display), w))
 	b.WriteString("\n")
-	b.WriteString(menuHintStyle.Render("  Enter queue + interrupt • Ctrl+C cancel turn • type while the agent works"))
+	b.WriteString(menuHintStyle.Render("  ↑↓ scroll • PgUp/PgDn page • Alt+↑/↓ prev/next change • Enter queue + interrupt • Ctrl+C cancel"))
 	if status := input.renderStatus(w); status != "" {
 		b.WriteString("\n")
 		b.WriteString(status)
@@ -333,18 +458,95 @@ func (m turnViewportModel) visibleOutput() string {
 	if m.height <= 0 {
 		return strings.Join(lines, "\n")
 	}
-	// Reserve the bordered input, hint, metrics, bottom bar, and spinner.
-	maxLines := m.height - 8
-	if maxLines < 3 {
-		maxLines = 3
-	}
+	maxLines := m.outputMaxLines()
 	if len(lines) <= maxLines {
 		if m.cache != nil && m.cache.lines != nil {
 			return m.cache.wrapped
 		}
 		return strings.Join(lines, "\n")
 	}
-	return strings.Join(lines[len(lines)-maxLines:], "\n")
+
+	// scrollOffset counts wrapped lines back from the live tail; 0 (the
+	// default) reproduces the old always-show-the-tail behavior exactly.
+	maxOffset := len(lines) - maxLines
+	offset := m.scrollOffset
+	if offset < 0 {
+		offset = 0
+	} else if offset > maxOffset {
+		offset = maxOffset
+	}
+	end := len(lines) - offset
+	return strings.Join(lines[end-maxLines:end], "\n")
+}
+
+// outputMaxLines is how many wrapped output lines fit above the persistent
+// input panel: height minus the bordered input, hint, metrics, bottom bar,
+// and spinner/activity line.
+func (m turnViewportModel) outputMaxLines() int {
+	h := m.height - 8
+	if h < 3 {
+		h = 3
+	}
+	return h
+}
+
+// jumpToMark scrolls to the next (dir > 0) or previous (dir < 0) recorded
+// diff block relative to the current scroll position, landing with that
+// diff's header line at the top of the visible window. Wraps at either end.
+func (m *turnViewportModel) jumpToMark(dir int) {
+	if len(m.diffMarks) == 0 || m.live == nil {
+		return
+	}
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	rawLines := strings.Split(m.live.String(), "\n")
+
+	// wrappedStart[i] is how many wrapped display rows precede raw line i.
+	// Wrapping decisions reset at every '\n' (see ansi.Wrap), so wrapping
+	// each raw line in isolation reproduces exactly what wrapping the whole
+	// buffer would have produced for that line.
+	wrappedStart := make([]int, len(rawLines)+1)
+	total := 0
+	for i, line := range rawLines {
+		wrappedStart[i] = total
+		total += strings.Count(ansi.Wrap(line, width, ""), "\n") + 1
+	}
+	wrappedStart[len(rawLines)] = total
+
+	targets := make([]int, 0, len(m.diffMarks))
+	for _, ln := range m.diffMarks {
+		if ln < 0 || ln >= len(wrappedStart) {
+			continue
+		}
+		// Convert the mark's forward position to "lines back from the
+		// bottom", matching scrollOffset's convention.
+		targets = append(targets, total-wrappedStart[ln])
+	}
+	if len(targets) == 0 {
+		return
+	}
+	sort.Ints(targets)
+
+	cur := m.scrollOffset
+	if dir < 0 { // older content = larger offset
+		for _, t := range targets {
+			if t > cur {
+				m.scrollOffset = t
+				return
+			}
+		}
+		m.scrollOffset = targets[len(targets)-1] // wrap to the oldest
+		return
+	}
+	for i := len(targets) - 1; i >= 0; i-- { // newer content = smaller offset
+		if targets[i] < cur {
+			m.scrollOffset = targets[i]
+			return
+		}
+	}
+	m.scrollOffset = targets[0] // wrap to the newest
 }
 
 // RunTurnViewport keeps a Bubble Tea-owned input/status region active while

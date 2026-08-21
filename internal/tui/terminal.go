@@ -461,43 +461,56 @@ func (t *Terminal) StreamText(text string) {
 }
 
 // FinishMarkdown is called when a text block is complete.
-// Re-renders the streamed text with glamour for syntax highlighting.
+// Re-renders the streamed text with glamour so headers, bold/italic, lists,
+// inline code, and fenced code blocks display formatted instead of as raw
+// markdown syntax. Previously this only happened when the text contained a
+// fenced code block; now every finished block gets the same treatment,
+// since raw "**bold**"/backtick syntax is just as unreadable without one.
 func (t *Terminal) FinishMarkdown(fullText string) {
 	t.toolStreak = false
-	if t.streaming {
-		t.streaming = false
-		if t.activeTurnProgram() != nil {
-			t.streamBuf.Reset()
-			if !strings.HasSuffix(fullText, "\n") {
-				t.emit("\n")
-			}
+	if !t.streaming {
+		return
+	}
+	t.streaming = false
+
+	var rendered string
+	var renderErr error
+	if t.renderer != nil {
+		rendered, renderErr = t.renderer.Render(fullText)
+	}
+	renderedOK := t.renderer != nil && renderErr == nil
+
+	if p := t.activeTurnProgram(); p != nil {
+		raw := t.streamBuf.String()
+		t.streamBuf.Reset()
+		if renderedOK {
+			// Swap the raw streamed text already in the live buffer for the
+			// rendered version instead of appending both.
+			p.Send(turnReplaceTailMsg{rawLen: len(raw), rendered: rendered})
 			return
 		}
-
-		// If the text contains code blocks, re-render with glamour for highlighting
-		if t.renderer != nil && strings.Contains(fullText, "```") {
-			// Move cursor up to overwrite raw output, then print rendered version
-			rawLines := strings.Count(t.streamBuf.String(), "\n") + 1
-			// Clear the raw streamed output
-			for i := 0; i < rawLines; i++ {
-				fmt.Print("\033[1A\033[2K") // move up + clear line
-			}
-			rendered, err := t.renderer.Render(fullText)
-			if err == nil {
-				fmt.Print(rendered)
-				t.streamBuf.Reset()
-				return
-			}
-		}
-
-		t.streamBuf.Reset()
 		if !strings.HasSuffix(fullText, "\n") {
-			fmt.Println()
+			t.emit("\n")
 		}
-		// Restore readline prompt after streaming completes
-		if t.rl != nil && t.currentPrompt != "" {
-			t.rl.SetPrompt(t.currentPrompt)
+		return
+	}
+
+	if renderedOK {
+		// Move cursor up to overwrite the raw streamed output, then print
+		// the rendered version in its place.
+		rawLines := strings.Count(t.streamBuf.String(), "\n") + 1
+		for i := 0; i < rawLines; i++ {
+			fmt.Print("\033[1A\033[2K") // move up + clear line
 		}
+		fmt.Print(rendered)
+	} else if !strings.HasSuffix(fullText, "\n") {
+		fmt.Println()
+	}
+	t.streamBuf.Reset()
+
+	// Restore readline prompt after streaming completes
+	if t.rl != nil && t.currentPrompt != "" {
+		t.rl.SetPrompt(t.currentPrompt)
 	}
 }
 
@@ -549,6 +562,11 @@ func (t *Terminal) PrintFileDiff(path, oldContent, newContent string) {
 		t.emit("\n")
 	}
 	t.toolStreak = false // diff block is its own visual group
+	if p := t.activeTurnProgram(); p != nil {
+		// Mark where this diff starts so the live pane can jump straight to
+		// it later (Alt+↓/Alt+↑) instead of only ever showing the tail.
+		p.Send(turnMarkMsg{})
+	}
 	t.emit(out)
 }
 
