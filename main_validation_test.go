@@ -86,6 +86,24 @@ func TestShouldRunInteractiveSetup(t *testing.T) {
 	}
 }
 
+func TestHeadlessSetupFallback(t *testing.T) {
+	tests := []struct {
+		name     string
+		stdinTTY bool
+		want     bool
+	}{
+		{name: "piped stdin falls back to standalone", stdinTTY: false, want: true},
+		{name: "terminal stdin keeps interactive onboarding", stdinTTY: true, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := headlessSetupFallback(tt.stdinTTY); got != tt.want {
+				t.Fatalf("headlessSetupFallback(%v) = %v, want %v", tt.stdinTTY, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldUseStreamingBuiltIn(t *testing.T) {
 	tests := []struct {
 		name string

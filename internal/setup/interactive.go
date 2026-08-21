@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,16 @@ import (
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
+var (
+	// ErrStandaloneSkip signals the user chose standalone local mode during
+	// onboarding instead of connecting a QualityMax account. Callers should
+	// switch to standalone mode rather than treating this as a failure.
+	ErrStandaloneSkip = errors.New("standalone local mode selected")
+
+	// ErrEmptyAPIKey is returned when the API key prompt ends with no input.
+	ErrEmptyAPIKey = errors.New("no API key provided")
+)
+
 // LoginInteractive prompts the user to paste their API key.
 func LoginInteractive() (*api.AuthConfig, error) {
 	fmt.Println()
@@ -30,7 +41,7 @@ func LoginInteractive() (*api.AuthConfig, error) {
 	key := ReadSecret("  Paste your API key (qm-...): ")
 
 	if key == "" {
-		return nil, fmt.Errorf("no API key provided")
+		return nil, ErrEmptyAPIKey
 	}
 
 	return api.LoginWithAPIKey(key)
@@ -232,11 +243,14 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 	fmt.Println("  Let's get you set up — it takes 30 seconds.")
 	fmt.Println()
 
-	// Step 1: Account check
+	// Step 1: Account check. The standalone option is the escape hatch for
+	// users without a QualityMax account — without it, an empty key at the
+	// paste prompt used to kill the whole setup (QUA: onboarding dead-end).
 	choice := PromptChoice("  Do you have a QualityMax account?", []string{
 		"Yes, log me in (opens browser)",
 		"No, create one (free)",
 		"I have an API key already",
+		"Skip — use standalone local mode (no account needed)",
 	})
 
 	var auth *api.AuthConfig
@@ -256,12 +270,39 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 		auth, err = LoginViaBrowser()
 	case 2: // I have an API key
 		auth, err = loginWithKeyPrompt()
+		if errors.Is(err, ErrEmptyAPIKey) {
+			// Empty paste is usually "I don't actually have a key" — offer
+			// the standalone exit instead of failing the whole setup.
+			retry := PromptChoice("  No key entered. What now?", []string{
+				"Try again — paste a key",
+				"Skip — use standalone local mode",
+			})
+			if retry == 0 {
+				auth, err = loginWithKeyPrompt()
+			} else {
+				err = useStandaloneMode()
+			}
+		}
+	case 3: // Skip — standalone local mode
+		err = useStandaloneMode()
+	}
+
+	if errors.Is(err, ErrStandaloneSkip) {
+		tui.AnimateMax(tui.MoodHappy, "Standalone mode it is!")
+		fmt.Println()
+		fmt.Println("  No account needed. Only local workspace tools are enabled;")
+		fmt.Println("  cloud features (crawls, test runs, reviews) stay off.")
+		fmt.Println()
+		fmt.Println("  Connect later anytime with: qmax-code login")
+		fmt.Println("  (after: qmax-code config set local_only false)")
+		return nil, 0, ErrStandaloneSkip
 	}
 
 	if err != nil {
 		tui.AnimateMax(tui.MoodSad, "Login failed: "+err.Error())
 		fmt.Println()
 		fmt.Println("  Try again with: qmax-code login")
+		fmt.Println("  Or skip the account: qmax-code --local")
 		return nil, 0, fmt.Errorf("interactive login: %w", err)
 	}
 
@@ -347,12 +388,23 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 	return auth, projectID, nil
 }
 
+// useStandaloneMode persists local_only=true so the choice survives restarts,
+// and returns ErrStandaloneSkip so the caller can switch modes cleanly.
+func useStandaloneMode() error {
+	cfg := api.LoadQMaxCodeConfig()
+	if !cfg.LocalOnly {
+		cfg.LocalOnly = true
+		_ = cfg.Save()
+	}
+	return ErrStandaloneSkip
+}
+
 // loginWithKeyPrompt asks the user to paste their API key.
 func loginWithKeyPrompt() (*api.AuthConfig, error) {
 	key := ReadSecret("  Paste your API key (qm-...): ")
 
 	if key == "" {
-		return nil, fmt.Errorf("no API key provided")
+		return nil, ErrEmptyAPIKey
 	}
 
 	fmt.Println()
@@ -499,32 +551,136 @@ func maskKey(key string) string {
 // --- UI helpers ---
 
 // PromptChoice shows an interactive menu and returns the selected index.
+// On a TTY it renders an arrow-key chooser (↑/↓ or j/k to move, Enter to
+// confirm, digits 1-9 to select directly). When raw mode is unavailable
+// (piped stdin, CI), it falls back to the numeric prompt.
 func PromptChoice(prompt string, options []string) int {
 	fmt.Println(prompt)
-	for i, opt := range options {
-		if i == 0 {
-			fmt.Printf("    \033[36m› %s\033[0m\n", opt) // highlight first
+
+	oldState, rawErr := tui.EnableRawMode()
+	if rawErr != nil {
+		// Not a TTY (or raw mode unsupported): numeric fallback.
+		return promptChoiceNumeric(options)
+	}
+	defer tui.RestoreTermMode(oldState)
+
+	printMenu := func(sel int, typed string) {
+		for i, opt := range options {
+			if i == sel {
+				fmt.Printf("    \033[36m› %s\033[0m\n", opt)
+			} else {
+				fmt.Printf("      %s\n", opt)
+			}
+		}
+		if typed != "" {
+			fmt.Printf("  \033[2mGo to %s + Enter, or ↑/↓ then Enter\033[0m\n", typed)
 		} else {
-			fmt.Printf("      %s\n", opt)
+			fmt.Println("  \033[2m↑/↓ to move · Enter to select · 1-9 jumps\033[0m")
 		}
 	}
-	fmt.Println()
 
-	// Simple input: type number or press enter for first option
+	redraw := func(sel int, typed string) {
+		for i := 0; i < len(options)+1; i++ {
+			fmt.Print("\033[A\033[2K") // up one line, clear it
+		}
+		printMenu(sel, typed)
+	}
+
+	sel := 0
+	typed := ""
+	printMenu(sel, typed)
+
+	buf := make([]byte, 1)
+	for {
+		n, _ := os.Stdin.Read(buf)
+		if n == 0 {
+			tui.RestoreTermMode(oldState)
+			return promptChoiceNumeric(options)
+		}
+		switch buf[0] {
+		case '\r', '\n':
+			tui.RestoreTermMode(oldState)
+			fmt.Println()
+			if typed != "" {
+				if idx := parseChoiceLine(typed, len(options)); idx >= 0 {
+					sel = idx
+				}
+			}
+			fmt.Printf("  Selected: %s\n", options[sel])
+			return sel
+		case 3: // Ctrl+C — cancel with the default (first) option
+			tui.RestoreTermMode(oldState)
+			fmt.Println()
+			return 0
+		case 27: // ESC — expect '[' then A/B
+			b2 := make([]byte, 1)
+			if n2, _ := os.Stdin.Read(b2); n2 == 1 && b2[0] == '[' {
+				b3 := make([]byte, 1)
+				if n3, _ := os.Stdin.Read(b3); n3 == 1 {
+					switch b3[0] {
+					case 'A': // up
+						if sel > 0 {
+							sel--
+							typed = ""
+							redraw(sel, typed)
+						}
+					case 'B': // down
+						if sel < len(options)-1 {
+							sel++
+							typed = ""
+							redraw(sel, typed)
+						}
+					}
+				}
+			}
+		case 'k':
+			if sel > 0 {
+				sel--
+				typed = ""
+				redraw(sel, typed)
+			}
+		case 'j':
+			if sel < len(options)-1 {
+				sel++
+				typed = ""
+				redraw(sel, typed)
+			}
+		default:
+			if buf[0] >= '1' && buf[0] <= '9' {
+				candidate := typed + string(buf[0])
+				if idx := parseChoiceLine(candidate, len(options)); idx >= 0 {
+					sel = idx
+					typed = candidate
+					redraw(sel, typed)
+				}
+			}
+		}
+	}
+}
+
+// promptChoiceNumeric prints the classic "Choice (1-N, default 1)" prompt.
+func promptChoiceNumeric(options []string) int {
 	fmt.Print("  Choice (1-" + strconv.Itoa(len(options)) + ", default 1): ")
 	reader := bufio.NewReader(os.Stdin)
 	line, _ := reader.ReadString('\n')
+	if idx := parseChoiceLine(strings.TrimSpace(line), len(options)); idx >= 0 {
+		return idx
+	}
+	return 0
+}
+
+// parseChoiceLine converts a typed choice like "3" into a zero-based index.
+// Returns -1 for empty or out-of-range input.
+func parseChoiceLine(line string, n int) int {
 	line = strings.TrimSpace(line)
-
 	if line == "" {
-		return 0
+		return -1
 	}
-
-	n, err := strconv.Atoi(line)
-	if err != nil || n < 1 || n > len(options) {
-		return 0
+	v, err := strconv.Atoi(line)
+	if err != nil || v < 1 || v > n {
+		return -1
 	}
-	return n - 1
+	return v - 1
 }
 
 // waitForEnter waits for the user to press Enter.

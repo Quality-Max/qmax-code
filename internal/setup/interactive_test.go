@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/qualitymax/qmax-code/internal/api"
@@ -180,5 +181,80 @@ func TestBrowserLoginHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	}
 	if redirected {
 		t.Fatal("redirect target was contacted")
+	}
+}
+
+func TestParseChoiceLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		line string
+		n    int
+		want int
+	}{
+		{name: "first option", line: "1", n: 4, want: 0},
+		{name: "last option", line: "4", n: 4, want: 3},
+		{name: "middle option", line: "3", n: 4, want: 2},
+		{name: "empty line", line: "", n: 4, want: -1},
+		{name: "zero", line: "0", n: 4, want: -1},
+		{name: "above range", line: "5", n: 4, want: -1},
+		{name: "negative", line: "-1", n: 4, want: -1},
+		{name: "non-numeric", line: "yes", n: 4, want: -1},
+		{name: "padded digit", line: " 2 ", n: 4, want: 1},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseChoiceLine(tt.line, tt.n); got != tt.want {
+				t.Fatalf("parseChoiceLine(%q, %d) = %d, want %d", tt.line, tt.n, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUseStandaloneModePersistsLocalOnly(t *testing.T) {
+	// api config resolves ~/.qmax-code from HOME at call time, so a temp
+	// HOME isolates the persisted local_only write.
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", t.TempDir())
+	defer os.Setenv("HOME", origHome)
+
+	if err := useStandaloneMode(); !errors.Is(err, ErrStandaloneSkip) {
+		t.Fatalf("useStandaloneMode() error = %v, want ErrStandaloneSkip", err)
+	}
+
+	cfg := api.LoadQMaxCodeConfig()
+	if !cfg.LocalOnly {
+		t.Fatal("local_only not persisted after standalone selection")
+	}
+
+	// Second run must stay idempotent (no error, still standalone).
+	if err := useStandaloneMode(); !errors.Is(err, ErrStandaloneSkip) {
+		t.Fatalf("second useStandaloneMode() error = %v, want ErrStandaloneSkip", err)
+	}
+}
+
+func TestLoginWithKeyPromptEmptyInputReturnsSentinel(t *testing.T) {
+	// Empty stdin must surface ErrEmptyAPIKey (not a generic error) so the
+	// onboarding retry/standalone branch can match on it.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	_, err = loginWithKeyPrompt()
+	if !errors.Is(err, ErrEmptyAPIKey) {
+		t.Fatalf("loginWithKeyPrompt() error = %v, want ErrEmptyAPIKey", err)
 	}
 }
