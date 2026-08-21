@@ -582,21 +582,21 @@ func PromptChoice(prompt string, options []string) int {
 	printMenu := func(sel int, typed string) {
 		for i, opt := range options {
 			if i == sel {
-				fmt.Printf("    \033[36m› %s\033[0m\n", opt)
+				fmt.Printf("    \033[36m› %s\033[0m\r\n", opt)
 			} else {
-				fmt.Printf("      %s\n", opt)
+				fmt.Printf("      %s\r\n", opt)
 			}
 		}
 		if typed != "" {
-			fmt.Printf("  \033[2mGo to %s + Enter, or ↑/↓ then Enter\033[0m\n", typed)
+			fmt.Printf("  \033[2mGo to %s + Enter, or ↑/↓ then Enter\033[0m\r\n", typed)
 		} else {
-			fmt.Println("  \033[2m↑/↓ to move · Enter to select · 1-9 jumps\033[0m")
+			fmt.Print("  \033[2m↑/↓ to move · Enter to select · 1-9 jumps\033[0m\r\n")
 		}
 	}
 
 	redraw := func(sel int, typed string) {
 		for i := 0; i < len(options)+1; i++ {
-			fmt.Print("\033[A\033[2K") // up one line, clear it
+			fmt.Print("\033[A\r\033[2K") // up, column 0, clear line
 		}
 		printMenu(sel, typed)
 	}

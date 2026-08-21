@@ -4,6 +4,16 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.26.1] - 2026-08-22
+
+### Fixed
+- First-run onboarding no longer skips when a leftover `qmax` CLI is on PATH.
+  A fresh qmax-code install with no credentials now always shows the chooser
+  (browser login / signup / API key / standalone).
+- Startup restores terminal newline handling if a previous session died in
+  raw mode, so Max and the setup menu no longer staircase across the screen.
+  The arrow-key chooser prints `\r\n` so the menu stays left-aligned.
+
 ## [1.26.0] - 2026-08-21
 
 ### Added

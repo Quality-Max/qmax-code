@@ -67,20 +67,19 @@ func TestShouldRunInteractiveSetup(t *testing.T) {
 	tests := []struct {
 		name         string
 		localOnly    bool
-		qmaxBin      string
 		hasAPIClient bool
 		want         bool
 	}{
 		{name: "standalone skips setup", localOnly: true, want: false},
 		{name: "unconfigured connected mode runs setup", want: true},
-		{name: "legacy CLI available", qmaxBin: "/usr/local/bin/qmax", want: false},
 		{name: "direct API available", hasAPIClient: true, want: false},
+		{name: "standalone with credentials still skips", localOnly: true, hasAPIClient: true, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldRunInteractiveSetup(tt.localOnly, tt.qmaxBin, tt.hasAPIClient); got != tt.want {
-				t.Fatalf("shouldRunInteractiveSetup(%v, %q, %v) = %v, want %v",
-					tt.localOnly, tt.qmaxBin, tt.hasAPIClient, got, tt.want)
+			if got := shouldRunInteractiveSetup(tt.localOnly, tt.hasAPIClient); got != tt.want {
+				t.Fatalf("shouldRunInteractiveSetup(%v, %v) = %v, want %v",
+					tt.localOnly, tt.hasAPIClient, got, tt.want)
 			}
 		})
 	}

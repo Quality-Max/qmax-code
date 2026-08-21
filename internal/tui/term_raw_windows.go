@@ -11,3 +11,5 @@ func EnableRawMode() (*TermState, error) {
 }
 
 func RestoreTermMode(state *TermState) {}
+
+func EnsureTTYNewlines() {}
