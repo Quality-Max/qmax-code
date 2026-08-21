@@ -405,6 +405,13 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 			}
 			prev, seen := textByPart[id]
 			if !seen {
+				if len(order) > 0 {
+					// A new part starting after another already streamed (e.g. GLM's
+					// separate reasoning/commentary steps) has no separator of its
+					// own; without one its first word runs directly into the
+					// previous part's last word on screen.
+					term.StreamText("\n\n")
+				}
 				order = append(order, id)
 			}
 			// opencode may re-emit a growing snapshot for the same part id;
@@ -459,7 +466,12 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 	}
 
 	var sb strings.Builder
-	for _, id := range order {
+	for i, id := range order {
+		if i > 0 {
+			// Match the separator streamed live between parts above so the
+			// returned/rendered result doesn't run parts together either.
+			sb.WriteString("\n\n")
+		}
 		sb.WriteString(textByPart[id])
 	}
 	finalResult := sb.String()

@@ -208,3 +208,230 @@ func TestTurnViewportBoundsStoredAndLiveOutput(t *testing.T) {
 		t.Fatal("long-line live suffix retained a partial or active ANSI sequence")
 	}
 }
+
+func TestTurnViewportCollapsesCarriageReturnProgressRedraws(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	// A subprocess (git clone, npm install, pip, docker, curl -#, ...) piped
+	// through a tool call redraws its own progress line with bare '\r'. In
+	// this append-only buffer that byte doesn't erase anything — left as-is
+	// it would make the real terminal overwrite part of a later line once
+	// printed, which is exactly the garbled/overlapping text this collapses.
+	m.appendOutput("Cloning into repo...\rReceiving objects:  40%\rReceiving objects: 100%, done.\n")
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("next line\r\n"))
+
+	got := m.output.String()
+	if strings.ContainsRune(got, '\r') {
+		t.Fatalf("output retained a raw carriage return: %q", got)
+	}
+	if strings.Contains(got, "Cloning") || strings.Contains(got, "40%") {
+		t.Fatalf("earlier overwritten progress frames should not survive: %q", got)
+	}
+	want := "Receiving objects: 100%, done.\nnext line\n"
+	if got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestTurnViewportCollapsesCRLFMixedWithBareCarriageReturns(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	// Windows-style line endings must survive as '\n' while a later bare
+	// '\r' progress redraw still collapses to its final frame. line2 is a
+	// complete line (not a redraw frame) so it is kept.
+	m.appendOutput("line1\r\nline2\nprogress\rfinal\n")
+
+	got := m.output.String()
+	if strings.ContainsRune(got, '\r') {
+		t.Fatalf("output retained a raw carriage return: %q", got)
+	}
+	if got != "line1\nline2\nfinal\n" {
+		t.Fatalf("output = %q, want %q", got, "line1\nline2\nfinal\n")
+	}
+}
+
+func TestTurnViewportCollapsesCarriageReturnsAcrossChunks(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	// Progress frames often split across emit() calls, with '\r' at the end
+	// of one chunk and the replacement frame in the next. The pending line
+	// has to carry the raw '\r' across that boundary or the frames concatenate.
+	m.appendOutput("Cloning into repo...\rReceiving objects:  40%")
+	m.appendOutput("\rReceiving objects: 100%, done.\n")
+
+	got := m.output.String()
+	if strings.Contains(got, "Cloning") || strings.Contains(got, "40%") {
+		t.Fatalf("earlier overwritten progress frames should not survive: %q", got)
+	}
+	if got != "Receiving objects: 100%, done.\n" {
+		t.Fatalf("output = %q, want %q", got, "Receiving objects: 100%, done.\n")
+	}
+}
+
+func TestTurnViewportReplaceTailSwapsRawForRendered(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("**bold**"))
+	m, _ = updateTurnViewport(t, m, turnReplaceTailMsg{rawLen: len("**bold**"), rendered: "BOLD"})
+
+	if got, want := m.output.String(), "BOLD"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+	if strings.Contains(m.live.String(), "**") {
+		t.Fatalf("raw markdown survived the replace: %q", m.live.String())
+	}
+}
+
+func TestTurnViewportReplaceTailClampsOversizedRawLen(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("hi"))
+
+	// rawLen larger than the buffer must clamp instead of underflowing the slice.
+	m, _ = updateTurnViewport(t, m, turnReplaceTailMsg{rawLen: 999, rendered: "X"})
+
+	if got, want := m.output.String(), "X"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestTurnViewportReplaceTailUsesStrippedRawLen(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("keep\n"))
+	raw := "foo\rbar"
+	m, _ = updateTurnViewport(t, m, turnOutputMsg(raw))
+
+	// FinishMarkdown must pass the stripped length: live holds stripCROverwrites(raw),
+	// which is shorter than raw. Using len(raw) would eat into "keep\n".
+	strippedLen := len(stripCROverwrites(raw))
+	if strippedLen >= len(raw) {
+		t.Fatalf("fixture no longer contains a '\\r' that shrinks the live tail")
+	}
+	m, _ = updateTurnViewport(t, m, turnReplaceTailMsg{rawLen: strippedLen, rendered: "BAZ"})
+
+	if got, want := m.output.String(), "keep\nBAZ"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestTurnViewportScrollKeysMoveOffsetAndClamp(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m.height = 20
+
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.scrollOffset != 1 {
+		t.Fatalf("scrollOffset after Up = %d, want 1", m.scrollOffset)
+	}
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.scrollOffset != 0 {
+		t.Fatalf("scrollOffset after Down = %d, want 0", m.scrollOffset)
+	}
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.scrollOffset != 0 {
+		t.Fatalf("Down at the live tail should clamp at 0, got %d", m.scrollOffset)
+	}
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
+	if want := m.outputMaxLines(); m.scrollOffset != want {
+		t.Fatalf("scrollOffset after PgUp = %d, want %d", m.scrollOffset, want)
+	}
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.scrollOffset != 0 {
+		t.Fatalf("scrollOffset after PgDown = %d, want 0", m.scrollOffset)
+	}
+}
+
+func TestTurnViewportScrollOffsetWindowsVisibleOutput(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m.height = 12 // outputMaxLines = 4
+	m.appendOutput("line0\nline1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9")
+
+	m.scrollOffset = 2
+	visible := m.visibleOutput()
+	for _, want := range []string{"line4", "line5", "line6", "line7"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("scrolled view missing %q: %q", want, visible)
+		}
+	}
+	if strings.Contains(visible, "line8") || strings.Contains(visible, "line9") {
+		t.Fatalf("scrolled view should not show the live tail: %q", visible)
+	}
+}
+
+func TestTurnViewportAltArrowsJumpBetweenDiffMarks(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m.height = 12 // outputMaxLines = 4; content below must exceed that
+	m.width = 80  // short lines, so one raw line == one wrapped row
+
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("pre0\npre1\npre2\npre3\npre4\npre5\n"))
+	m, _ = updateTurnViewport(t, m, turnMarkMsg{})
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("DIFF_A\n+ a1\n+ a2\n"))
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("mid0\nmid1\nmid2\nmid3\nmid4\nmid5\n"))
+	m, _ = updateTurnViewport(t, m, turnMarkMsg{})
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("DIFF_B\n+ b1\n+ b2\n"))
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("tail0\ntail1\ntail2\ntail3\ntail4\ntail5\n"))
+
+	if len(m.diffMarks) != 2 {
+		t.Fatalf("diffMarks = %v, want 2 marks", m.diffMarks)
+	}
+
+	firstVisible := func() string {
+		visible := m.visibleOutput()
+		if i := strings.IndexByte(visible, '\n'); i >= 0 {
+			return visible[:i]
+		}
+		return visible
+	}
+
+	// Alt+Up from the live tail lands on the most recent mark, with its
+	// header at the top of the window (not the bottom).
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	firstStop := m.scrollOffset
+	if firstStop <= 0 {
+		t.Fatalf("Alt+Up did not scroll back to a mark, offset = %d", firstStop)
+	}
+	if got, want := firstVisible(), "DIFF_B"; got != want {
+		t.Fatalf("after Alt+Up, top line = %q, want %q (header should be at the top)", got, want)
+	}
+
+	// A second Alt+Up moves further back to the older mark.
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	secondStop := m.scrollOffset
+	if secondStop <= firstStop {
+		t.Fatalf("second Alt+Up should reach an older mark: first=%d second=%d", firstStop, secondStop)
+	}
+	if got, want := firstVisible(), "DIFF_A"; got != want {
+		t.Fatalf("after second Alt+Up, top line = %q, want %q", got, want)
+	}
+
+	// Alt+Down walks back toward the live tail, retracing the same marks.
+	m, _ = updateTurnViewport(t, m, tea.KeyMsg{Type: tea.KeyDown, Alt: true})
+	if m.scrollOffset != firstStop {
+		t.Fatalf("Alt+Down = %d, want back to %d", m.scrollOffset, firstStop)
+	}
+	if got, want := firstVisible(), "DIFF_B"; got != want {
+		t.Fatalf("after Alt+Down, top line = %q, want %q", got, want)
+	}
+}
+
+func TestTurnViewportPrunesDiffMarksWhenLiveOutputTrims(t *testing.T) {
+	m := newTurnViewportModel("qmax > ", nil, nil)
+	m, _ = updateTurnViewport(t, m, turnMarkMsg{})
+	m, _ = updateTurnViewport(t, m, turnOutputMsg("old diff block\n"))
+
+	// Push enough newline-delimited content through to exceed maxLiveOutput
+	// and trigger the front-trim in appendOutput.
+	const fillerLine = "filler line\n"
+	filler := strings.Repeat(fillerLine, maxLiveOutput/len(fillerLine)+10)
+	m, _ = updateTurnViewport(t, m, turnOutputMsg(filler))
+
+	if m.live.Len() > maxLiveOutput {
+		t.Fatalf("live output = %d bytes, want <= %d", m.live.Len(), maxLiveOutput)
+	}
+	liveLines := strings.Count(m.live.String(), "\n")
+	for _, ln := range m.diffMarks {
+		if ln < 0 || ln > liveLines {
+			t.Fatalf("stale diff mark %d out of range after trim (live has %d lines)", ln, liveLines)
+		}
+	}
+	// The mark predating the flood of filler no longer has a valid home in
+	// the retained suffix and must be dropped rather than pointing at the
+	// wrong line.
+	if len(m.diffMarks) != 0 {
+		t.Fatalf("expected the stale mark to be pruned by the trim, got %v", m.diffMarks)
+	}
+}
