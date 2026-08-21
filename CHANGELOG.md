@@ -4,6 +4,8 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-08-21
+
 ### Added
 - Live code-change diffs in the TUI while the agent works. Every file-editing
   tool call — built-in `edit_file`/`write_file`, Claude Code's `Edit`/`Write`,
