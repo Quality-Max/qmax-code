@@ -4,6 +4,26 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-08-21
+
+### Added
+- First-run onboarding now has a standalone local-mode escape hatch, so you
+  can skip account login entirely (`Skip — use standalone local mode`). The
+  chooser is arrow-key navigable (↑/↓/j/k, or 1–9 to jump). An empty API-key
+  paste offers retry-or-standalone instead of failing the whole setup, and
+  headless `-p` runs with no credentials fall back to ephemeral standalone
+  instead of hanging on a browser login (#169).
+- Live-turn assistant text is glamour-rendered (bold, headers, inline code)
+  instead of showing raw markdown syntax. Multi-part streams insert a
+  paragraph break so consecutive parts no longer run together. Alt+↑/↓ jumps
+  between live code-change diffs, landing on each diff's header (#170).
+
+### Fixed
+- Subprocess progress redraws that use bare `\r` (git clone, npm/pip install,
+  docker, curl) no longer garble the live pane. The sanitizer is stateful
+  across output chunks, so a progress frame split across `emit()` calls still
+  collapses to its final line (#170).
+
 ## [1.25.0] - 2026-08-21
 
 ### Added
