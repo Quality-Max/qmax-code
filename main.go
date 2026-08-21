@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -169,7 +170,9 @@ func main() {
 	// This must happen before any setup, consent, or API-key prompt, because
 	// those paths are interactive too and can block forever when stdin is a
 	// pipe. One-shot prompts (-p or positional args) remain valid headless use.
-	if *oneShot == "" && len(flag.Args()) == 0 && !xterm.IsTerminal(int(os.Stdin.Fd())) {
+	stdinTTY := xterm.IsTerminal(int(os.Stdin.Fd()))
+	isOneShot := *oneShot != "" || len(flag.Args()) > 0
+	if !isOneShot && !stdinTTY {
 		fmt.Fprintln(os.Stderr, "qmax-code: stdin is not a terminal.")
 		fmt.Fprintln(os.Stderr, "  For non-interactive use, pass a prompt:")
 		fmt.Fprintln(os.Stderr, "      qmax-code -p \"<your prompt>\"")
@@ -258,16 +261,49 @@ func main() {
 
 	// If no qmax CLI and no API client, run full interactive setup
 	if shouldRunInteractiveSetup(localOnly, qmaxBin, apiClient != nil) {
-		setupAuth, setupProjectID, setupErr := setup.RunInteractive()
-		if setupErr != nil {
-			fmt.Fprintln(os.Stderr, "Setup failed:", setupErr)
-			exitWithReceipt(1)
-		}
-		auth = setupAuth
-		apiClient = api.NewAPIClient(auth)
-		appConfig.DefaultProject = setupProjectID
-		if anthropicKey == "" {
-			anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
+		// Headless one-shot companion to the QUA-580 guard above: onboarding
+		// is interactive (browser login or key paste), so a piped stdin would
+		// either hang on the poll loop or consume the piped bytes as menu
+		// input. Fall back to ephemeral standalone for this run only — no
+		// config mutation — and tell the user how to connect properly.
+		if headlessSetupFallback(stdinTTY) {
+			localOnly = true
+			_ = os.Setenv(api.LocalOnlyEnv, "1")
+			auth = nil
+			apiClient = nil
+			qmaxCfg = api.QMaxConfig{}
+			fmt.Fprintln(os.Stderr, "qmax-code: no QualityMax credentials found; running this command in standalone local mode.")
+			fmt.Fprintln(os.Stderr, "  Connect once interactively: qmax-code login")
+			fmt.Fprintln(os.Stderr, "  Or persist standalone:      qmax-code config set local_only true")
+		} else {
+			setupAuth, setupProjectID, setupErr := setup.RunInteractive()
+			if setupErr != nil {
+				if errors.Is(setupErr, setup.ErrStandaloneSkip) {
+					// The user chose standalone local mode during onboarding.
+					// setup already persisted local_only=true; mirror the
+					// startup path so descendants (MCP serve, CLI backends)
+					// inherit the choice for this process too. Mutate the
+					// in-memory config rather than reloading from disk — a
+					// reload would discard per-run overrides (--backend,
+					// --professional, --save-session) applied earlier.
+					localOnly = true
+					_ = os.Setenv(api.LocalOnlyEnv, "1")
+					auth = nil
+					apiClient = nil
+					qmaxCfg = api.QMaxConfig{}
+					appConfig.LocalOnly = true
+				} else {
+					fmt.Fprintln(os.Stderr, "Setup failed:", setupErr)
+					exitWithReceipt(1)
+				}
+			} else {
+				auth = setupAuth
+				apiClient = api.NewAPIClient(auth)
+				appConfig.DefaultProject = setupProjectID
+				if anthropicKey == "" {
+					anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
+				}
+			}
 		}
 	}
 
@@ -365,9 +401,10 @@ func main() {
 		}
 	}
 
-	// If connected but missing Anthropic key, prompt for it (skipped in CLI backend modes).
+	// If connected but missing Anthropic key, prompt for it (skipped in CLI
+	// backend modes and headless runs — the prompt would eat piped stdin).
 	ollamaConfigured := appConfig.OllamaURL != "" && appConfig.OllamaModel != ""
-	if cliBackend == "" && anthropicKey == "" && !(localOnly && ollamaConfigured) {
+	if cliBackend == "" && anthropicKey == "" && !(localOnly && ollamaConfigured) && stdinTTY {
 		fmt.Println()
 		fmt.Println("  Anthropic API key needed (this powers the AI).")
 		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
@@ -624,6 +661,14 @@ func resolveLocalOnly(flagEnabled, persisted, envEnabled bool) bool {
 
 func shouldRunInteractiveSetup(localOnly bool, qmaxBin string, hasAPIClient bool) bool {
 	return !localOnly && qmaxBin == "" && !hasAPIClient
+}
+
+// headlessSetupFallback reports whether interactive onboarding must be
+// replaced by an ephemeral standalone fallback. It only ever fires for
+// one-shot runs: pure-REPL non-TTY starts were already rejected by the
+// QUA-580 guard, so reaching setup without a TTY means -p/positional args.
+func headlessSetupFallback(stdinIsTTY bool) bool {
+	return !stdinIsTTY
 }
 
 func shouldUseStreamingBuiltIn(ag *agent.Agent) bool {

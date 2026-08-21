@@ -1,11 +1,14 @@
 package setup
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/qualitymax/qmax-code/internal/api"
@@ -180,5 +183,225 @@ func TestBrowserLoginHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	}
 	if redirected {
 		t.Fatal("redirect target was contacted")
+	}
+}
+
+func TestParseChoiceLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		line string
+		n    int
+		want int
+	}{
+		{name: "first option", line: "1", n: 4, want: 0},
+		{name: "last option", line: "4", n: 4, want: 3},
+		{name: "middle option", line: "3", n: 4, want: 2},
+		{name: "empty line", line: "", n: 4, want: -1},
+		{name: "zero", line: "0", n: 4, want: -1},
+		{name: "above range", line: "5", n: 4, want: -1},
+		{name: "negative", line: "-1", n: 4, want: -1},
+		{name: "non-numeric", line: "yes", n: 4, want: -1},
+		{name: "padded digit", line: " 2 ", n: 4, want: 1},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseChoiceLine(tt.line, tt.n); got != tt.want {
+				t.Fatalf("parseChoiceLine(%q, %d) = %d, want %d", tt.line, tt.n, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChooseFromRawInputNavigation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{name: "down arrow", input: "\x1b[B\n", want: 1},
+		{name: "up arrow", input: "j\x1b[A\n", want: 0},
+		{name: "vim and arrow navigation", input: "j\x1b[Bk\n", want: 1},
+		{name: "direct digit", input: "3\n", want: 2},
+		{name: "ordinary key after escape is preserved", input: "\x1bj\n", want: 1},
+		{name: "malformed CSI is ignored as a unit", input: "\x1b[?1049hj\n", want: 1},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			redraws := 0
+			got, confirmed := chooseFromRawInput(
+				bufio.NewReader(strings.NewReader(tt.input)),
+				4,
+				func(int, string) { redraws++ },
+			)
+			if !confirmed {
+				t.Fatal("raw input did not confirm a selection")
+			}
+			if got != tt.want {
+				t.Fatalf("selection = %d, want %d", got, tt.want)
+			}
+			if redraws == 0 {
+				t.Fatal("navigation did not request a menu redraw")
+			}
+		})
+	}
+}
+
+func TestUseStandaloneModePersistsLocalOnly(t *testing.T) {
+	// api config resolves ~/.qmax-code from HOME at call time, so a temp
+	// HOME isolates the persisted local_only write.
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", t.TempDir())
+	defer os.Setenv("HOME", origHome)
+
+	if err := useStandaloneMode(); !errors.Is(err, ErrStandaloneSkip) {
+		t.Fatalf("useStandaloneMode() error = %v, want ErrStandaloneSkip", err)
+	}
+
+	cfg := api.LoadQMaxCodeConfig()
+	if !cfg.LocalOnly {
+		t.Fatal("local_only not persisted after standalone selection")
+	}
+
+	// Second run must stay idempotent (no error, still standalone).
+	if err := useStandaloneMode(); !errors.Is(err, ErrStandaloneSkip) {
+		t.Fatalf("second useStandaloneMode() error = %v, want ErrStandaloneSkip", err)
+	}
+}
+
+func TestLoginWithKeyPromptEmptyInputReturnsSentinel(t *testing.T) {
+	// Empty stdin must surface ErrEmptyAPIKey (not a generic error) so the
+	// onboarding retry/standalone branch can match on it.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	_, err = loginWithKeyPrompt()
+	if !errors.Is(err, ErrEmptyAPIKey) {
+		t.Fatalf("loginWithKeyPrompt() error = %v, want ErrEmptyAPIKey", err)
+	}
+}
+
+func TestRecoverFromEmptyKeyStandaloneBranch(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", t.TempDir())
+	defer os.Setenv("HOME", origHome)
+
+	// Piped stdin → PromptChoice takes the numeric fallback; "2" selects
+	// "Skip — use standalone local mode".
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("2\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	_, err = recoverFromEmptyKey()
+	if !errors.Is(err, ErrStandaloneSkip) {
+		t.Fatalf("recoverFromEmptyKey() error = %v, want ErrStandaloneSkip", err)
+	}
+	if cfg := api.LoadQMaxCodeConfig(); !cfg.LocalOnly {
+		t.Fatal("standalone branch did not persist local_only")
+	}
+}
+
+func TestRecoverFromEmptyKeyRetryBranchAsksForKeyAgain(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", t.TempDir())
+	defer os.Setenv("HOME", origHome)
+
+	// "1" selects "Try again — paste a key"; the retry prompt then hits EOF
+	// (numeric reader buffers the whole pipe) and must surface the sentinel
+	// again rather than a generic failure.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	_, err = recoverFromEmptyKey()
+	if !errors.Is(err, ErrEmptyAPIKey) {
+		t.Fatalf("recoverFromEmptyKey() error = %v, want ErrEmptyAPIKey from retry prompt", err)
+	}
+	if cfg := api.LoadQMaxCodeConfig(); cfg.LocalOnly {
+		t.Fatal("retry branch must not persist standalone mode")
+	}
+}
+
+func TestRecoverFromEmptyKeyRetryBranchAcceptsValidKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/me" {
+			t.Errorf("path = %q, want /api/me", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer retry-success" {
+			t.Errorf("Authorization = %q, want stripped retry key", got)
+		}
+		_, _ = w.Write([]byte(`{"email":"retry@example.test","id":"retry-user"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("QUALITYMAX_URL", server.URL)
+
+	// The recovery menu reads "1" from piped stdin. Stub the secret prompt so
+	// this test can deterministically model the key entered after that choice.
+	originalPrompt := promptAPIKey
+	promptAPIKey = func(string) string { return "qm-retry-success" }
+	defer func() { promptAPIKey = originalPrompt }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatalf("write retry choice: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	auth, err := recoverFromEmptyKey()
+	if err != nil {
+		t.Fatalf("recoverFromEmptyKey() error = %v", err)
+	}
+	if auth == nil || auth.APIKey != "qm-retry-success" {
+		t.Fatalf("auth = %+v, want successful retry config", auth)
+	}
+	if auth.Email != "retry@example.test" || auth.UserID != "retry-user" {
+		t.Fatalf("auth metadata = %+v", auth)
 	}
 }

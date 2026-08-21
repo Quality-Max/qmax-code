@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,20 @@ import (
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
+var (
+	// ErrStandaloneSkip signals the user chose standalone local mode during
+	// onboarding instead of connecting a QualityMax account. Callers should
+	// switch to standalone mode rather than treating this as a failure.
+	ErrStandaloneSkip = errors.New("standalone local mode selected")
+
+	// ErrEmptyAPIKey is returned when the API key prompt ends with no input.
+	ErrEmptyAPIKey = errors.New("no API key provided")
+
+	// promptAPIKey is kept as a seam for the recovery-flow tests. Production
+	// always uses ReadSecret, so API keys remain read without echoing them.
+	promptAPIKey = ReadSecret
+)
+
 // LoginInteractive prompts the user to paste their API key.
 func LoginInteractive() (*api.AuthConfig, error) {
 	fmt.Println()
@@ -30,7 +45,7 @@ func LoginInteractive() (*api.AuthConfig, error) {
 	key := ReadSecret("  Paste your API key (qm-...): ")
 
 	if key == "" {
-		return nil, fmt.Errorf("no API key provided")
+		return nil, ErrEmptyAPIKey
 	}
 
 	return api.LoginWithAPIKey(key)
@@ -232,11 +247,14 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 	fmt.Println("  Let's get you set up — it takes 30 seconds.")
 	fmt.Println()
 
-	// Step 1: Account check
+	// Step 1: Account check. The standalone option is the escape hatch for
+	// users without a QualityMax account — without it, an empty key at the
+	// paste prompt used to kill the whole setup (QUA: onboarding dead-end).
 	choice := PromptChoice("  Do you have a QualityMax account?", []string{
 		"Yes, log me in (opens browser)",
 		"No, create one (free)",
 		"I have an API key already",
+		"Skip — use standalone local mode (no account needed)",
 	})
 
 	var auth *api.AuthConfig
@@ -256,12 +274,29 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 		auth, err = LoginViaBrowser()
 	case 2: // I have an API key
 		auth, err = loginWithKeyPrompt()
+		if errors.Is(err, ErrEmptyAPIKey) {
+			auth, err = recoverFromEmptyKey()
+		}
+	case 3: // Skip — standalone local mode
+		err = useStandaloneMode()
+	}
+
+	if errors.Is(err, ErrStandaloneSkip) {
+		tui.AnimateMax(tui.MoodHappy, "Standalone mode it is!")
+		fmt.Println()
+		fmt.Println("  No account needed. Only local workspace tools are enabled;")
+		fmt.Println("  cloud features (crawls, test runs, reviews) stay off.")
+		fmt.Println()
+		fmt.Println("  Connect later anytime with: qmax-code login")
+		fmt.Println("  (after: qmax-code config set local_only false)")
+		return nil, 0, ErrStandaloneSkip
 	}
 
 	if err != nil {
 		tui.AnimateMax(tui.MoodSad, "Login failed: "+err.Error())
 		fmt.Println()
 		fmt.Println("  Try again with: qmax-code login")
+		fmt.Println("  Or skip the account: qmax-code --local")
 		return nil, 0, fmt.Errorf("interactive login: %w", err)
 	}
 
@@ -347,12 +382,44 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 	return auth, projectID, nil
 }
 
+// recoverFromEmptyKey handles an empty API-key paste: usually "I don't
+// actually have a key" — offer the standalone exit instead of failing the
+// whole setup. Returns the retry result, or ErrStandaloneSkip when the
+// user picks standalone.
+func recoverFromEmptyKey() (*api.AuthConfig, error) {
+	retry := PromptChoice("  No key entered. What now?", []string{
+		"Try again — paste a key",
+		"Skip — use standalone local mode",
+	})
+	if retry == 0 {
+		return loginWithKeyPrompt()
+	}
+	return nil, useStandaloneMode()
+}
+
+// useStandaloneMode persists local_only=true so the choice survives restarts,
+// and returns ErrStandaloneSkip so the caller can switch modes cleanly.
+func useStandaloneMode() error {
+	cfg := api.LoadQMaxCodeConfig()
+	if !cfg.LocalOnly {
+		cfg.LocalOnly = true
+		if err := cfg.Save(); err != nil {
+			// Don't fail the flow: this run still switches to standalone in
+			// memory. But a silent no-persist would confusingly re-run
+			// onboarding on the next launch, so say so.
+			fmt.Printf("  Note: could not save standalone preference (%s).\n", err)
+			fmt.Println("  This session is standalone; next launch may ask again.")
+		}
+	}
+	return ErrStandaloneSkip
+}
+
 // loginWithKeyPrompt asks the user to paste their API key.
 func loginWithKeyPrompt() (*api.AuthConfig, error) {
-	key := ReadSecret("  Paste your API key (qm-...): ")
+	key := promptAPIKey("  Paste your API key (qm-...): ")
 
 	if key == "" {
-		return nil, fmt.Errorf("no API key provided")
+		return nil, ErrEmptyAPIKey
 	}
 
 	fmt.Println()
@@ -499,8 +566,172 @@ func maskKey(key string) string {
 // --- UI helpers ---
 
 // PromptChoice shows an interactive menu and returns the selected index.
+// On a TTY it renders an arrow-key chooser (↑/↓ or j/k to move, Enter to
+// confirm, digits 1-9 to select directly). When raw mode is unavailable
+// (piped stdin, CI), it falls back to the numeric prompt.
 func PromptChoice(prompt string, options []string) int {
 	fmt.Println(prompt)
+
+	oldState, rawErr := tui.EnableRawMode()
+	if rawErr != nil {
+		// Not a TTY (or raw mode unsupported): numeric fallback.
+		return promptChoiceNumeric(options)
+	}
+	defer tui.RestoreTermMode(oldState)
+
+	printMenu := func(sel int, typed string) {
+		for i, opt := range options {
+			if i == sel {
+				fmt.Printf("    \033[36m› %s\033[0m\n", opt)
+			} else {
+				fmt.Printf("      %s\n", opt)
+			}
+		}
+		if typed != "" {
+			fmt.Printf("  \033[2mGo to %s + Enter, or ↑/↓ then Enter\033[0m\n", typed)
+		} else {
+			fmt.Println("  \033[2m↑/↓ to move · Enter to select · 1-9 jumps\033[0m")
+		}
+	}
+
+	redraw := func(sel int, typed string) {
+		for i := 0; i < len(options)+1; i++ {
+			fmt.Print("\033[A\033[2K") // up one line, clear it
+		}
+		printMenu(sel, typed)
+	}
+
+	printMenu(0, "")
+	selection, confirmed := chooseFromRawInput(bufio.NewReader(os.Stdin), len(options), redraw)
+	if !confirmed {
+		tui.RestoreTermMode(oldState)
+		return promptChoiceNumeric(options)
+	}
+
+	tui.RestoreTermMode(oldState)
+	fmt.Println()
+	fmt.Printf("  Selected: %s\n", options[selection])
+	return selection
+}
+
+type chooserEvent uint8
+
+const (
+	chooserNoop chooserEvent = iota
+	chooserConfirm
+	chooserCancel
+	chooserUp
+	chooserDown
+	chooserDigit
+)
+
+// chooseFromRawInput owns the raw chooser state. Keeping the byte parser
+// separate from terminal setup makes its navigation behavior deterministic to
+// test, while PromptChoice remains responsible for rendering and raw mode.
+func chooseFromRawInput(reader *bufio.Reader, optionCount int, redraw func(int, string)) (int, bool) {
+	sel, typed := 0, ""
+	for {
+		event, digit, ok := readChooserEvent(reader)
+		if !ok {
+			return 0, false
+		}
+
+		switch event {
+		case chooserConfirm:
+			return sel, true
+		case chooserCancel:
+			return 0, true
+		case chooserUp:
+			if sel > 0 {
+				sel--
+				typed = ""
+				redraw(sel, typed)
+			}
+		case chooserDown:
+			if sel < optionCount-1 {
+				sel++
+				typed = ""
+				redraw(sel, typed)
+			}
+		case chooserDigit:
+			candidate := typed + string(digit)
+			if idx := parseChoiceLine(candidate, optionCount); idx >= 0 {
+				sel = idx
+				typed = candidate
+				redraw(sel, typed)
+			}
+		}
+	}
+}
+
+// readChooserEvent accepts only the keys the chooser supports. Escape input
+// must be exactly CSI A/B; malformed CSI sequences are consumed as input, not
+// echoed or executed. A non-CSI byte after Escape is unread so it is handled
+// normally on the following iteration.
+func readChooserEvent(reader *bufio.Reader) (chooserEvent, byte, bool) {
+	b, err := reader.ReadByte()
+	if err != nil {
+		return chooserNoop, 0, false
+	}
+
+	switch b {
+	case '\r', '\n':
+		return chooserConfirm, 0, true
+	case 3:
+		return chooserCancel, 0, true
+	case 'j':
+		return chooserDown, 0, true
+	case 'k':
+		return chooserUp, 0, true
+	case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return chooserDigit, b, true
+	case 27:
+		return readEscapeEvent(reader)
+	default:
+		return chooserNoop, 0, true
+	}
+}
+
+func readEscapeEvent(reader *bufio.Reader) (chooserEvent, byte, bool) {
+	second, err := reader.ReadByte()
+	if err != nil {
+		return chooserNoop, 0, true
+	}
+	if second != '[' {
+		// Escape itself is a no-op, but the next ordinary key still belongs to
+		// the user. Put it back so the normal allowlist handles it.
+		_ = reader.UnreadByte()
+		return chooserNoop, 0, true
+	}
+
+	third, err := reader.ReadByte()
+	if err != nil {
+		return chooserNoop, 0, true
+	}
+	switch third {
+	case 'A':
+		return chooserUp, 0, true
+	case 'B':
+		return chooserDown, 0, true
+	default:
+		// A CSI sequence has no meaning to this chooser unless it is A/B.
+		// Consume it through its final byte so no part can be reinterpreted as
+		// menu input (for example, ESC [ ? 1 B).
+		for third < 0x40 || third > 0x7e {
+			third, err = reader.ReadByte()
+			if err != nil {
+				break
+			}
+		}
+		return chooserNoop, 0, true
+	}
+}
+
+// promptChoiceNumeric prints the classic "Choice (1-N, default 1)" prompt.
+// It reproduces the pre-chooser output contract (full option list, then the
+// prompt) so non-TTY consumers — CI, expect scripts, AI-generated harnesses
+// — keep parsing stdout the same way.
+func promptChoiceNumeric(options []string) int {
 	for i, opt := range options {
 		if i == 0 {
 			fmt.Printf("    \033[36m› %s\033[0m\n", opt) // highlight first
@@ -509,22 +740,27 @@ func PromptChoice(prompt string, options []string) int {
 		}
 	}
 	fmt.Println()
-
-	// Simple input: type number or press enter for first option
 	fmt.Print("  Choice (1-" + strconv.Itoa(len(options)) + ", default 1): ")
 	reader := bufio.NewReader(os.Stdin)
 	line, _ := reader.ReadString('\n')
+	if idx := parseChoiceLine(strings.TrimSpace(line), len(options)); idx >= 0 {
+		return idx
+	}
+	return 0
+}
+
+// parseChoiceLine converts a typed choice like "3" into a zero-based index.
+// Returns -1 for empty or out-of-range input.
+func parseChoiceLine(line string, n int) int {
 	line = strings.TrimSpace(line)
-
 	if line == "" {
-		return 0
+		return -1
 	}
-
-	n, err := strconv.Atoi(line)
-	if err != nil || n < 1 || n > len(options) {
-		return 0
+	v, err := strconv.Atoi(line)
+	if err != nil || v < 1 || v > n {
+		return -1
 	}
-	return n - 1
+	return v - 1
 }
 
 // waitForEnter waits for the user to press Enter.
