@@ -4,6 +4,8 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-08-21
+
 ### Added
 - Self-update with a startup proposal. When a newer release exists in the
   public releases repo, qmax-code offers to install it at startup
