@@ -12,7 +12,7 @@ terminal UX — or run the built-in loop on Anthropic, Cerebras, or Ollama.
 This repository is **Go 1.24+**, not TypeScript. The thing users install is one
 compiled binary.
 
-## Positioning (do not oversell)
+## Positioning
 
 qmax-code is **not** a faster Claude and **not** an IDE. Cursor owns the
 editor. Claude Code and Codex own general coding in a terminal. qmax-code owns
