@@ -4,6 +4,22 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.27.0] - 2026-08-22
+
+### Added
+- `/providers` is an interactive picker: ↑/↓ highlights Z.AI, Groq, or
+  OpenRouter; Enter enables and saves (then the existing key prompt if needed).
+- When no OpenCode provider is opted in, `/orch` still shows the OpenCode
+  section with enable rows, so GLM/Groq/OpenRouter can be turned on from the
+  model picker.
+- README, AGENTS.md, and CLAUDE.md explain why qmax-code is written in Go:
+  one-file install, cross-platform releases, instant startup, and cheap
+  concurrency — not a smarter model.
+
+### Fixed
+- `/orch` Enter confirms the highlighted model even when Tab has focused the
+  effort bar. Previously that Enter quit with no selection.
+
 ## [1.26.1] - 2026-08-22
 
 ### Fixed

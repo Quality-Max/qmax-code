@@ -497,6 +497,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			if len(cfg.ActiveProviders()) > 0 && agent.FindOpenCode() != "" {
 				term.PrintSystem("Querying opencode models for your enabled providers…")
 			}
+			ocModels := buildOpenCodeModelEntries(cfg, ag.Cfg.Context)
+			if len(ocModels) == 0 {
+				ocModels = openCodeSetupEntries()
+			}
 			result := tui.ShowModelPicker(tui.ModelPickerOpts{
 				CurrentBackend:    currentBackend,
 				CurrentModelID:    currentModelID,
@@ -507,9 +511,14 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				CodexInstalled:    agent.FindCodex() != "",
 				CerebrasKeySet:    cfg.CerebrasKey != "",
 				OpenCodeInstalled: agent.FindOpenCode() != "",
-				OpenCodeModels:    buildOpenCodeModelEntries(cfg, ag.Cfg.Context),
+				OpenCodeModels:    ocModels,
 			})
 			if !result.Confirmed {
+				continue
+			}
+
+			if result.Backend == "opencode-enable" {
+				enableProvider(cfg, result.ModelID, ag, term)
 				continue
 			}
 
@@ -1581,7 +1590,7 @@ Commands:
   /gemma [none|low|medium|high|off]
                     Activate Gemma 4 on Cerebras, or return to API
   /ollama           Toggle the configured Ollama backend
-  /providers        List opt-in OpenCode providers
+  /providers        Pick and enable an OpenCode provider
   /providers enable|disable <id>
                     Manage Z.AI, Groq, or OpenRouter
   /reconnect        Restore the active CC/Codex MCP transport
@@ -2145,10 +2154,27 @@ func resolveOpenCodeModelOverride(cfg *api.Config, sctx *api.SessionContext) (st
 	return entries[0].ModelID, true
 }
 
-// handleProviders implements the /providers command: list opt-in opencode
-// providers, or enable/disable one for this user. Enabling prompts for the key
-// (stored in the OS keychain) and regenerates the managed opencode config so
-// the provider's models appear in /orch.
+// openCodeSetupEntries are /orch rows shown when no provider is opted in yet.
+// Selecting one runs enableProvider so GLM/Groq/OpenRouter can be chosen
+// from the picker instead of requiring a typed /providers enable command.
+func openCodeSetupEntries() []tui.OpenCodeModelEntry {
+	providers := api.BuiltinProviders()
+	out := make([]tui.OpenCodeModelEntry, 0, len(providers))
+	for _, p := range providers {
+		out = append(out, tui.OpenCodeModelEntry{
+			ProviderID:   p.ID,
+			ProviderName: "Enter to enable",
+			ModelID:      "enable:" + p.ID,
+			Label:        p.DisplayName,
+		})
+	}
+	return out
+}
+
+// handleProviders implements the /providers command: an arrow-key picker to
+// enable an opt-in opencode provider, or typed enable/disable. Enabling
+// prompts for the key (stored in the OS keychain) and regenerates the managed
+// opencode config so the provider's models appear in /orch.
 func handleProviders(input string, ag *agent.Agent, term *tui.Terminal) {
 	cfg := ag.AppConfig
 	if cfg == nil {
@@ -2157,7 +2183,7 @@ func handleProviders(input string, ag *agent.Agent, term *tui.Terminal) {
 	}
 	fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(input, "/providers")))
 	if len(fields) == 0 {
-		printProvidersList(cfg, term)
+		pickAndEnableProvider(cfg, ag, term)
 		return
 	}
 	switch fields[0] {
@@ -2178,23 +2204,33 @@ func handleProviders(input string, ag *agent.Agent, term *tui.Terminal) {
 	}
 }
 
-func printProvidersList(cfg *api.Config, term *tui.Terminal) {
-	term.PrintSystem("Opt-in providers (opencode backend). Enable one, then pick a model in /orch:")
-	for _, p := range api.BuiltinProviders() {
-		status := "○ available"
-		switch {
-		case !api.ProviderAllowed(p.ID):
-			status = "🔒 not entitled"
-		case cfg.IsProviderEnabled(p.ID) && api.ProviderKeySet(p.ID):
-			status = "● enabled (key set)"
-		case cfg.IsProviderEnabled(p.ID):
-			status = "● enabled (no key — re-enable)"
+func pickAndEnableProvider(cfg *api.Config, ag *agent.Agent, term *tui.Terminal) {
+	providers := api.BuiltinProviders()
+	items := make([]tui.ProviderPickerItem, 0, len(providers))
+	for _, p := range providers {
+		item := tui.ProviderPickerItem{
+			ID:          p.ID,
+			DisplayName: p.DisplayName,
+			Allowed:     api.ProviderAllowed(p.ID),
+			Enabled:     cfg.IsProviderEnabled(p.ID),
 		}
-		term.PrintSystem(fmt.Sprintf("  %-16s %-30s %s", p.ID, status, p.DisplayName))
+		switch {
+		case !item.Allowed:
+			item.Status = "not entitled"
+		case item.Enabled && api.ProviderKeySet(p.ID):
+			item.Status = "enabled"
+		case item.Enabled:
+			item.Status = "enabled (no key)"
+		default:
+			item.Status = "available"
+		}
+		items = append(items, item)
 	}
-	term.PrintSystem("")
-	term.PrintSystem("  /providers enable <id>   ·   /providers disable <id>")
-	term.PrintSystem("  Cerebras is available natively — select it directly in /orch.")
+	result := tui.ShowProviderPicker(items)
+	if !result.Confirmed {
+		return
+	}
+	enableProvider(cfg, result.ID, ag, term)
 }
 
 func enableProvider(cfg *api.Config, id string, ag *agent.Agent, term *tui.Terminal) {

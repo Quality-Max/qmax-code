@@ -249,11 +249,18 @@ func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, olla
 	entries = append(entries, apiModels...)
 	entries = append(entries, cerebrasModels...)
 
-	// Append opencode entries (one per enabled-provider model) after Cerebras.
+	// Append opencode entries after Cerebras. A ModelID of "enable:<id>" is a
+	// setup row: the user has not opted into that provider yet, so Enter
+	// should enable it rather than launching opencode on a missing model.
 	for _, m := range openCodeModels {
+		backend, modelID := "opencode", m.ModelID
+		if strings.HasPrefix(m.ModelID, "enable:") {
+			backend = "opencode-enable"
+			modelID = strings.TrimPrefix(m.ModelID, "enable:")
+		}
 		entries = append(entries, pickerEntry{
-			backend:  "opencode",
-			modelID:  m.ModelID,
+			backend:  backend,
+			modelID:  modelID,
 			label:    m.Label,
 			subLabel: m.ProviderName,
 			external: true,
@@ -355,10 +362,15 @@ func (m modelPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case msg.String() == "enter", msg.String() == " ":
-			if !m.effortFocus {
-				e := m.allEntries[m.cursor]
-				m.chosen = &e
+			// Enter always confirms the highlighted model plus the current
+			// effort. Tab only switches which keys move (list vs effort bar);
+			// leaving effort focused used to quit with no selection.
+			if len(m.allEntries) == 0 {
+				m.cancelled = true
+				return m, tea.Quit
 			}
+			e := m.allEntries[m.cursor]
+			m.chosen = &e
 			return m, tea.Quit
 
 		default:
@@ -468,16 +480,26 @@ func (m modelPickerModel) View() string {
 		b.WriteByte('\n')
 		ocDot := pickerDotGreen.Render("●")
 		ocStatus := "enabled providers"
+		hasReal := false
+		for _, e := range m.allEntries {
+			if e.backend == "opencode" {
+				hasReal = true
+				break
+			}
+		}
 		if !m.openCodeInstalled {
 			ocDot = pickerDotRed.Render("●")
 			ocStatus = "opencode not installed"
+		} else if !hasReal {
+			ocDot = pickerDotRed.Render("●")
+			ocStatus = "not enabled — Enter to opt in"
 		}
 		sectionLabelOC := fmt.Sprintf("%s  opencode  %s %s",
 			pickerIconOpenCode.Render("◈"), ocDot, pickerBadgeExt.Render(ocStatus))
 		b.WriteString(pickerSectionHeader.Render(sectionLabelOC))
 		b.WriteByte('\n')
 		for i, e := range m.allEntries {
-			if e.backend != "opencode" {
+			if e.backend != "opencode" && e.backend != "opencode-enable" {
 				continue
 			}
 			b.WriteString(m.renderRow(i, e, "opencode"))
@@ -1008,6 +1030,156 @@ func ShowSessionPicker(sessions []SessionPickerItem, activeID string) (string, b
 		return "", false
 	}
 	return final.sessions[final.cursor].ID, true
+}
+
+// ─── Provider picker ──────────────────────────────────────────────────────────
+
+// ProviderPickerItem is one opt-in opencode provider shown by /providers.
+type ProviderPickerItem struct {
+	ID          string
+	DisplayName string
+	Status      string // "available", "enabled", "enabled (no key)", "not entitled"
+	Enabled     bool
+	Allowed     bool
+}
+
+// ProviderPickerResult is returned after the /providers TUI closes.
+type ProviderPickerResult struct {
+	ID        string
+	Confirmed bool
+}
+
+type providerPickerModel struct {
+	items     []ProviderPickerItem
+	cursor    int
+	confirmed bool
+	cancelled bool
+}
+
+func newProviderPickerModel(items []ProviderPickerItem) providerPickerModel {
+	cursor := 0
+	for i, it := range items {
+		if it.Allowed && !it.Enabled {
+			cursor = i
+			break
+		}
+	}
+	return providerPickerModel{items: items, cursor: cursor}
+}
+
+func (m providerPickerModel) Init() tea.Cmd { return nil }
+
+func (m providerPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc", "q":
+			m.cancelled = true
+			return m, tea.Quit
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.items)-1 {
+				m.cursor++
+			}
+		case "enter", " ":
+			if len(m.items) == 0 {
+				m.cancelled = true
+				return m, tea.Quit
+			}
+			if !m.items[m.cursor].Allowed {
+				return m, nil
+			}
+			m.confirmed = true
+			return m, tea.Quit
+		default:
+			k := msg.String()
+			if len(k) == 1 && k[0] >= '1' && k[0] <= '9' {
+				n := int(k[0] - '1')
+				if n < len(m.items) {
+					m.cursor = n
+				}
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m providerPickerModel) View() string {
+	var b strings.Builder
+
+	b.WriteString(pickerSectionHeader.Render(
+		fmt.Sprintf("%s  opencode providers", pickerIconOpenCode.Render("◈"))))
+	b.WriteByte('\n')
+	b.WriteString(pickerFooter.Render("  Enable one, then pick a model in /orch"))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+
+	for i, it := range m.items {
+		isCursor := i == m.cursor
+		arrow := "  "
+		if isCursor {
+			arrow = pickerBadgeStar.Render("▶ ")
+		}
+
+		mark := "○"
+		markStyle := pickerBadgeExt
+		switch {
+		case !it.Allowed:
+			mark = "🔒"
+			markStyle = pickerDotRed
+		case it.Enabled:
+			mark = "●"
+			markStyle = pickerDotGreen
+		}
+
+		name := pickerLabel.Render(it.DisplayName)
+		status := pickerBadgeExt.Render(it.Status)
+		id := pickerFooter.Render(it.ID)
+		if isCursor {
+			name = pickerLabelSel.Render(it.DisplayName)
+			status = menuDescSelSty.Render(it.Status)
+			id = menuDescSelSty.Render(it.ID)
+		}
+
+		row := fmt.Sprintf("%s%s  %s  %s  %s", arrow, markStyle.Render(mark), name, status, id)
+		if isCursor {
+			b.WriteString(pickerRowSelected.Render(row))
+		} else {
+			b.WriteString(pickerRowNormal.Render(row))
+		}
+		b.WriteByte('\n')
+	}
+
+	b.WriteByte('\n')
+	b.WriteString(pickerFooter.Render("  Cerebras is native — select it in /orch"))
+	b.WriteByte('\n')
+	b.WriteString(pickerDivider.Render(strings.Repeat("─", 52)))
+	b.WriteByte('\n')
+	b.WriteString(pickerFooter.Render("↑↓ navigate  ·  1-9 jump  ·  Enter enable  ·  Esc cancel"))
+	b.WriteByte('\n')
+
+	return pickerBox.Render(b.String())
+}
+
+// ShowProviderPicker opens the /providers TUI. Confirmed=false means cancel.
+func ShowProviderPicker(items []ProviderPickerItem) ProviderPickerResult {
+	if len(items) == 0 {
+		return ProviderPickerResult{}
+	}
+	m := newProviderPickerModel(items)
+	p := tea.NewProgram(m)
+	result, err := p.Run()
+	if err != nil {
+		return ProviderPickerResult{}
+	}
+	final := result.(providerPickerModel)
+	if final.cancelled || !final.confirmed {
+		return ProviderPickerResult{}
+	}
+	return ProviderPickerResult{ID: final.items[final.cursor].ID, Confirmed: true}
 }
 
 // ─── Cloud-sync toggle ────────────────────────────────────────────────────────
