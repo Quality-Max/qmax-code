@@ -56,7 +56,7 @@ var slashMenuItems = []SlashMenuItem{
 	{"/codex", "Switch to Codex CLI backend"},
 	{"/opencode", "Switch to opencode backend (Z.AI / Groq / OpenRouter)"},
 	{"/api", "Switch to direct Anthropic API"},
-	{"/providers", "Enable/disable opencode providers (per-user opt-in)"},
+	{"/providers", "Pick and enable an opencode provider (arrows + Enter)"},
 	{"/connect", "Log in to QualityMax (browser)"},
 	{"/disconnect", "Log out"},
 	{"/reconnect", "Restore active MCP transport"},

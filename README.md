@@ -79,6 +79,16 @@ background-job health—remain experimental and are only exposed when
 
 ## What is new
 
+### v1.27
+
+- **Selectable providers:** `/providers` is an arrow-key picker (Enter
+  enables and saves). `/orch` Enter always confirms, including when the
+  effort bar is focused, and can opt in OpenCode providers (Z.AI GLM, Groq,
+  OpenRouter) when none are enabled yet.
+- **Why Go:** this README, `AGENTS.md`, and `CLAUDE.md` now explain the
+  product choice: one-file install, cross-platform releases, instant
+  startup — not a smarter model.
+
 ### v1.22
 
 - **Cloud-routed MCP tool calls (v1.22.1):** `serve --mcp` now routes
@@ -130,6 +140,24 @@ go build -o qmax-code .
 ```
 
 Go 1.24 or newer is required for source builds.
+
+## Why Go
+
+qmax-code is a compiled Go program, not a Node or Python app. That is why it
+installs like a Unix tool.
+
+- **One file.** `curl | bash` drops a single binary. There is no Node, npm,
+  Python, or version manager to keep in sync.
+- **Every OS from one source tree.** A release is six binaries — macOS, Linux,
+  and Windows, Intel and ARM — from the same code.
+- **Starts immediately.** A terminal agent you open all day cannot wait on an
+  interpreter.
+- **Concurrent without extra machinery.** The agent turn, live browser feed,
+  signals, and MCP server run as goroutines in one process.
+
+Go does not make the model smarter. Claude Code, Codex, and OpenCode remain
+separate tools that qmax-code can host through `/orch`. Go makes qmax-code
+itself install once and run like `curl`, `git`, or `rg`.
 
 ## Quick start
 
