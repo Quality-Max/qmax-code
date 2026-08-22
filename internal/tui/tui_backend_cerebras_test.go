@@ -108,12 +108,12 @@ func TestProviderPickerEnterEnablesHighlighted(t *testing.T) {
 	if m.cursor != 0 {
 		t.Fatalf("cursor = %d, want first available provider", m.cursor)
 	}
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	next := updated.(providerPickerModel)
 	if next.cursor != 1 {
 		t.Fatalf("after ↓ cursor = %d, want 1 (groq)", next.cursor)
 	}
-	updated, cmd = next.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := next.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	next = updated.(providerPickerModel)
 	if cmd == nil {
 		t.Fatal("Enter should quit the picker")
