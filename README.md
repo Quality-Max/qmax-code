@@ -51,6 +51,31 @@ cloud reach a private network). Only hosted QualityMax needs an account.
 > internal use, modification, contribution, education, research, and
 > professional services. Each release converts to Apache 2.0 after two years.
 
+## Where it sits
+
+qmax-code is the **QA terminal next to the repo**, not an editor and not a
+faster Claude. Cursor owns the file buffer. Claude Code and Codex own general
+coding in a terminal. qmax-code owns crawls, tests, review, healing, and
+receipts — and can **host** those other agents through `/orch` when the job is
+coding.
+
+Go makes the binary install once. **Cerebras** makes tokens fast (today:
+GPT-OSS 120B, GLM 4.7, Gemma 4 at ~1000–2000+ tok/s; **Qwen 3.8 coming
+soon**). Claude Code and Codex are the careful path for hard design. Switch
+in `/orch`; do not run two CLIs and two configs.
+
+| Job | Pick |
+| --- | --- |
+| Tests, crawls, coverage, QualityMax projects | qmax-code connected (or `--local` for workspace-only) |
+| Fast loops, bulk generation, cheap iteration | `/orch` → Cerebras |
+| Hard design, tricky refactors | `/orch` → Claude Code or Codex |
+| GLM on a coding plan | `/providers` → Z.AI, then OpenCode in `/orch` |
+| Air-gapped / local weights | Ollama |
+
+Day-to-day: the editor for typing, qmax-code for the agent. Default `/orch`
+to Cerebras or Claude Code depending on whether the next hour is “generate
+and run a lot” or “think hard.”
+
 ## What qmax-code can do
 
 ![Plan, generate, execute, review, and ship, over a local repository lane](docs/img/lifecycle.svg)
@@ -155,9 +180,11 @@ installs like a Unix tool.
 - **Concurrent without extra machinery.** The agent turn, live browser feed,
   signals, and MCP server run as goroutines in one process.
 
-Go does not make the model smarter. Claude Code, Codex, and OpenCode remain
-separate tools that qmax-code can host through `/orch`. Go makes qmax-code
-itself install once and run like `curl`, `git`, or `rg`.
+Go does not make the model smarter, and qmax-code is not faster than Claude
+at thinking. Token speed is the inference backend (Cerebras today; Qwen 3.8
+on Cerebras soon). Claude Code, Codex, and OpenCode remain separate tools
+that qmax-code can host through `/orch`. Go makes qmax-code itself install
+once and run like `curl`, `git`, or `rg`.
 
 ## Quick start
 
@@ -276,7 +303,7 @@ troubleshooting.
 | Anthropic API | `/api` or `/orch` | `ANTHROPIC_API_KEY` or OS keychain | Built-in agent loop; tool set follows connected vs. standalone mode. |
 | Claude Code | `/cc` or `/orch` | Local Claude Code login | CLI subprocess; qmax tools arrive through MCP. Agent SDK usage may be separately metered by Anthropic. |
 | Codex | `/codex` or `/orch` | Local Codex login | CLI subprocess using the user's OpenAI access; qmax tools arrive through MCP. |
-| Cerebras | `/gemma`, `/orch`, or `--backend cerebras` | `CEREBRAS_API_KEY` or OS keychain | Built-in native function calling. Gemma 4 supports images and reasoning effort. |
+| Cerebras | `/gemma`, `/orch`, or `--backend cerebras` | `CEREBRAS_API_KEY` or OS keychain | Built-in native function calling. Fast inference (~1000–2000+ tok/s): GPT-OSS 120B, GLM 4.7, Gemma 4 (vision + effort). **Qwen 3.8 coming soon.** |
 | OpenCode | `/opencode` or `/orch` | Per-provider key in OS keychain | CLI subprocess for opt-in Z.AI, Groq, and OpenRouter providers. |
 | Ollama | `/ollama` or `/orch` | Configured Ollama endpoint | Self-hosted inference; configure the URL and model first. |
 

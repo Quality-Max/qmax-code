@@ -4,12 +4,31 @@ Instructions for coding agents working on qmax-code.
 
 ## What this is
 
-qmax-code is a terminal QA and coding agent. It can run standalone on a local
-repository or connected to QualityMax, and it can host Claude Code, Codex, or
-OpenCode through `/orch` while keeping qmax tools and terminal UX.
+qmax-code is a terminal **QA** agent that can also host coding CLIs. It runs
+standalone on a local repository or connected to QualityMax. Through `/orch`
+it can launch Claude Code, Codex, or OpenCode while keeping qmax tools and
+terminal UX — or run the built-in loop on Anthropic, Cerebras, or Ollama.
 
 This repository is **Go 1.24+**, not TypeScript. The thing users install is one
 compiled binary.
+
+## Positioning (do not oversell)
+
+qmax-code is **not** a faster Claude and **not** an IDE. Cursor owns the
+editor. Claude Code and Codex own general coding in a terminal. qmax-code owns
+QA on the repo (crawl, generate/run tests, review, heal, receipts) and borrows
+those other agents when the job is coding.
+
+- **Go** = one-file install and instant TUI. It does not make tokens faster.
+- **Cerebras** = fast inference (~1000–2000+ tok/s). Models today: GPT-OSS
+  120B, GLM 4.7, Gemma 4. **Qwen 3.8 is coming soon** on Cerebras; do not
+  wire it into `/orch` until the model ID is live on the Cerebras API.
+- **Claude Code / Codex** = judgment for hard design and tricky refactors.
+- **OpenCode** = opt-in providers (Z.AI GLM, Groq, OpenRouter) via
+  `/providers`.
+
+When writing copy or comments, say “the QA terminal that can switch
+inference,” not “faster than Claude.”
 
 ## Why Go
 
