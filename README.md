@@ -16,6 +16,7 @@
 # qmax-code
 
 [![Latest release](https://img.shields.io/github/v/release/Quality-Max/qmax-code?label=release&color=217a45)](https://github.com/Quality-Max/qmax-code/releases/latest)
+[![GitHub downloads](https://img.shields.io/github/downloads/Quality-Max/qmax-code/total?label=downloads)](https://github.com/Quality-Max/qmax-code/releases)
 [![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-2ea44f.svg)](LICENSE)
 [![Future License: Apache 2.0](https://img.shields.io/badge/future%20license-Apache%202.0-blue.svg)](LICENSE)
 [![Made with Go](https://img.shields.io/badge/made%20with-Go%201.24+-00ADD8.svg)](https://go.dev/)
