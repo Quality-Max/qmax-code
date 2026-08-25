@@ -47,36 +47,24 @@ func TestPickerClaudeCodeDefaultCursorOnSonnet5(t *testing.T) {
 	}
 }
 
-func TestPickerIncludesCodexGPT56Variants(t *testing.T) {
-	m := newModelPickerModel("codex", "", "high", "", "", true, true, false, false, nil)
+func TestPickerUsesCodexConfigurationInsteadOfClaimingModelControl(t *testing.T) {
+	// A legacy saved model must still put the cursor on the terminal-neutral
+	// Codex entry; the runner no longer puts model IDs on the command line.
+	m := newModelPickerModel("codex", "legacy-model", "high", "", "", true, true, false, false, nil)
 
-	seen := map[string]pickerEntry{}
+	var entries []pickerEntry
 	for _, e := range m.allEntries {
 		if e.backend == "codex" {
-			seen[e.modelID] = e
+			entries = append(entries, e)
 		}
 	}
-
-	for id, wantLabel := range map[string]string{
-		"gpt-5.6-terra": "GPT-5.6 Terra",
-		"gpt-5.6-sol":   "GPT-5.6 Sol",
-		"gpt-5.6-luna":  "GPT-5.6 Luna",
-	} {
-		e, ok := seen[id]
-		if !ok {
-			t.Fatalf("Codex picker missing %s", id)
-		}
-		if e.label != wantLabel {
-			t.Errorf("%s label = %q, want %q", id, e.label, wantLabel)
-		}
-		if !e.isNew {
-			t.Errorf("%s should be flagged isNew", id)
-		}
+	if len(entries) != 1 {
+		t.Fatalf("Codex picker entries = %d, want 1", len(entries))
 	}
-
-	// o4-mini remains the default Codex model — adding new rows above it
-	// must not silently change which model launches when none is specified.
-	if fav := seen["o4-mini"]; !fav.isFav {
-		t.Error("o4-mini should remain the default Codex picker row")
+	if entries[0].modelID != "" || entries[0].subLabel != "uses Codex config" || !entries[0].isFav {
+		t.Fatal("Codex picker must defer model selection to Codex configuration")
+	}
+	if got := m.allEntries[m.cursor].backend; got != "codex" {
+		t.Fatalf("cursor backend = %q, want codex", got)
 	}
 }

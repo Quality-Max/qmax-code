@@ -205,6 +205,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			if backend != "api" {
 				permissionMode = ag.AppConfig.OrchPermissionMode
 			}
+			if backend == "codex" {
+				model = "Codex config"
+				permissionMode = "codex policy"
+			}
 		}
 		// Report the window belonging to the backend that is actually active.
 		planWindow := planWindowFor(backend)
@@ -301,9 +305,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		case input == "/clear":
 			ag.ClearHistory()
 			lastContextTokens = 0
-			if oc, ok := cliAgent.(*agent.OpenCodeAgent); ok {
-				oc.ClearSession()
-			}
+			resetCLIConversation(cliAgent)
 			term.PrintSystem("Conversation cleared.")
 			continue
 		case strings.HasPrefix(input, "/project "):
@@ -666,12 +668,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
 				term.PrintSystem(fmt.Sprintf("Backend: Claude Code  model: %s  effort: %s", result.ModelID, result.Effort))
 			case "codex":
-				ca := agent.NewCodexAgent(agent.FindCodex(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				ca := agent.NewCodexAgent(agent.FindCodex(), result.Effort, cfg.OutputVerbose, ag.Cfg.Context)
 				if err := ca.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: Codex MCP config: %v", err))
 				}
 				cliAgent = ca
-				term.PrintSystem(fmt.Sprintf("Backend: Codex  model: %s  effort: %s", result.ModelID, result.Effort))
+				term.PrintSystem(fmt.Sprintf("Backend: Codex  model/policy: Codex config  prompt effort: %s", result.Effort))
 			case "opencode":
 				oc := agent.NewOpenCodeAgent(agent.FindOpenCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg, ag.Cfg.Context)
 				if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context, cfg.OrchPermissionMode); err != nil {
@@ -684,7 +686,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 
 			cfg.Backend = result.Backend
-			cfg.ModelOverride = result.ModelID
+			persistOrchModelSelection(cfg, result.Backend, result.ModelID)
 			cfg.Effort = result.Effort
 			ag.Cfg.Context.Backend = result.Backend
 			_ = cfg.Save()
@@ -847,14 +849,14 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					}
 					setup.InstallSkillsReport("codex", term)
 				}
-				ca := agent.NewCodexAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				ca := agent.NewCodexAgent(bin, cfg.Effort, cfg.OutputVerbose, ag.Cfg.Context)
 				if err := ca.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
 				}
 				cliAgent = ca
 				cfg.Backend = "codex"
 				_ = cfg.Save()
-				term.PrintSystem(fmt.Sprintf("Backend → Codex (%s) · %s mode", bin, cfg.OrchPermissionMode))
+				term.PrintSystem(fmt.Sprintf("Backend → Codex (%s) · Codex config policy", bin))
 
 			case "opencode":
 				// Pre-flight above already validated the CLI, providers, model, and
@@ -1706,6 +1708,21 @@ func reconnectMCPTransport(cliAgent agent.CLIAgent, term *tui.Terminal) {
 		term.PrintSystem("QMax MCP transport restored for Codex.")
 	default:
 		term.PrintSystem("No CC/Codex MCP transport is active. Use /cc or /codex first.")
+	}
+}
+
+func resetCLIConversation(cliAgent agent.CLIAgent) {
+	if resetter, ok := cliAgent.(agent.ConversationResetter); ok {
+		resetter.ResetConversation()
+	}
+}
+
+func persistOrchModelSelection(cfg *api.Config, backend, modelID string) {
+	// Codex owns its model selection in Codex config. Its terminal-neutral
+	// picker entry intentionally has no model ID, so do not let choosing it
+	// erase the saved preference used by the other orchestration backends.
+	if backend != "codex" {
+		cfg.ModelOverride = modelID
 	}
 }
 

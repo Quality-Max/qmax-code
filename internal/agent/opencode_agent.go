@@ -25,8 +25,8 @@ import (
 // managed opencode config, so opencode can call them natively.
 //
 // opencode supports native session resume (--session) and a rich NDJSON event
-// stream (opencode run --format json), so this mirrors the CCAgent design
-// rather than CodexAgent's self-managed history.
+// stream (opencode run --format json), so it retains its provider session ID
+// much like CodexAgent retains its exact native thread checkpoint.
 //
 // Per-message flow:
 //  1. qmax-code writes ~/.qmax-code/opencode.json (provider blocks + qmax MCP)
@@ -46,7 +46,7 @@ type OpenCodeAgent struct {
 	sctx           *api.SessionContext
 	lastToolName   string
 	fileSnaps      map[string]fileSnapshot // opencode tool part id → pre-edit snapshot
-	lastTurnIn     int  // token usage of the most recent turn (from opencode's stream)
+	lastTurnIn     int                     // token usage of the most recent turn (from opencode's stream)
 	lastTurnOut    int
 	lastTurnOK     bool      // true once a usage event carried tokens this turn
 	lastLimitHit   bool      // true if the plan limit was hit this turn
@@ -264,8 +264,8 @@ type ocPart struct {
 	Type   string          `json:"type"`
 	Text   string          `json:"text"`
 	Tool   string          `json:"tool"`
-	State  string          `json:"state,omitempty"`  // tool parts: pending|running|completed|error
-	Input  json.RawMessage `json:"input,omitempty"`  // tool parts: tool input (has file path)
+	State  string          `json:"state,omitempty"` // tool parts: pending|running|completed|error
+	Input  json.RawMessage `json:"input,omitempty"` // tool parts: tool input (has file path)
 	Tokens *ocTokens       `json:"tokens,omitempty"`
 	Usage  *ocTokens       `json:"usage,omitempty"`
 }
@@ -532,6 +532,11 @@ func (a *OpenCodeAgent) ClearSession() {
 	a.mu.Lock()
 	a.sessionID = ""
 	a.mu.Unlock()
+}
+
+// ResetConversation implements ConversationResetter.
+func (a *OpenCodeAgent) ResetConversation() {
+	a.ClearSession()
 }
 
 func (a *OpenCodeAgent) SetOutputVerbose(verbose bool) {

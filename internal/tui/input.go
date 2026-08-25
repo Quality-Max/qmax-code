@@ -20,7 +20,7 @@ type StatusInfo struct {
 	Backend        string // "cc" | "codex" | "opencode" | "cerebras" | "ollama" | "" (direct API)
 	Model          string // active model ID; "" = backend default
 	Effort         string // "low" | "medium" | "high" (CLI backends)
-	PermissionMode string // "standard" | "unattended" (CLI backends)
+	PermissionMode string // autonomy mode, or "codex policy" for Codex-owned policy
 	OutputVerbose  bool
 	Task           string        // what the agent is working on (latest user prompt)
 	TokensIn       int           // session input tokens

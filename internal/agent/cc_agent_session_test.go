@@ -189,12 +189,12 @@ func TestOutputStyleDirectiveModes(t *testing.T) {
 
 func TestCodexBuildPromptReflectsOutputVerbose(t *testing.T) {
 	a := &CodexAgent{effort: "high", outputVerbose: false, sctx: &api.SessionContext{}}
-	if !strings.Contains(a.buildPrompt("hi"), "OUTPUT MODE: COMPACT") {
+	if !strings.Contains(a.buildPrompt("hi", true), "OUTPUT MODE: COMPACT") {
 		t.Fatal("compact directive not in built prompt")
 	}
 
 	a.SetOutputVerbose(true)
-	if !strings.Contains(a.buildPrompt("hi"), "OUTPUT MODE: VERBOSE") {
+	if !strings.Contains(a.buildPrompt("hi", true), "OUTPUT MODE: VERBOSE") {
 		t.Fatal("SetOutputVerbose(true) did not propagate into the built prompt")
 	}
 }

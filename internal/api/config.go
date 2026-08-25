@@ -73,7 +73,8 @@ type Config struct {
 	EnabledProviders []string `json:"enabled_providers,omitempty"`
 
 	// ModelOverride is the specific model ID selected via the /orch TUI picker.
-	// Empty means "let the CLI pick its default". Used with CC and Codex backends.
+	// Empty means "let the backend pick its default". Codex always uses its own
+	// configuration; this override remains relevant to CC and opencode.
 	ModelOverride string `json:"model_override,omitempty"`
 
 	// Effort controls how thorough the CLI agent should be: "low", "medium", "high".
@@ -81,7 +82,7 @@ type Config struct {
 	Effort string `json:"effort,omitempty"`
 
 	// OrchPermissionMode records the autonomy level the user consented to for
-	// CC/Codex backends:
+	// CC and opencode backends. Codex uses its own approval and sandbox policy:
 	//   ""           = no consent yet; activation will prompt
 	//   "standard"   = curated allowlist auto-approved (reads, test runners,
 	//                  qmax MCP tools); edits and destructive shell still gated
