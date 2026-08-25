@@ -4,6 +4,21 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-08-25
+
+### Added
+- A public, terminal-neutral `codexrunner` Go package provides runner,
+  continuity, checkpoint, cancellation, structural-event, tool-execution, and
+  presentation boundaries for embedding Codex sessions.
+
+### Changed
+- Codex orchestration now starts with `codex exec --json -` and continues with
+  `codex exec resume --json <thread_id> -`, transports request input through
+  stdin, preserves the exact emitted thread ID, and never relies on
+  `resume --last`.
+- `/clear` resets native CLI conversation continuity while preserving the
+  existing REPL and TUI behavior across Claude Code, Codex, and OpenCode.
+
 ## [1.27.0] - 2026-08-22
 
 ### Added

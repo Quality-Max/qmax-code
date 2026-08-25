@@ -105,6 +105,16 @@ background-job health—remain experimental and are only exposed when
 
 ## What is new
 
+### v1.28
+
+- **Public Codex runner:** the terminal-neutral `codexrunner` Go package gives
+  other Go programs explicit runner, continuity, checkpoint, cancellation,
+  event, executor, and presentation boundaries.
+- **Exact Codex continuity:** qmax-code transports request input through stdin,
+  captures the emitted thread ID, and resumes that specific thread. `/clear`
+  starts a fresh native CLI conversation across Codex, Claude Code, and
+  OpenCode.
+
 ### v1.27
 
 - **Selectable providers:** `/providers` is an arrow-key picker (Enter
