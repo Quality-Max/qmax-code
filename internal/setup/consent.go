@@ -41,8 +41,10 @@ func PromptOrchConsent(cfg *api.Config, backend string) ConsentResult {
 
 	reader := bufio.NewReader(os.Stdin)
 
-	// First prompt: autonomy level. Skip if previously chosen.
-	if res.PermissionMode == "" {
+	// First prompt: autonomy level. Codex is deliberately excluded because the
+	// fixed runner command leaves approval and sandbox policy to Codex's own
+	// configuration; presenting a qmax choice here would be misleading.
+	if qmaxSelectsPermissionMode(backend) && res.PermissionMode == "" {
 		fmt.Println()
 		fmt.Printf("  Activating %s backend.\n", cliName)
 		fmt.Println()
@@ -97,4 +99,8 @@ func PromptOrchConsent(cfg *api.Config, backend string) ConsentResult {
 
 	res.Proceed = true
 	return res
+}
+
+func qmaxSelectsPermissionMode(backend string) bool {
+	return backend != "codex"
 }

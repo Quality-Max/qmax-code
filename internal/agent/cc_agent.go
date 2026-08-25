@@ -29,6 +29,12 @@ type CLIAgent interface {
 	Cleanup()
 }
 
+// ConversationResetter is implemented by CLI backends that keep native
+// conversation continuity outside the built-in agent history.
+type ConversationResetter interface {
+	ResetConversation()
+}
+
 // TurnStatsProvider is optionally implemented by CLI agents that can report
 // token usage for their most recent Run. The REPL folds these numbers into
 // the session totals shown in the input status bar; backends whose stream
@@ -72,9 +78,9 @@ type CCAgent struct {
 	mcpConfigPath  string // temp MCP config written once per qmax session
 	mcpConfigInfo  os.FileInfo
 	sctx           *api.SessionContext
-	lastToolName   string // track last tool name for result display
+	lastToolName   string                  // track last tool name for result display
 	fileSnaps      map[string]fileSnapshot // CC tool_use id → pre-edit snapshot
-	lastTurnIn     int    // token usage of the most recent turn (from CC's result event)
+	lastTurnIn     int                     // token usage of the most recent turn (from CC's result event)
 	lastTurnOut    int
 	lastTurnOK     bool // true once a result event carried usage this turn
 	mu             sync.Mutex

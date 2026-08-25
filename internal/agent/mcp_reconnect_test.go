@@ -27,10 +27,11 @@ func TestCodexRunRestoresMCPConfigBeforeExec(t *testing.T) {
 	home := withTempHome(t)
 	resetLiveURLFileForTest()
 	codexBin := writeFakeCLI(t, "codex", `#!/bin/sh
+printf '%s\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"}'
 printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"codex ok"}}'
 `)
 
-	a := NewCodexAgent(codexBin, "", "high", "standard", false, &api.SessionContext{
+	a := NewCodexAgent(codexBin, "high", false, &api.SessionContext{
 		ProjectID: 88,
 		LiveFeed:  true,
 		LocalOnly: true,

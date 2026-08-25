@@ -521,7 +521,7 @@ func main() {
 		if appConfig.OrchGlobalInstall {
 			_, _ = setup.InstallSkills("codex")
 		}
-		ca := agent.NewCodexAgent(agent.FindCodex(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
+		ca := agent.NewCodexAgent(agent.FindCodex(), appConfig.Effort, appConfig.OutputVerbose, ctx)
 		if err := ca.WriteMCPConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not write Codex MCP config: %v\n", err)
 		}

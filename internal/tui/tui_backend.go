@@ -121,7 +121,7 @@ var (
 
 type pickerEntry struct {
 	backend  string // "cc" | "codex" | ""
-	modelID  string // passed via --model to the CLI
+	modelID  string // model selection, or empty when the backend owns selection
 	label    string // display name
 	subLabel string // e.g. "1M ctx"
 	isNew    bool
@@ -141,14 +141,7 @@ var ccModels = []pickerEntry{
 }
 
 var codexModels = []pickerEntry{
-	{backend: "codex", modelID: "gpt-5.6-terra", label: "GPT-5.6 Terra", isNew: true, external: true, shortcut: '6'},
-	{backend: "codex", modelID: "gpt-5.6-sol", label: "GPT-5.6 Sol", isNew: true, external: true, shortcut: '7'},
-	{backend: "codex", modelID: "gpt-5.6-luna", label: "GPT-5.6 Luna", isNew: true, external: true, shortcut: '8'},
-	{backend: "codex", modelID: "gpt-5.5", label: "GPT-5.5", external: true, shortcut: '9'},
-	{backend: "codex", modelID: "o4-mini", label: "o4-mini", external: true, isFav: true, shortcut: '0'},
-	{backend: "codex", modelID: "o3", label: "o3", external: true},
-	{backend: "codex", modelID: "o3-mini", label: "o3-mini", external: true},
-	{backend: "codex", modelID: "gpt-4o", label: "GPT-4o", external: true},
+	{backend: "codex", modelID: "", label: "Codex default", subLabel: "uses Codex config", external: true, isFav: true, shortcut: '6'},
 }
 
 var apiModels = []pickerEntry{
@@ -281,7 +274,7 @@ func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, olla
 	// Start cursor on the active entry.
 	cursor := 0
 	for i, e := range entries {
-		if e.backend == currentBackend && (e.modelID == currentModelID || currentModelID == "") && e.isFav {
+		if e.backend == currentBackend && (e.modelID == currentModelID || currentModelID == "" || e.modelID == "") && e.isFav {
 			cursor = i
 		}
 		if e.backend == currentBackend && e.modelID == currentModelID {
