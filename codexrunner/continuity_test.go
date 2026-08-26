@@ -45,10 +45,13 @@ func TestContinuityCheckpointRestoreIsValidated(t *testing.T) {
 	if err := continuity.Restore(Checkpoint{ThreadID: "--last"}); !errors.Is(err, ErrInvalidThreadID) {
 		t.Fatal("restore accepted implicit continuity")
 	}
-	if err := continuity.Restore(Checkpoint{ThreadID: firstThreadID}); err != nil {
+	if err := continuity.Restore(Checkpoint{ThreadID: firstThreadID, Model: DefaultModel}); err != nil {
 		t.Fatal("restore rejected a canonical checkpoint")
 	}
-	if continuity.Checkpoint().ThreadID != firstThreadID {
-		t.Fatal("restore changed the exact thread ID")
+	if continuity.Checkpoint() != (Checkpoint{ThreadID: firstThreadID, Model: DefaultModel}) {
+		t.Fatal("restore changed the exact thread or model")
+	}
+	if err := continuity.Restore(Checkpoint{ThreadID: firstThreadID, Model: "auto"}); !errors.Is(err, ErrInvalidModel) {
+		t.Fatal("restore accepted a non-exact model")
 	}
 }
