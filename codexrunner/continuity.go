@@ -5,9 +5,9 @@ import (
 	"sync"
 )
 
-// Continuity serializes turns and remembers only the exact validated thread
-// checkpoint. It stores no prompts, responses, source, or provider payloads.
-// Durable callers should also provide Hooks.Checkpoints on every turn.
+// Continuity serializes turns and remembers only the exact validated thread and
+// model checkpoint. It stores no prompts, responses, source, or provider
+// payloads. Durable callers should also provide Hooks.Checkpoints on every turn.
 type Continuity struct {
 	runner *Runner
 	runMu  sync.Mutex
@@ -44,11 +44,12 @@ func (continuity *Continuity) Run(ctx Cancellation, prompt string, hooks Hooks) 
 	result, err := continuity.runner.Run(ctx, Turn{
 		Prompt:   prompt,
 		ThreadID: checkpoint.ThreadID,
+		Model:    checkpoint.Model,
 		Hooks:    hooks,
 	})
 	if result.ThreadID != "" {
 		continuity.mu.Lock()
-		continuity.state = Checkpoint{ThreadID: result.ThreadID}
+		continuity.state = Checkpoint{ThreadID: result.ThreadID, Model: result.Model}
 		continuity.mu.Unlock()
 	}
 	return result, err
@@ -68,6 +69,11 @@ func (continuity *Continuity) Restore(checkpoint Checkpoint) error {
 	defer continuity.runMu.Unlock()
 	if checkpoint.ThreadID != "" && !validThreadID(checkpoint.ThreadID) {
 		return ErrInvalidThreadID
+	}
+	if checkpoint.Model != "" {
+		if err := ValidateModel(checkpoint.Model); err != nil {
+			return err
+		}
 	}
 	continuity.mu.Lock()
 	continuity.state = checkpoint

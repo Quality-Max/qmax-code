@@ -77,9 +77,11 @@ func (f EventSinkFunc) OnEvent(ctx context.Context, event Event) error {
 	return f(ctx, event)
 }
 
-// Checkpoint is the minimum durable state required to continue a Codex thread.
+// Checkpoint is the minimum durable state required to continue a Codex thread
+// on the same exact model.
 type Checkpoint struct {
 	ThreadID string
+	Model    string
 }
 
 // CheckpointSink persists a validated checkpoint as soon as thread.started is
@@ -134,8 +136,9 @@ type Cancellation interface {
 }
 
 // Command describes one direct process invocation. Stdin carries the prompt;
-// Args is always one of the two fixed command shapes documented by this
-// package. Stderr is deliberately absent so raw diagnostics cannot be logged.
+// Args is always one of the fixed, allowlisted command shapes documented by
+// this package. Stderr is deliberately absent so raw diagnostics cannot be
+// logged.
 type Command struct {
 	Executable       string
 	Args             []string
@@ -169,18 +172,22 @@ type Hooks struct {
 	Presenter   Presenter
 }
 
-// Turn contains the sensitive prompt and an optional exact continuity ID.
-// Callers must not log this value.
+// Turn contains the sensitive prompt, an optional exact continuity ID, and an
+// optional exact model. When Model is present, it must be allowlisted and is
+// passed on both initial and resumed commands. Callers must not log Prompt.
 type Turn struct {
 	Prompt   string
 	ThreadID string
+	Model    string
 	Hooks    Hooks
 }
 
-// Result contains the exact validated Codex thread ID and response. Response is
-// transcript data and must not be logged or placed in workflow history.
+// Result contains the exact validated Codex thread ID, selected model, and
+// response. Response is transcript data and must not be logged or placed in
+// workflow history.
 type Result struct {
 	ThreadID  string
+	Model     string
 	Response  string
 	Usage     Usage
 	Canceled  bool
@@ -225,10 +232,22 @@ func (r *Runner) Run(ctx Cancellation, turn Turn) (Result, error) {
 	if turn.ThreadID != "" && !validThreadID(turn.ThreadID) {
 		return result, ErrInvalidThreadID
 	}
+	if turn.Model != "" {
+		if err := ValidateModel(turn.Model); err != nil {
+			return result, err
+		}
+		result.Model = turn.Model
+	}
 
 	args := []string{"exec", "--json", "-"}
+	if turn.Model != "" {
+		args = []string{"exec", "--model", turn.Model, "--json", "-"}
+	}
 	if turn.ThreadID != "" {
 		args = []string{"exec", "resume", "--json", turn.ThreadID, "-"}
+		if turn.Model != "" {
+			args = []string{"exec", "resume", "--model", turn.Model, "--json", turn.ThreadID, "-"}
+		}
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
@@ -302,7 +321,7 @@ func (r *Runner) handleEvent(ctx context.Context, turn Turn, event wireEvent, re
 		if result.ThreadID == "" {
 			result.ThreadID = event.ThreadID
 			if turn.Hooks.Checkpoints != nil {
-				if err := turn.Hooks.Checkpoints.OnCheckpoint(ctx, Checkpoint{ThreadID: event.ThreadID}); err != nil {
+				if err := turn.Hooks.Checkpoints.OnCheckpoint(ctx, Checkpoint{ThreadID: event.ThreadID, Model: turn.Model}); err != nil {
 					return ErrCheckpointSink
 				}
 			}

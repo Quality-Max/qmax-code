@@ -77,6 +77,66 @@ func TestRunnerResumeUsesExactThreadID(t *testing.T) {
 	assertPromptAbsent(t, prompt, command.args, err)
 }
 
+func TestRunnerUsesExactModelOnInitialAndResumedTurns(t *testing.T) {
+	executor := &scriptedExecutor{streams: []string{
+		eventStream(t, map[string]any{"type": "thread.started", "thread_id": firstThreadID}),
+		eventStream(t, map[string]any{"type": "thread.started", "thread_id": firstThreadID}),
+	}}
+	runner := New(Options{Executor: executor})
+	var checkpoint Checkpoint
+
+	first, err := runner.Run(context.Background(), Turn{
+		Prompt: generatedSensitiveValue(t),
+		Model:  DefaultModel,
+		Hooks: Hooks{Checkpoints: CheckpointSinkFunc(func(_ context.Context, next Checkpoint) error {
+			checkpoint = next
+			return nil
+		})},
+	})
+	if err != nil {
+		t.Fatal("modeled initial turn failed")
+	}
+	if first.Model != DefaultModel || checkpoint != (Checkpoint{ThreadID: firstThreadID, Model: DefaultModel}) {
+		t.Fatal("initial turn did not preserve its exact model")
+	}
+	if want := []string{"exec", "--model", DefaultModel, "--json", "-"}; !slices.Equal(executor.command(t, 0).args, want) {
+		t.Fatal("initial turn did not pass the exact model")
+	}
+
+	second, err := runner.Run(context.Background(), Turn{
+		Prompt:   generatedSensitiveValue(t),
+		ThreadID: checkpoint.ThreadID,
+		Model:    checkpoint.Model,
+	})
+	if err != nil {
+		t.Fatal("modeled resume turn failed")
+	}
+	if second.Model != DefaultModel {
+		t.Fatal("resumed turn changed its exact model")
+	}
+	if want := []string{"exec", "resume", "--model", DefaultModel, "--json", firstThreadID, "-"}; !slices.Equal(executor.command(t, 1).args, want) {
+		t.Fatal("resumed turn did not pass the exact model")
+	}
+}
+
+func TestRunnerRejectsUnsupportedModelBeforeProcessStart(t *testing.T) {
+	for _, model := range []string{"", "auto", "--model", "GPT-5.6-TERRA", "gpt-unknown"} {
+		if model == "" {
+			continue
+		}
+		t.Run(model, func(t *testing.T) {
+			executor := &scriptedExecutor{}
+			_, err := New(Options{Executor: executor}).Run(context.Background(), Turn{Model: model})
+			if !errors.Is(err, ErrInvalidModel) {
+				t.Fatal("unsupported model was not rejected")
+			}
+			if executor.commandCount() != 0 {
+				t.Fatal("unsupported model reached the process boundary")
+			}
+		})
+	}
+}
+
 func TestRunnerRejectsImplicitOrMismatchedContinuity(t *testing.T) {
 	t.Run("option-like ID", func(t *testing.T) {
 		executor := &scriptedExecutor{}
