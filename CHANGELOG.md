@@ -4,6 +4,22 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Added
+- `codexrunner` checkpoints carry `RolloutPath`, the local Codex rollout
+  backing the thread, so a session moved to a replacement sandbox can be
+  resumed with its transcript instead of a thread ID that names nothing there.
+  `Options.Rollouts` selects the locator; `CodexHomeLocator` reads
+  `$CODEX_HOME`.
+
+### Fixed
+- `Continuity.Run` and `Runner.Result` now carry the rollout reference the
+  checkpoint sink already receives, instead of rebuilding a checkpoint from the
+  thread ID and model alone and dropping it on every turn.
+- `Continuity.Restore` refuses a checkpoint naming a rollout that is missing on
+  this box (`ErrRolloutUnavailable`) or given as a relative path
+  (`ErrInvalidRolloutPath`), rather than silently resuming into an empty
+  thread.
+
 ## [1.28.0] - 2026-08-25
 
 ### Added

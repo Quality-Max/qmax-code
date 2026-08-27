@@ -49,7 +49,11 @@ func (continuity *Continuity) Run(ctx Cancellation, prompt string, hooks Hooks) 
 	})
 	if result.ThreadID != "" {
 		continuity.mu.Lock()
-		continuity.state = Checkpoint{ThreadID: result.ThreadID, Model: result.Model}
+		continuity.state = Checkpoint{
+			ThreadID:    result.ThreadID,
+			Model:       result.Model,
+			RolloutPath: result.RolloutPath,
+		}
 		continuity.mu.Unlock()
 	}
 	return result, err
@@ -64,6 +68,12 @@ func (continuity *Continuity) Checkpoint() Checkpoint {
 
 // Restore validates and installs a durable checkpoint. An empty checkpoint is
 // equivalent to Reset.
+//
+// A checkpoint naming a rollout that is not present on this box is refused
+// with ErrRolloutUnavailable and not installed, so a replacement sandbox
+// cannot resume into a thread whose transcript it does not have. Callers
+// recover by reporting the reason and restoring the same checkpoint with
+// RolloutPath cleared, which starts a new thread.
 func (continuity *Continuity) Restore(checkpoint Checkpoint) error {
 	continuity.runMu.Lock()
 	defer continuity.runMu.Unlock()
@@ -74,6 +84,9 @@ func (continuity *Continuity) Restore(checkpoint Checkpoint) error {
 		if err := ValidateModel(checkpoint.Model); err != nil {
 			return err
 		}
+	}
+	if err := validateRolloutPath(checkpoint.RolloutPath); err != nil {
+		return err
 	}
 	continuity.mu.Lock()
 	continuity.state = checkpoint

@@ -17,6 +17,14 @@ const maxEventBytes = 4 << 20
 var (
 	// ErrInvalidThreadID means a caller or stream supplied a non-canonical UUID.
 	ErrInvalidThreadID = errors.New("codex runner: invalid thread ID")
+	// ErrInvalidRolloutPath means a checkpoint carried a rollout reference that
+	// is not an absolute path, so it cannot be resolved on another box.
+	ErrInvalidRolloutPath = errors.New("codex runner: invalid rollout path")
+	// ErrRolloutUnavailable means a checkpoint named a rollout that is not
+	// present on this box, which is the expected result of restoring a
+	// checkpoint into a replacement sandbox. Callers must surface a recovery
+	// reason and start a new thread rather than resume into an empty one.
+	ErrRolloutUnavailable = errors.New("codex runner: checkpoint rollout unavailable")
 	// ErrThreadMismatch means a resumed stream identified a different thread.
 	ErrThreadMismatch = errors.New("codex runner: resumed thread does not match checkpoint")
 	// ErrMissingThreadID means the stream ended without a thread.started event.
@@ -79,9 +87,19 @@ func (f EventSinkFunc) OnEvent(ctx context.Context, event Event) error {
 
 // Checkpoint is the minimum durable state required to continue a Codex thread
 // on the same exact model.
+//
+// ThreadID alone is only sufficient on the box that produced it: "codex exec
+// resume" resolves a thread from the local Codex session store, so a thread ID
+// restored into a fresh sandbox names a rollout that no longer exists there.
+// RolloutPath is what makes the thread portable.
 type Checkpoint struct {
 	ThreadID string
 	Model    string
+	// RolloutPath is the local Codex rollout for ThreadID, or "" when the
+	// executor cannot locate one. Callers upload it and record the result as
+	// checkpoint.codex.rollout_ref; this package never reads or ships the
+	// file itself.
+	RolloutPath string
 }
 
 // CheckpointSink persists a validated checkpoint as soon as thread.started is
@@ -163,6 +181,9 @@ type Options struct {
 	Executable       string
 	WorkingDirectory string
 	Executor         ToolExecutor
+	// Rollouts resolves the local rollout backing a thread. A nil locator uses
+	// CodexHomeLocator.
+	Rollouts RolloutLocator
 }
 
 // Hooks are optional per-turn observation and presentation boundaries.
@@ -192,6 +213,10 @@ type Result struct {
 	Usage     Usage
 	Canceled  bool
 	PlanLimit bool
+	// RolloutPath mirrors Checkpoint.RolloutPath for the thread this turn ran
+	// on, so a caller adopting a Result as durable state does not silently
+	// drop the rollout reference the checkpoint sink already received.
+	RolloutPath string
 }
 
 // Runner executes terminal-neutral Codex turns.
@@ -199,10 +224,12 @@ type Runner struct {
 	executable       string
 	workingDirectory string
 	executor         ToolExecutor
+	rollouts         RolloutLocator
 }
 
-// New returns a runner. An empty executable uses "codex" and a nil executor
-// uses the local OS process implementation.
+// New returns a runner. An empty executable uses "codex", a nil executor uses
+// the local OS process implementation, and a nil rollout locator uses
+// CodexHomeLocator.
 func New(options Options) *Runner {
 	executable := options.Executable
 	if executable == "" {
@@ -212,10 +239,15 @@ func New(options Options) *Runner {
 	if executor == nil {
 		executor = OSExecutor{}
 	}
+	rollouts := options.Rollouts
+	if rollouts == nil {
+		rollouts = CodexHomeLocator{}
+	}
 	return &Runner{
 		executable:       executable,
 		workingDirectory: options.WorkingDirectory,
 		executor:         executor,
+		rollouts:         rollouts,
 	}
 }
 
@@ -320,8 +352,14 @@ func (r *Runner) handleEvent(ctx context.Context, turn Turn, event wireEvent, re
 		}
 		if result.ThreadID == "" {
 			result.ThreadID = event.ThreadID
+			result.RolloutPath = r.locateRollout(event.ThreadID)
 			if turn.Hooks.Checkpoints != nil {
-				if err := turn.Hooks.Checkpoints.OnCheckpoint(ctx, Checkpoint{ThreadID: event.ThreadID, Model: turn.Model}); err != nil {
+				checkpoint := Checkpoint{
+					ThreadID:    event.ThreadID,
+					Model:       turn.Model,
+					RolloutPath: result.RolloutPath,
+				}
+				if err := turn.Hooks.Checkpoints.OnCheckpoint(ctx, checkpoint); err != nil {
 					return ErrCheckpointSink
 				}
 			}
@@ -365,6 +403,16 @@ func (r *Runner) handleEvent(ctx context.Context, turn Turn, event wireEvent, re
 		}
 		return nil
 	}
+}
+
+// locateRollout resolves the rollout for a validated thread ID. A locator that
+// finds nothing is not an error: the turn is still valid, the checkpoint is
+// just not portable to another sandbox.
+func (r *Runner) locateRollout(threadID string) string {
+	if r == nil || r.rollouts == nil {
+		return ""
+	}
+	return r.rollouts.LocateRollout(threadID)
 }
 
 func emitEvent(ctx context.Context, sink EventSink, event Event) error {
