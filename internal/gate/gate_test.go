@@ -201,10 +201,11 @@ func TestCleanEvidenceRedactsSensitiveOutput(t *testing.T) {
 }
 
 func TestRunRequiredClearsRawOutputAndSanitizesError(t *testing.T) {
+	cause := errors.New("exit status 1")
 	runner := &fakeRunner{responses: map[string]fakeResponse{
 		"git inspect": {
 			output: "api_key=fixture-only-value\ncommand failed\x1b[2J",
-			err:    errors.New("exit status 1"),
+			err:    cause,
 		},
 	}}
 
@@ -214,6 +215,9 @@ func TestRunRequiredClearsRawOutputAndSanitizesError(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("runRequired() error = nil")
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("runRequired() error = %v, want original cause", err)
 	}
 	message := err.Error()
 	if strings.Contains(message, "fixture-only-value") || strings.ContainsRune(message, '\x1b') {

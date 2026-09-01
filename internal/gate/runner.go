@@ -57,6 +57,8 @@ type limitWriter struct {
 	truncated bool
 }
 
+// Write accepts all input so evidence truncation never changes a command's
+// exit status, while retaining only the bounded prefix for display.
 func (w *limitWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

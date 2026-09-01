@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestLimitWriterBoundsOutput(t *testing.T) {
+func TestLimitWriterConsumesOverflowAndBoundsEvidence(t *testing.T) {
 	w := &limitWriter{limit: 4}
 	input := "abcdefgh"
 	n, err := w.Write([]byte(input))
@@ -18,6 +18,18 @@ func TestLimitWriterBoundsOutput(t *testing.T) {
 	}
 	if got := w.String(); !strings.HasPrefix(got, "abcd") || !strings.Contains(got, "truncated") {
 		t.Fatalf("String() = %q", got)
+	}
+}
+
+func TestFmtToolUnavailablePreservesClassificationAndContext(t *testing.T) {
+	cause := errors.New("missing executable")
+	err := fmtToolUnavailable("git", cause)
+
+	if !errors.Is(err, ErrToolUnavailable) {
+		t.Fatalf("fmtToolUnavailable() error = %v, want ErrToolUnavailable", err)
+	}
+	if !strings.Contains(err.Error(), "git: missing executable") {
+		t.Fatalf("fmtToolUnavailable() error = %q, want tool and cause", err)
 	}
 }
 
