@@ -96,10 +96,7 @@ func TestRunFailsAndRedactsCheckEvidence(t *testing.T) {
 	if result.Verdict != Fail || result.ExitCode() != 1 {
 		t.Fatalf("result = %+v, want FAIL/1", result)
 	}
-	if len(result.Checks) < 2 {
-		t.Fatalf("checks = %+v, want go test result", result.Checks)
-	}
-	evidence := result.Checks[1].Evidence
+	evidence := findCheck(t, result.Checks, "go test ./...").Evidence
 	if strings.Contains(evidence, "do-not-print") || !strings.Contains(evidence, "[REDACTED]") {
 		t.Fatalf("evidence was not redacted: %q", evidence)
 	}
@@ -115,11 +112,9 @@ func TestRunMarksMissingToolIncomplete(t *testing.T) {
 	if result.Verdict != Incomplete {
 		t.Fatalf("result = %+v, want incomplete tooling result", result)
 	}
-	if len(result.Checks) < 3 {
-		t.Fatalf("checks = %+v, want go vet result", result.Checks)
-	}
-	if result.Checks[2].Status != CheckIncomplete {
-		t.Fatalf("go vet check = %+v, want incomplete", result.Checks[2])
+	vet := findCheck(t, result.Checks, "go vet ./...")
+	if vet.Status != CheckIncomplete {
+		t.Fatalf("go vet check = %+v, want incomplete", vet)
 	}
 }
 
@@ -280,4 +275,15 @@ func equalStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func findCheck(t *testing.T, checks []Check, command string) Check {
+	t.Helper()
+	for _, check := range checks {
+		if check.Command == command {
+			return check
+		}
+	}
+	t.Fatalf("checks = %+v, want command %q", checks, command)
+	return Check{}
 }
