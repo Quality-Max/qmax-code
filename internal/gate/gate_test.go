@@ -56,8 +56,15 @@ func TestRunPassesSharedGoGate(t *testing.T) {
 	if len(result.Checks) != 3 {
 		t.Fatalf("checks = %d, want 3", len(result.Checks))
 	}
-	if len(progress) != 4 {
-		t.Fatalf("progress events = %v, want scope plus 3 checks", progress)
+	for _, wantPrefix := range []string{
+		"scoping local changes against origin/main",
+		"running git diff --check",
+		"running go test ./...",
+		"running go vet ./...",
+	} {
+		if !containsPrefix(progress, wantPrefix) {
+			t.Fatalf("progress events = %v, want prefix %q", progress, wantPrefix)
+		}
 	}
 }
 
@@ -275,6 +282,15 @@ func equalStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func containsPrefix(values []string, prefix string) bool {
+	for _, value := range values {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func findCheck(t *testing.T, checks []Check, command string) Check {
