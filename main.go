@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -80,6 +81,15 @@ func main() {
 	sysutil.InitErrorReporting(Version)
 	defer sysutil.FlushErrorReporting()
 	defer sysutil.RecoverPanic()
+
+	// The local PR gate runs before authentication, setup, or backend
+	// initialization. It is deterministic, read-only, and backend-independent.
+	if len(os.Args) > 1 && os.Args[1] == "gate" {
+		if code := runGateCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr); code != 0 {
+			exitWithReceipt(code)
+		}
+		return
+	}
 
 	// `receipt` inspects prior manifests offline and does no egress of its own.
 	if len(os.Args) > 1 && os.Args[1] == "receipt" {

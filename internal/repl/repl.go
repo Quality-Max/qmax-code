@@ -18,6 +18,7 @@ import (
 
 	"github.com/qualitymax/qmax-code/internal/agent"
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/gate"
 	"github.com/qualitymax/qmax-code/internal/session"
 	"github.com/qualitymax/qmax-code/internal/setup"
 	"github.com/qualitymax/qmax-code/internal/sysutil"
@@ -301,6 +302,21 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 
 		case input == "/help":
 			printHelp()
+			continue
+		case input == "/gate" || strings.HasPrefix(input, "/gate "):
+			base, err := parseGateCommand(input)
+			if err != nil {
+				term.PrintError(err.Error())
+				continue
+			}
+			result := gate.Run(context.Background(), gate.Options{
+				Base: base,
+				Dir:  ".",
+				OnProgress: func(message string) {
+					term.PrintSystem("Gate: " + message)
+				},
+			})
+			gate.WriteText(os.Stdout, result)
 			continue
 		case input == "/clear":
 			ag.ClearHistory()
@@ -1581,9 +1597,24 @@ func currentBackend(ag *agent.Agent) string {
 	return ""
 }
 
+func parseGateCommand(input string) (string, error) {
+	fields := strings.Fields(input)
+	if len(fields) == 0 || fields[0] != "/gate" {
+		return "", fmt.Errorf("usage: /gate [base]")
+	}
+	if len(fields) > 2 {
+		return "", fmt.Errorf("usage: /gate [base]")
+	}
+	if len(fields) == 1 {
+		return gate.DefaultBase, nil
+	}
+	return fields[1], nil
+}
+
 func printHelp() {
 	fmt.Println(`
 Commands:
+  /gate [base]      Run the local PR quality gate (default: origin/main)
   /orch             Pick backend, model, and effort
   /api              Switch to direct Anthropic API
   /cc               Switch to Claude Code (Agent SDK credit)
