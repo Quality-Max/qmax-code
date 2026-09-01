@@ -9,6 +9,7 @@ version and `/help` for its REPL commands.
 ```text
 qmax-code [flags]
 qmax-code [flags] "prompt"
+qmax-code gate [--base REF]
 qmax-code login [--api-key KEY]
 qmax-code config [show|set|unset|reset]
 qmax-code receipt [list|show|verify] [id|latest]
@@ -48,6 +49,22 @@ qmax-code --local --backend codex -p "review the current diff"
 In standalone mode, `--project-id`, `--cloud-url`, cloud sessions, and
 QualityMax-backed tools do not apply. The selected model or CLI backend may
 still require its own provider authentication.
+
+## Local PR quality gate
+
+```bash
+qmax-code gate --base origin/main
+```
+
+The gate compares the complete local candidate—committed, staged, unstaged, and
+untracked files—with the merge base of the requested ref, runs read-only
+deterministic repository checks, and prints the changed-file scope plus bounded,
+redacted failure evidence. The MVP supports Go repositories and runs
+`git diff --check`, `go test ./...`, and `go vet ./...`. It runs before login or
+backend setup and does not require QualityMax cloud or an inference provider.
+
+Exit status is `0` for PASS, `1` for FAIL, and `2` when the gate is INCOMPLETE
+because its ref, repository, or required tooling could not be resolved.
 
 ## Authentication commands
 
@@ -233,6 +250,7 @@ standalone local-only mode because they depend on QualityMax services.
 
 | Command | Action |
 | --- | --- |
+| `/gate [base]` | Run the local PR quality gate; defaults to `origin/main`. |
 | `/help` | Print in-app help. |
 | `/quit`, `/exit`, `/q` | Save when configured and exit. |
 

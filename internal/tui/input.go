@@ -47,6 +47,7 @@ type SlashMenuItem struct {
 
 var slashMenuItems = []SlashMenuItem{
 	{"/help", "Show help"},
+	{"/gate", "Run local PR quality gate against origin/main or another base"},
 	{"/orch", "Backend + model + effort picker"},
 	{"/theme", "Live-preview color scheme picker"},
 	{"/cloudsync", "Toggle cloud session sync (enabled/disabled)"},
