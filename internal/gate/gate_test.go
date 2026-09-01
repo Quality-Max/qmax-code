@@ -96,6 +96,9 @@ func TestRunFailsAndRedactsCheckEvidence(t *testing.T) {
 	if result.Verdict != Fail || result.ExitCode() != 1 {
 		t.Fatalf("result = %+v, want FAIL/1", result)
 	}
+	if len(result.Checks) < 2 {
+		t.Fatalf("checks = %+v, want go test result", result.Checks)
+	}
 	evidence := result.Checks[1].Evidence
 	if strings.Contains(evidence, "do-not-print") || !strings.Contains(evidence, "[REDACTED]") {
 		t.Fatalf("evidence was not redacted: %q", evidence)
@@ -109,8 +112,14 @@ func TestRunMarksMissingToolIncomplete(t *testing.T) {
 
 	result := Run(context.Background(), Options{Base: DefaultBase, Dir: dir, Runner: runner})
 
-	if result.Verdict != Incomplete || result.Checks[2].Status != CheckIncomplete {
+	if result.Verdict != Incomplete {
 		t.Fatalf("result = %+v, want incomplete tooling result", result)
+	}
+	if len(result.Checks) < 3 {
+		t.Fatalf("checks = %+v, want go vet result", result.Checks)
+	}
+	if result.Checks[2].Status != CheckIncomplete {
+		t.Fatalf("go vet check = %+v, want incomplete", result.Checks[2])
 	}
 }
 
