@@ -2,6 +2,8 @@ package gate
 
 import (
 	"bytes"
+	"errors"
+	"flag"
 	"testing"
 )
 
@@ -41,5 +43,14 @@ func TestParseCLIHelp(t *testing.T) {
 	}
 	if output.String() == "" {
 		t.Fatal("help output is empty")
+	}
+}
+
+func TestIsHelp(t *testing.T) {
+	if !IsHelp(errors.Join(errors.New("wrapped"), flag.ErrHelp)) {
+		t.Fatal("IsHelp() did not recognize wrapped help error")
+	}
+	if IsHelp(errors.New("ordinary failure")) || IsHelp(nil) {
+		t.Fatal("IsHelp() classified a non-help error as help")
 	}
 }

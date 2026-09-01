@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeResponse struct {
@@ -121,6 +122,18 @@ func TestRunWithoutSupportedManifestIsIncomplete(t *testing.T) {
 	}
 }
 
+func TestRunReturnsIncompleteWhenManifestCannotBeInspected(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(dir, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result := Run(context.Background(), Options{Base: DefaultBase, Dir: dir, Runner: successfulRunner()})
+	if result.Verdict != Incomplete || !strings.Contains(result.Incomplete, "cannot inspect repository manifest") {
+		t.Fatalf("result = %+v, want manifest inspection error", result)
+	}
+}
+
 func TestAggregateVerdict(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -140,9 +153,23 @@ func TestAggregateVerdict(t *testing.T) {
 	}
 }
 
-func TestDisplayPathQuotesTerminalControlCharacters(t *testing.T) {
-	if got := DisplayPath("safe\nforged"); got != `"safe\nforged"` {
-		t.Fatalf("DisplayPath() = %q", got)
+func TestDisplayPathQuotesUnusualFilenames(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "terminal control", path: "safe\nforged", want: `"safe\nforged"`},
+		{name: "spaces", path: "file with spaces", want: `"file with spaces"`},
+		{name: "unicode", path: "unicode-αβ", want: `"unicode-\u03b1\u03b2"`},
+		{name: "quote", path: `quote"here`, want: `"quote\"here"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DisplayPath(tc.path); got != tc.want {
+				t.Fatalf("DisplayPath(%q) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -163,6 +190,45 @@ func TestCleanEvidenceNeutralizesTerminalControlCharacters(t *testing.T) {
 	}
 	if !strings.Contains(got, `\u001b`) || !strings.Contains(got, `\u000d`) {
 		t.Fatalf("cleanEvidence() did not preserve visible evidence: %q", got)
+	}
+}
+
+func TestCleanEvidenceRedactsSensitiveOutput(t *testing.T) {
+	got := cleanEvidence("command failed\napi_key=fixture-only-value", nil)
+	if strings.Contains(got, "fixture-only-value") || !strings.Contains(got, "[REDACTED]") {
+		t.Fatalf("cleanEvidence() did not redact sensitive output: %q", got)
+	}
+}
+
+func TestRunRequiredClearsRawOutputAndSanitizesError(t *testing.T) {
+	runner := &fakeRunner{responses: map[string]fakeResponse{
+		"git inspect": {
+			output: "api_key=fixture-only-value\ncommand failed\x1b[2J",
+			err:    errors.New("exit status 1"),
+		},
+	}}
+
+	output, err := runRequired(context.Background(), runner, ".", time.Second, "git", "inspect")
+	if output != "" {
+		t.Fatalf("runRequired() returned raw output on error: %q", output)
+	}
+	if err == nil {
+		t.Fatal("runRequired() error = nil")
+	}
+	message := err.Error()
+	if strings.Contains(message, "fixture-only-value") || strings.ContainsRune(message, '\x1b') {
+		t.Fatalf("runRequired() returned unsafe error evidence: %q", message)
+	}
+	if !strings.Contains(message, "[REDACTED]") || !strings.Contains(message, `\u001b`) {
+		t.Fatalf("runRequired() omitted sanitized evidence: %q", message)
+	}
+}
+
+func TestValidateBaseRejectsUnicodeControls(t *testing.T) {
+	for _, base := range []string{"main\nforged", "main\u200bforged"} {
+		if err := validateBase(base); err == nil {
+			t.Fatalf("validateBase(%q) accepted a control character", base)
+		}
 	}
 }
 

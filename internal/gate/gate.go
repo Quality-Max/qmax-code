@@ -204,10 +204,11 @@ func runRequired(ctx context.Context, runner Runner, dir string, timeout time.Du
 	output, err := runner.Run(commandCtx, dir, name, args...)
 	if err != nil {
 		if evidence := cleanEvidence(output, nil); evidence != "" {
-			return output, fmt.Errorf("%w: %s", err, evidence)
+			return "", fmt.Errorf("%w: %s", err, evidence)
 		}
+		return "", err
 	}
-	return output, err
+	return output, nil
 }
 
 func aggregateVerdict(checks []Check) Verdict {

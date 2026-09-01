@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"sync"
 )
 
 const (
@@ -50,12 +51,16 @@ func fmtToolUnavailable(name string, err error) error {
 }
 
 type limitWriter struct {
+	mu        sync.Mutex
 	buf       []byte
 	limit     int
 	truncated bool
 }
 
 func (w *limitWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	originalLen := len(p)
 	remaining := w.limit - len(w.buf)
 	if remaining > 0 {
@@ -71,6 +76,9 @@ func (w *limitWriter) Write(p []byte) (int, error) {
 }
 
 func (w *limitWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if !w.truncated {
 		return string(w.buf)
 	}

@@ -1,7 +1,11 @@
 package gate
 
 import (
+	"context"
+	"errors"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -14,5 +18,46 @@ func TestLimitWriterBoundsOutput(t *testing.T) {
 	}
 	if got := w.String(); !strings.HasPrefix(got, "abcd") || !strings.Contains(got, "truncated") {
 		t.Fatalf("String() = %q", got)
+	}
+}
+
+func TestLimitWriterDoesNotTruncateExactLimit(t *testing.T) {
+	w := &limitWriter{limit: 4}
+	if n, err := w.Write([]byte("abcd")); err != nil || n != 4 {
+		t.Fatalf("Write() = %d, %v", n, err)
+	}
+	if got := w.String(); got != "abcd" {
+		t.Fatalf("String() = %q, want exact untruncated output", got)
+	}
+}
+
+func TestLimitWriterSupportsConcurrentWrites(t *testing.T) {
+	w := &limitWriter{limit: 128}
+	var group sync.WaitGroup
+	for range 64 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			_, _ = w.Write([]byte("abcdefgh"))
+		}()
+	}
+	group.Wait()
+
+	got := w.String()
+	if !strings.Contains(got, truncationMarker) {
+		t.Fatalf("String() = %q, want truncation marker", got)
+	}
+	if prefix := strings.TrimSuffix(got, truncationMarker); len(prefix) != 128 {
+		t.Fatalf("captured bytes = %d, want 128", len(prefix))
+	}
+}
+
+func TestExecRunnerPropagatesCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := (ExecRunner{}).Run(ctx, ".", os.Args[0], "-test.run=TestExecRunnerPropagatesCanceledContext")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
 	}
 }
