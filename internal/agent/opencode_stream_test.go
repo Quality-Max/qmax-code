@@ -160,3 +160,24 @@ func TestOpenCodeCountsOneCanonicalPayloadPerEvent(t *testing.T) {
 		t.Fatalf("LastTurnStats = %d/%d, want 80/10 — the shapes are one payload", in, out)
 	}
 }
+
+// ocRefusalStream is the real event captured when the provider refused a turn
+// because the model is not in the subscription plan: opencode masks the actual
+// entitlement error as a status-code-less UnknownError whose full text only
+// exists in opencode's own log. handleOCError deliberately suppresses such
+// events as noise on successful turns — but they must still be recorded so
+// Run can surface the real cause when the turn dies with no result.
+const ocRefusalStream = `{"type":"error","timestamp":1788348788916,"sessionID":"ses_refuse01","error":{"name":"UnknownError","data":{"message":"Unexpected server error. Check server logs for details.","ref":"err_1f79e3db"}}}`
+
+func TestOpenCodeParseRecordsErrorForDiagnostics(t *testing.T) {
+	a := &OpenCodeAgent{}
+	a.parseStream(strings.NewReader(ocRefusalStream), &tui.Terminal{})
+
+	msg, seen := a.lastRunError()
+	if !seen {
+		t.Fatal("a status-code-less error event must still be recorded for failed-turn diagnostics")
+	}
+	if msg != "Unexpected server error. Check server logs for details." {
+		t.Fatalf("lastRunError = %q, want the masked refusal message", msg)
+	}
+}

@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -51,6 +53,17 @@ type OpenCodeAgent struct {
 	lastTurnOK     bool      // true once a usage event carried tokens this turn
 	lastLimitHit   bool      // true if the plan limit was hit this turn
 	lastLimitReset time.Time // provider-reported reset time, zero if unknown
+	// lastOCErrorSeen/Msg capture the most recent error event of the current
+	// run attempt — even the status-code-less ones handleOCError treats as
+	// benign noise on successful turns. When a turn dies with no result, they
+	// are the only in-band clue to the real cause (e.g. a provider entitlement
+	// refusal that opencode masks as "Unexpected server error").
+	lastOCErrorSeen bool
+	lastOCErrorMsg  string
+	// lastStderrTail holds the tail of the subprocess stderr for the current
+	// run attempt, so a hard crash that emits no stream events (opencode
+	// internal JS TypeError) can still be explained in the returned error.
+	lastStderrTail string
 	mu             sync.Mutex
 	runMu          sync.Mutex
 	runCancel      context.CancelFunc // non-nil while Run() is active
@@ -141,7 +154,17 @@ func validOpenCodeSessionID(id string) bool {
 	return true
 }
 
-// Run executes one conversation turn through an opencode subprocess.
+// Run executes one conversation turn through an opencode subprocess. When the
+// subprocess dies with no result, it distinguishes two failure classes:
+//
+//   - A provider error event was in the stream (auth, entitlement refusal,
+//     quota) — deterministic, so the real message is surfaced immediately
+//     instead of a bare "exit status 1". opencode masks these as a
+//     status-code-less "Unexpected server error", with the full text only in
+//     its own log, which the error message points at.
+//   - No error event at all — opencode itself crashed (e.g. an internal JS
+//     TypeError mid-stream). Transient, so the turn is retried once before
+//     giving up with the stderr tail included.
 func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 	// Regenerate the managed config each turn so newly enabled/disabled
 	// providers (and the permission policy) take effect without a restart.
@@ -158,16 +181,64 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 	a.mu.Lock()
 	a.lastTurnIn, a.lastTurnOut, a.lastTurnOK = 0, 0, false
 	a.lastLimitHit, a.lastLimitReset = false, time.Time{}
-	sessionID := a.sessionID
 	a.mu.Unlock()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	a.runMu.Lock()
+	a.runCancel = cancel
+	a.runMu.Unlock()
+	defer func() {
+		a.runMu.Lock()
+		a.runCancel = nil
+		a.runMu.Unlock()
+	}()
+
+	result, err := a.runAttempt(ctx, safeUserMsg, configPath, term)
+	if err == nil {
+		return result, nil
+	}
+
+	// A provider refusal is deterministic — retrying would just repeat it.
+	// Surface the captured error-event message instead of the exit status.
+	if msg, seen := a.lastRunError(); seen {
+		return "", fmt.Errorf("opencode turn failed: %s (provider details: %s)", msg, openCodeLogPath())
+	}
+
+	// No provider error in the stream, yet the process died with no result:
+	// opencode itself crashed. One retry usually completes the turn.
+	term.PrintSystem("opencode exited unexpectedly — retrying turn…")
+	if result2, err2 := a.runAttempt(ctx, safeUserMsg, configPath, term); err2 == nil {
+		return result2, nil
+	}
+
+	msg, _ := a.lastRunError()
+	if msg == "" {
+		msg = "no error event in stream"
+	}
+	return "", fmt.Errorf("opencode turn failed: %s (stderr: %s; details: %s)", msg, a.stderrTailSnapshot(), openCodeLogPath())
+}
+
+// runAttempt spawns one `opencode run` subprocess for the turn, renders its
+// NDJSON stream, and waits for exit. It returns a non-nil error only when the
+// process failed AND produced no result text; a partial-result failure keeps
+// the result, and an intentional cancel (ctx done) returns whatever streamed
+// with a nil error.
+func (a *OpenCodeAgent) runAttempt(ctx context.Context, safeUserMsg, configPath string, term *tui.Terminal) (string, error) {
+	a.mu.Lock()
+	a.lastOCErrorSeen, a.lastOCErrorMsg = false, ""
+	a.lastStderrTail = ""
 	// On the first turn of a session, prepend the QA system prompt + effort/output
 	// directives. opencode persists conversation state per session, so later turns
-	// resume via --session and don't need it re-injected.
+	// resume via --session and don't need it re-injected. A retry that already
+	// captured a session id re-evaluates this correctly.
 	message := safeUserMsg
-	if sessionID == "" {
+	if a.sessionID == "" {
 		message = cliQASystemPrompt(a.sctx, codexQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + safeUserMsg
 	}
+	sessionID := a.sessionID
+	a.mu.Unlock()
 
 	args := []string{"run", "--format", "json"}
 	if a.modelID != "" {
@@ -200,21 +271,10 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 		args = append(args, "--", message)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
-	a.runMu.Lock()
-	a.runCancel = cancel
-	a.runMu.Unlock()
-	defer func() {
-		a.runMu.Lock()
-		a.runCancel = nil
-		a.runMu.Unlock()
-	}()
-
 	cmd := exec.CommandContext(ctx, a.openCodeBin, args...)
 	cmd.Stdin = strings.NewReader("")
-	cmd.Stderr = term.Stderr()
+	tail := &stderrTailBuffer{}
+	cmd.Stderr = io.MultiWriter(term.Stderr(), tail)
 	cmd.Env = append(os.Environ(), "OPENCODE_CONFIG="+configPath)
 	for k, v := range OpenCodeProviderEnv(a.cfg) {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -236,10 +296,86 @@ func (a *OpenCodeAgent) Run(userMsg string, term *tui.Terminal) (string, error) 
 			return result, nil
 		}
 		if result == "" {
+			a.mu.Lock()
+			a.lastStderrTail = tail.String()
+			a.mu.Unlock()
 			return "", fmt.Errorf("opencode exited with error: %w", err)
 		}
 	}
 	return result, nil
+}
+
+// lastRunError returns the message of the most recent error event captured by
+// parseStream for the current run attempt.
+func (a *OpenCodeAgent) lastRunError() (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastOCErrorMsg, a.lastOCErrorSeen
+}
+
+// stderrTailSnapshot returns a bounded, redacted tail of the failed attempt's
+// stderr so the returned error carries opencode's own crash output (e.g. a JS
+// TypeError) instead of a bare exit status.
+func (a *OpenCodeAgent) stderrTailSnapshot() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := strings.TrimSpace(a.lastStderrTail)
+	if len(s) > 500 {
+		s = "…" + s[len(s)-500:]
+	}
+	return redactStderrTail(s)
+}
+
+// stderrSecretPatterns match credential-shaped output a crashing subprocess
+// could theoretically dump to stderr (env echo, auth debug lines). The tail
+// ends up in a returned error, which lands in the TUI and logs — redact
+// defensively rather than trust opencode never to print a key.
+var stderrSecretPatterns = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	{regexp.MustCompile(`(?i)\b(api[_-]?key|token|secret|password|authorization)\b\s*[=:]\s*(bearer\s+)?\S+`), "${1}=<redacted>"},
+	{regexp.MustCompile(`(?i)\bbearer\s+\S+`), "bearer <redacted>"},
+	{regexp.MustCompile(`\b(sk|gsk|rk|ghp|gho|ghu|ghs|xox[bpars]|AIza|AKIA|ASIA)[A-Za-z0-9_\-]{16,}\b`), "<redacted>"},
+	{regexp.MustCompile(`\beyJ[A-Za-z0-9_\-.]{20,}\b`), "<redacted>"},
+}
+
+func redactStderrTail(s string) string {
+	for _, p := range stderrSecretPatterns {
+		s = p.re.ReplaceAllString(s, p.repl)
+	}
+	return s
+}
+
+// stderrTailBuffer keeps the last bytes written to it. One instance per run
+// attempt; not safe for concurrent use.
+type stderrTailBuffer struct{ buf []byte }
+
+// stderrTailLimit bounds the retained stderr tail.
+const stderrTailLimit = 8 << 10
+
+func (s *stderrTailBuffer) Write(p []byte) (int, error) {
+	s.buf = append(s.buf, p...)
+	if len(s.buf) > stderrTailLimit {
+		s.buf = s.buf[len(s.buf)-stderrTailLimit:]
+	}
+	return len(p), nil
+}
+
+func (s *stderrTailBuffer) String() string { return string(s.buf) }
+
+// openCodeLogPath returns opencode's own log file. The NDJSON stream carries
+// only a generic "Unexpected server error" for provider refusions; the full
+// text (entitlement message, provider status) lands here.
+func openCodeLogPath() string {
+	if base := os.Getenv("XDG_DATA_HOME"); base != "" {
+		return filepath.Join(base, "opencode", "log", "opencode.log")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "opencode.log"
+	}
+	return filepath.Join(home, ".local", "share", "opencode", "log", "opencode.log")
 }
 
 // --- NDJSON stream parsing ---
@@ -371,8 +507,19 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 
 		// Surface provider errors that would otherwise be silently dropped,
 		// and detect a coding-plan limit hit for the usage-window tracker.
+		// Record the message even when handleOCError suppresses the print
+		// (status-code-less events are benign noise on successful turns) —
+		// it is the only in-band clue when the turn later dies with no result.
 		if ev.Error != nil {
 			a.handleOCError(ev.Error, term)
+			msg := strings.TrimSpace(ev.Error.Data.Message)
+			if msg == "" {
+				msg = ev.Error.Name
+			}
+			a.mu.Lock()
+			a.lastOCErrorSeen = true
+			a.lastOCErrorMsg = msg
+			a.mu.Unlock()
 		}
 
 		// Accumulate token usage across the turn. opencode reports usage once

@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
 )
@@ -119,10 +121,93 @@ func TestOpenCodeModelsPassesProviderEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := OpenCodeModels(stub, filepath.Join(dir, "cfg.json"), map[string]string{"GROQ_API_KEY": "gsk_regress"}, "groq")
+	got, err := OpenCodeModels(stub, filepath.Join(dir, "cfg.json"), map[string]string{"GROQ_API_KEY": "gsk_regress"}, "groq")
+	if err != nil {
+		t.Fatalf("OpenCodeModels: unexpected error: %v", err)
+	}
 	want := "groq/model-gsk_regress"
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("OpenCodeModels did not pass provider env: got %v, want [%s]", got, want)
+	}
+}
+
+// TestOpenCodeModelsRetriesTransientFailure pins the /orch regression where a
+// transiently failing `opencode models <provider>` (cold-start slowness, catalog
+// hiccup) made the provider's models silently vanish from the picker — glm-5.3
+// "could not be added" until /orch was re-run minutes later. The stub fails the
+// first invocation and succeeds on the second; one retry must recover the list.
+func TestOpenCodeModelsRetriesTransientFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub uses a shell script")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "opencode-stub")
+	marker := filepath.Join(dir, "failed-once")
+	script := "#!/bin/sh\n" +
+		"if [ ! -f \"" + marker + "\" ]; then touch \"" + marker + "\"; exit 1; fi\n" +
+		"echo \"groq/llama-4\"\n"
+	if err := os.WriteFile(stub, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := OpenCodeModels(stub, filepath.Join(dir, "cfg.json"), nil, "groq")
+	if err != nil {
+		t.Fatalf("OpenCodeModels should recover via retry: %v", err)
+	}
+	if len(got) != 1 || got[0] != "groq/llama-4" {
+		t.Fatalf("OpenCodeModels = %v, want [groq/llama-4]", got)
+	}
+}
+
+// TestOpenCodeModelsReturnsErrorWhenAllAttemptsFail ensures that when every
+// attempt fails the error is returned instead of the old silent nil that hid
+// the failure from the picker entirely.
+func TestOpenCodeModelsReturnsErrorWhenAllAttemptsFail(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub uses a shell script")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "opencode-stub")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 3\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := OpenCodeModels(stub, filepath.Join(dir, "cfg.json"), nil, "groq")
+	if err == nil {
+		t.Fatal("OpenCodeModels must return an error when all attempts fail")
+	}
+	if got != nil {
+		t.Errorf("OpenCodeModels = %v, want nil on failure", got)
+	}
+	if !strings.Contains(err.Error(), "groq") {
+		t.Errorf("error should name the provider: %v", err)
+	}
+}
+
+// TestOpenCodeModelsReportsTimeout covers the query-timeout path (review
+// follow-up on PR #181): a slow provider query must be reported as a timeout,
+// not as an opaque exec failure. The timeout is shortened via the package
+// variable so the test stays fast.
+func TestOpenCodeModelsReportsTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub uses a shell script")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "opencode-stub")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nsleep 2\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	old := openCodeModelsTimeout
+	openCodeModelsTimeout = 100 * time.Millisecond
+	defer func() { openCodeModelsTimeout = old }()
+
+	_, err := OpenCodeModels(stub, filepath.Join(dir, "cfg.json"), nil, "groq")
+	if err == nil {
+		t.Fatal("OpenCodeModels must fail when the query exceeds the timeout")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error should report a timeout, got: %v", err)
 	}
 }
 
