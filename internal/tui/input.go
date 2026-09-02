@@ -63,6 +63,8 @@ var slashMenuItems = []SlashMenuItem{
 	{"/reconnect", "Restore active MCP transport"},
 	{"/status", "Auth + session info"},
 	{"/cost", "Token usage + cost"},
+	{"/context", "Show session context info"},
+	{"/plan", "Show coding-plan usage window"},
 	{"/config", "Show config"},
 	{"/skills", "List qmax QA skills + install status"},
 	{"/sessions", "List saved sessions"},
@@ -75,8 +77,10 @@ var slashMenuItems = []SlashMenuItem{
 	{"/paste", "Paste from clipboard (image or text)"},
 	{"/queue", "Show or add to prompt queue"},
 	{"/set", "Update config"},
+	{"/gemma", "Gemma 4 31B on Cerebras (none|low|medium|high, off)"},
 	{"/ollama", "Toggle Ollama on/off"},
 	{"/clear", "Clear history"},
+	{"/update", "Self-update qmax-code to the latest release"},
 	{"/quit", "Exit"},
 }
 
@@ -356,6 +360,20 @@ func (m inputModel) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.Type {
 	case tea.KeyEnter:
+		// A fully-typed command always wins: if the filter exactly names a
+		// command, submit that command verbatim no matter which menu row the
+		// selection sits on. Typing /update used to submit /set — /update was
+		// missing from the menu and /set's description ("Update config")
+		// description-matched the filter, so Enter picked the only visible row.
+		if exact := "/" + strings.ToLower(strings.TrimSpace(m.filter)); exact != "/" {
+			for _, item := range slashMenuItems {
+				if strings.ToLower(item.Cmd) == exact {
+					m.result = item.Cmd
+					m.done = true
+					return m, tea.Quit
+				}
+			}
+		}
 		if len(filtered) > 0 && m.menu < len(filtered) {
 			m.result = filtered[m.menu].Cmd
 			m.done = true
@@ -398,15 +416,22 @@ func (m inputModel) filteredMenuItems() []SlashMenuItem {
 	if m.filter == "" {
 		return slashMenuItems
 	}
-	var filtered []SlashMenuItem
+	// Command-name matches rank ahead of description matches: when the user
+	// has typed something that names a command (e.g. "update" → /update), a
+	// description coincidence on another entry (e.g. /set's "Update config")
+	// must not outrank it.
 	lower := strings.ToLower(m.filter)
+	var cmdMatches, descMatches []SlashMenuItem
 	for _, item := range slashMenuItems {
-		if strings.Contains(strings.ToLower(item.Cmd), lower) ||
-			strings.Contains(strings.ToLower(item.Desc), lower) {
-			filtered = append(filtered, item)
+		if strings.Contains(strings.ToLower(item.Cmd), lower) {
+			cmdMatches = append(cmdMatches, item)
+			continue
+		}
+		if strings.Contains(strings.ToLower(item.Desc), lower) {
+			descMatches = append(descMatches, item)
 		}
 	}
-	return filtered
+	return append(cmdMatches, descMatches...)
 }
 
 var (
