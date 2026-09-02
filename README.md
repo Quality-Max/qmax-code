@@ -105,6 +105,16 @@ background-job health—remain experimental and are only exposed when
 
 ## What is new
 
+### v1.30
+
+- **Settings picker:** `/settings` (or bare `/set`) — flip toggles, cycle
+  themes and Cerebras options, edit project/budget inline; `s` saves, Esc
+  discards.
+- **Slash-menu hijack fixed:** typing `/update` used to run `/set` (its
+  description is "Update config"); an exactly-typed command now always wins.
+- **`/set` hardened:** strict number parsing, `/set project 0` clears, hidden
+  prompts for API keys, and secrets never enter the recallable history.
+
 ### v1.29
 
 - **No more silent opencode failures:** `/orch` retries a flaky model-list

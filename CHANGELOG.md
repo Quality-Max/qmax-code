@@ -4,6 +4,30 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-09-02
+
+### Added
+- Interactive `/settings` picker (bare `/set` opens it): toggles flip on
+  Enter, enum settings (output mode, theme, Cerebras model/reasoning) cycle,
+  numeric settings (project, budget) edit inline; `s` saves the changed rows
+  through the same validation path as `/set`, Esc discards.
+- `/set apikey` and `/set anthropic-key` without a value prompt hidden instead
+  of requiring the secret on the visible input line.
+
+### Fixed
+- Typing a fully-typed slash command that the menu did not list submitted a
+  description-matched menu row instead (typing `/update` ran `/set`, whose
+  description is "Update config"). Command-name matches now rank ahead of
+  description matches, Enter on an exactly-typed command submits it verbatim,
+  and `/update`, `/context`, `/gemma`, `/plan`, `/settings` are in the menu.
+- `/set project` and `/set budget` silently truncated malformed numbers
+  (`1e3` → 1, `0x1f` → 0, `12abc` → 12); both now parse strictly.
+- `/set project 0` explicitly clears the default project.
+- `/set` usage lists `anthropic_key`, which the switch already accepted.
+- Secret values (`/set apikey …`, `/set anthropic-key …`) are redacted from
+  the in-session input history, including whitespace variations.
+- `/set apikey` no longer panics when the session context is not initialized.
+
 ## [1.29.0] - 2026-09-02
 
 ### Added
