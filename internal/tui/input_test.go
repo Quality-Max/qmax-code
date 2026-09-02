@@ -124,6 +124,83 @@ func TestInputCtrlOTogglesFromMenuMode(t *testing.T) {
 	}
 }
 
+// TestSlashMenuFilterRanksCmdMatchAheadOfDescMatch pins the /update → /set bug:
+// /set's description ("Update config") description-matches the filter "update",
+// so when /update is also in the table the command-name match must rank first.
+func TestSlashMenuFilterRanksCmdMatchAheadOfDescMatch(t *testing.T) {
+	m := newInputModel("qmax > ", nil)
+	m.mode = modeMenu
+	m.filter = "update"
+
+	filtered := m.filteredMenuItems()
+	if len(filtered) < 2 {
+		t.Fatalf("filter 'update' should match /update by Cmd and /set by Desc, got %d items", len(filtered))
+	}
+	if filtered[0].Cmd != "/update" {
+		t.Fatalf("first filtered item = %q, want /update (Cmd match outranks Desc match)", filtered[0].Cmd)
+	}
+	foundSet := false
+	for _, item := range filtered[1:] {
+		if item.Cmd == "/set" {
+			foundSet = true
+		}
+	}
+	if !foundSet {
+		t.Errorf("/set (Desc 'Update config') should still be reachable, ranked after Cmd matches")
+	}
+}
+
+// TestSlashMenuEnterSubmitsExactTypedCommand pins the hijack itself: with the
+// filter exactly naming a command, Enter must submit that command verbatim —
+// not whichever description-matched row the selection happens to sit on.
+func TestSlashMenuEnterSubmitsExactTypedCommand(t *testing.T) {
+	m := newInputModel("qmax > ", nil)
+	m.mode = modeMenu
+	m.filter = "update"
+
+	filtered := m.filteredMenuItems()
+	setIdx := -1
+	for i, item := range filtered {
+		if item.Cmd == "/set" {
+			setIdx = i
+		}
+	}
+	if setIdx < 0 {
+		t.Fatal("precondition: /set should be in the filtered list via its description")
+	}
+	// Point the selection straight at the /set row — the exact-match rule must
+	// still submit /update.
+	m.menu = setIdx
+
+	updated, _ := m.updateMenu(tea.KeyMsg{Type: tea.KeyEnter})
+	next, ok := updated.(inputModel)
+	if !ok {
+		t.Fatalf("updateMenu returned %T, want inputModel", updated)
+	}
+	if !next.done || next.result != "/update" {
+		t.Fatalf("Enter with filter 'update' selected /set: result = %q done=%v, want /update", next.result, next.done)
+	}
+}
+
+// TestSlashMenuCoversCriticalCommands guards the other half of the bug: a
+// command handled by the REPL but missing from the menu can never be typed
+// exactly — the menu intercepts "/" and Enter submits a filtered row instead.
+func TestSlashMenuCoversCriticalCommands(t *testing.T) {
+	have := map[string]bool{}
+	for _, item := range slashMenuItems {
+		have[item.Cmd] = true
+	}
+	critical := []string{
+		"/update", "/context", "/gemma", "/plan", // were missing
+		"/orch", "/help", "/set", "/clear", "/quit", "/gate",
+	}
+	for _, cmd := range critical {
+		if !have[cmd] {
+			t.Errorf("%s handled by the REPL but missing from the slash menu", cmd)
+		}
+	}
+}
+
 func TestInputCtrlXClearStreakResets(t *testing.T) {
 	m := newInputModel("qmax > ", nil)
 	m.text = "keep text"
