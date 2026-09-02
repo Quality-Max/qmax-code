@@ -515,7 +515,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			if len(cfg.ActiveProviders()) > 0 && agent.FindOpenCode() != "" {
 				term.PrintSystem("Querying opencode models for your enabled providers…")
 			}
-			ocModels := buildOpenCodeModelEntries(cfg, ag.Cfg.Context)
+			ocModels, modelQueryWarnings := buildOpenCodeModelEntries(cfg, ag.Cfg.Context)
+			for _, w := range modelQueryWarnings {
+				term.PrintError(w)
+			}
 			if len(ocModels) == 0 {
 				ocModels = openCodeSetupEntries()
 			}
@@ -2150,25 +2153,35 @@ func anthropicBackendAvailable(ag *agent.Agent, term *tui.Terminal) bool {
 // It queries `opencode models <provider>` at call time so the list is live
 // (models.dev-backed for Groq/OpenRouter, seeded config for custom providers).
 // Returns nil when opencode isn't installed or no providers are active.
-func buildOpenCodeModelEntries(cfg *api.Config, sctx *api.SessionContext) []tui.OpenCodeModelEntry {
+//
+// A provider whose model query fails (timeout, opencode error) previously made
+// its models silently vanish from the picker. The failure is now returned as a
+// warning string so the caller can tell the user why rows are missing.
+func buildOpenCodeModelEntries(cfg *api.Config, sctx *api.SessionContext) ([]tui.OpenCodeModelEntry, []string) {
 	bin := agent.FindOpenCode()
 	if bin == "" {
-		return nil
+		return nil, nil
 	}
 	active := cfg.ActiveProviders()
 	if len(active) == 0 {
-		return nil
+		return nil, nil
 	}
 	path, err := agent.WriteOpenCodeConfig(cfg, sctx, cfg.OrchPermissionMode)
 	if err != nil {
-		return nil
+		return nil, []string{fmt.Sprintf("Model list unavailable — opencode config write failed: %v", err)}
 	}
 	// Provider keys must be present in the env or `opencode models <provider>`
 	// reports "Provider not found" for known providers (groq/openrouter).
 	env := agent.OpenCodeProviderEnv(cfg)
 	var entries []tui.OpenCodeModelEntry
+	var warnings []string
 	for _, p := range active {
-		for _, full := range agent.OpenCodeModels(bin, path, env, p.ID) {
+		models, err := agent.OpenCodeModels(bin, path, env, p.ID)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("Model list for %s unavailable (%v) — re-run /orch to retry", p.DisplayName, err))
+			continue
+		}
+		for _, full := range models {
 			label := full
 			if i := strings.Index(full, "/"); i >= 0 {
 				label = full[i+1:]
@@ -2181,7 +2194,7 @@ func buildOpenCodeModelEntries(cfg *api.Config, sctx *api.SessionContext) []tui.
 			})
 		}
 	}
-	return entries
+	return entries, warnings
 }
 
 // resolveOpenCodeModelOverride returns a valid "provider/model" for the current
@@ -2190,7 +2203,7 @@ func buildOpenCodeModelEntries(cfg *api.Config, sctx *api.SessionContext) []tui.
 // model (so a stale override from another backend is never sent to opencode).
 // Returns false when no models are available at all.
 func resolveOpenCodeModelOverride(cfg *api.Config, sctx *api.SessionContext) (string, bool) {
-	entries := buildOpenCodeModelEntries(cfg, sctx)
+	entries, _ := buildOpenCodeModelEntries(cfg, sctx)
 	if len(entries) == 0 {
 		return "", false
 	}

@@ -236,12 +236,33 @@ func OpenCodeProviderEnv(cfg *api.Config) map[string]string {
 // the provider API keys (from OpenCodeProviderEnv): opencode 1.17 reports
 // "Provider not found" for known providers like groq/openrouter when their key
 // env var is absent, so without it those providers would never reach the
-// picker. Returns nil on error.
-func OpenCodeModels(bin, configPath string, providerEnv map[string]string, providerID string) []string {
+// picker.
+//
+// The query is a live network round-trip (models.dev / provider catalog) that
+// takes seconds warm and can take far longer cold. It used to return nil
+// silently on timeout or failure, which made /orch show a partial model list
+// with no explanation — new models would "go missing" for no visible reason.
+// It now retries once and returns the error so callers can surface it.
+func OpenCodeModels(bin, configPath string, providerEnv map[string]string, providerID string) ([]string, error) {
 	if bin == "" || providerID == "" {
-		return nil
+		return nil, fmt.Errorf("opencode binary or provider id is missing")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	var (
+		models []string
+		err    error
+	)
+	for attempt := 0; attempt < 2; attempt++ {
+		models, err = listOpenCodeModelsOnce(bin, configPath, providerEnv, providerID)
+		if err == nil {
+			return models, nil
+		}
+	}
+	return nil, err
+}
+
+// listOpenCodeModelsOnce runs a single `opencode models <provider>` query.
+func listOpenCodeModelsOnce(bin, configPath string, providerEnv map[string]string, providerID string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, bin, "models", providerID)
@@ -252,7 +273,10 @@ func OpenCodeModels(bin, configPath string, providerEnv map[string]string, provi
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
-		return nil
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("opencode models %s: timed out after 30s", providerID)
+		}
+		return nil, fmt.Errorf("opencode models %s: %w", providerID, err)
 	}
 
 	var models []string
@@ -266,5 +290,5 @@ func OpenCodeModels(bin, configPath string, providerEnv map[string]string, provi
 		}
 		models = append(models, line)
 	}
-	return models
+	return models, nil
 }
