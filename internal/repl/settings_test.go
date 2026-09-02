@@ -69,6 +69,7 @@ func TestRedactSecretInput(t *testing.T) {
 		"/SET ANTHROPIC_KEY sk-ant-abc123":   "/set ANTHROPIC_KEY <redacted>",
 		"/set  apikey   qm-live-secret123":   "/set apikey <redacted>",
 		"/set\tanthropic-key\tsk-ant-x":      "/set anthropic-key <redacted>",
+		"/set\u00A0apikey\u00A0qm-live-x":    "/set apikey <redacted>", // NBSP is a unicode space strings.Fields splits on
 		"/set apikey":                        "/set apikey",
 		"/set theme dark":                    "/set theme dark",
 		"what is the anthropic-key for this": "what is the anthropic-key for this",

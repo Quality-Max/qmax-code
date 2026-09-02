@@ -2029,6 +2029,11 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 			printStandaloneCloudUnavailable(term, "/set apikey")
 			return settingInvalid
 		}
+		// The auth update below writes through Context; guarantee it exists
+		// (a zero-value Agent in tests or early startup has it nil).
+		if ag.Cfg.Context == nil {
+			ag.Cfg.Context = &api.SessionContext{}
+		}
 		// Allow pasting API key directly: /set apikey qm-...
 		auth, err := api.LoginWithAPIKey(value)
 		if err != nil {
@@ -2164,7 +2169,7 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 // secretSetRe matches any /set form that carries a secret value, tolerating
 // the whitespace variations strings.Fields accepts ("/set  apikey  k",
 // tabs, ...) so none of them can slip past the redaction into history.
-var secretSetRe = regexp.MustCompile(`(?i)^/set\s+(apikey|anthropic[-_]key)\s+\S`)
+var secretSetRe = regexp.MustCompile(`(?i)^/set[\s\p{Zs}]+(apikey|anthropic[-_]key)[\s\p{Zs}]+\S`)
 
 // redactSecretInput rewrites secret-carrying inputs to a redacted form before
 // they enter the recallable history; anything else passes through unchanged.
