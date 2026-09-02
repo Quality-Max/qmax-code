@@ -11,6 +11,29 @@ import (
 	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
+// TestRedactStderrTail pins the defensive redaction applied to the stderr tail
+// before it lands in a returned error (review finding on PR #181): a crashing
+// subprocess must never echo a credential into the TUI or logs.
+func TestRedactStderrTail(t *testing.T) {
+	in := "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.sig\n" +
+		"api_key=gsk_0123456789abcdefghij\n" +
+		"sk-proj-0123456789abcdefghij\n" +
+		"Error: Unexpected error G.includes is not a function"
+	got := redactStderrTail(in)
+
+	for _, leaked := range []string{"gsk_0123456789", "sk-proj-0123456789", "eyJhbGciOiJIUzI1NiIs"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("stderr tail leaked credential %q: %s", leaked, got)
+		}
+	}
+	if !strings.Contains(got, "G.includes is not a function") {
+		t.Errorf("redaction must keep the diagnostic text, got: %s", got)
+	}
+	if !strings.Contains(got, "<redacted>") {
+		t.Errorf("redaction should mark removed values, got: %s", got)
+	}
+}
+
 // The Run-level tests drive the real spawn/parse/wait path through a stub
 // `opencode` binary. The stub must answer the `run --help` probe
 // (openCodeSupportsAutoFlag) with exit 0 so the flag support check is

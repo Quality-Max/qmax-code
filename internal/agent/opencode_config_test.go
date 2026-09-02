@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
 )
@@ -180,6 +181,33 @@ func TestOpenCodeModelsReturnsErrorWhenAllAttemptsFail(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "groq") {
 		t.Errorf("error should name the provider: %v", err)
+	}
+}
+
+// TestOpenCodeModelsReportsTimeout covers the query-timeout path (review
+// follow-up on PR #181): a slow provider query must be reported as a timeout,
+// not as an opaque exec failure. The timeout is shortened via the package
+// variable so the test stays fast.
+func TestOpenCodeModelsReportsTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub uses a shell script")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "opencode-stub")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nsleep 2\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	old := openCodeModelsTimeout
+	openCodeModelsTimeout = 100 * time.Millisecond
+	defer func() { openCodeModelsTimeout = old }()
+
+	_, err := OpenCodeModels(stub, filepath.Join(dir, "cfg.json"), nil, "groq")
+	if err == nil {
+		t.Fatal("OpenCodeModels must fail when the query exceeds the timeout")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error should report a timeout, got: %v", err)
 	}
 }
 

@@ -260,9 +260,14 @@ func OpenCodeModels(bin, configPath string, providerEnv map[string]string, provi
 	return nil, err
 }
 
+// openCodeModelsTimeout bounds a single `opencode models` query — a live
+// network round-trip (models.dev / provider catalog). A variable rather than
+// a constant so tests can exercise the timeout path quickly.
+var openCodeModelsTimeout = 30 * time.Second
+
 // listOpenCodeModelsOnce runs a single `opencode models <provider>` query.
 func listOpenCodeModelsOnce(bin, configPath string, providerEnv map[string]string, providerID string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), openCodeModelsTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, bin, "models", providerID)
@@ -274,7 +279,7 @@ func listOpenCodeModelsOnce(bin, configPath string, providerEnv map[string]strin
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("opencode models %s: timed out after 30s", providerID)
+			return nil, fmt.Errorf("opencode models %s: timed out after %s", providerID, openCodeModelsTimeout)
 		}
 		return nil, fmt.Errorf("opencode models %s: %w", providerID, err)
 	}

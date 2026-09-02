@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -312,15 +313,36 @@ func (a *OpenCodeAgent) lastRunError() (string, bool) {
 	return a.lastOCErrorMsg, a.lastOCErrorSeen
 }
 
-// stderrTailSnapshot returns a bounded tail of the failed attempt's stderr so
-// the returned error carries opencode's own crash output (e.g. a JS TypeError)
-// instead of a bare exit status.
+// stderrTailSnapshot returns a bounded, redacted tail of the failed attempt's
+// stderr so the returned error carries opencode's own crash output (e.g. a JS
+// TypeError) instead of a bare exit status.
 func (a *OpenCodeAgent) stderrTailSnapshot() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := strings.TrimSpace(a.lastStderrTail)
 	if len(s) > 500 {
 		s = "…" + s[len(s)-500:]
+	}
+	return redactStderrTail(s)
+}
+
+// stderrSecretPatterns match credential-shaped output a crashing subprocess
+// could theoretically dump to stderr (env echo, auth debug lines). The tail
+// ends up in a returned error, which lands in the TUI and logs — redact
+// defensively rather than trust opencode never to print a key.
+var stderrSecretPatterns = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	{regexp.MustCompile(`(?i)\b(api[_-]?key|token|secret|password|authorization)\b\s*[=:]\s*(bearer\s+)?\S+`), "${1}=<redacted>"},
+	{regexp.MustCompile(`(?i)\bbearer\s+\S+`), "bearer <redacted>"},
+	{regexp.MustCompile(`\b(sk|gsk|rk|ghp|gho|ghu|ghs|xox[bpars]|AIza)[A-Za-z0-9_\-]{16,}\b`), "<redacted>"},
+	{regexp.MustCompile(`\beyJ[A-Za-z0-9_\-.]{20,}\b`), "<redacted>"},
+}
+
+func redactStderrTail(s string) string {
+	for _, p := range stderrSecretPatterns {
+		s = p.re.ReplaceAllString(s, p.repl)
 	}
 	return s
 }
