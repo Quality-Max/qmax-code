@@ -11,6 +11,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -253,7 +256,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintSystem("processing queued prompt")
 			}
 			fmt.Println()
-			inputHistory = append(inputHistory, input)
+			inputHistory = append(inputHistory, redactSecretInput(input))
 		} else {
 			result := tui.ReadInput(term.Prompt(), inputHistory, ag.Cfg.OutputVerbose, inputStatus())
 
@@ -279,7 +282,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				continue
 			}
 			inputWasPasted = result.Pasted
-			inputHistory = append(inputHistory, input)
+			inputHistory = append(inputHistory, redactSecretInput(input))
 		}
 
 		// Built-in commands
@@ -455,6 +458,10 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			continue
 		case input == "/set":
 			handleSetCommand(input, ag, term)
+			startCloudSession()
+			continue
+		case input == "/settings" || strings.HasPrefix(input, "/settings "):
+			runSettingsPicker(ag, term)
 			startCloudSession()
 			continue
 
@@ -1806,15 +1813,71 @@ func printConfigInfo(cfg *api.Config, ctx *api.SessionContext, term *tui.Termina
 	fmt.Println()
 }
 
+// settingResult tells the caller what to do after applySettingValue runs.
+type settingResult int
+
+const (
+	settingInvalid       settingResult = iota // validation failed; error already printed
+	settingApplied                            // applied; caller should persist via cfg.Save()
+	settingAppliedNoSave                      // applied; persistence handled elsewhere (keychain/auth.json/runtime)
+)
+
+const setUsageKeys = "Keys: model, project, local_only, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, anthropic_key, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme"
+
+// handleSetCommand implements /set. Bare `/set` opens the interactive
+// settings picker (the keyboard-friendly form of this command); `/set <key>`
+// for the secret keys prompts hidden instead of echoing the value into the
+// terminal; `/set <key> <value>` applies one setting directly.
 func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 	parts := strings.Fields(input)
-	if len(parts) < 3 {
-		term.PrintError("Usage: /set <key> <value>")
-		term.PrintSystem("Keys: model, project, local_only, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme")
+	if len(parts) <= 1 {
+		runSettingsPicker(ag, term)
 		return
 	}
 	key := strings.ToLower(parts[1])
-	value := parts[2]
+
+	if len(parts) == 2 {
+		switch key {
+		case "apikey", "anthropic-key", "anthropic_key":
+			// Prompt hidden rather than making the user paste a secret into the
+			// visible input line (and its history).
+			value := setup.ReadSecret("  Paste the value (blank to cancel): ")
+			if value == "" {
+				term.PrintSystem("No value entered — nothing changed.")
+				return
+			}
+			applyAndSaveSetting(key, value, ag, term)
+			return
+		}
+		term.PrintError("Usage: /set <key> <value>")
+		term.PrintSystem(setUsageKeys)
+		return
+	}
+
+	applyAndSaveSetting(key, parts[2], ag, term)
+}
+
+// applyAndSaveSetting applies one key/value pair and persists when the apply
+// path asks for it.
+func applyAndSaveSetting(key, value string, ag *agent.Agent, term *tui.Terminal) {
+	cfg := ag.AppConfig
+	if cfg == nil {
+		cfg = api.DefaultConfig()
+		ag.AppConfig = cfg
+	}
+	if applySettingValue(key, value, ag, term) == settingApplied {
+		if err := cfg.Save(); err != nil {
+			term.PrintError(fmt.Sprintf("api.Config updated in memory but failed to save: %v", err))
+		} else {
+			term.PrintSystem("api.Config saved to ~/.qmax-code/config.json")
+		}
+	}
+}
+
+// applySettingValue validates and applies a single setting. It is the one
+// shared path for /set, the /settings picker, and future callers, so
+// validation and messaging can never drift between them.
+func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) settingResult {
 	cfg := ag.AppConfig
 	if cfg == nil {
 		cfg = api.DefaultConfig()
@@ -1832,29 +1895,39 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 			term.PrintSystem("Standalone local-only mode will be disabled after restart.")
 		default:
 			term.PrintError("Value must be true or false.")
-			return
+			return settingInvalid
 		}
 
 	case "model":
 		if !api.IsValidClaudeModelName(value) {
 			term.PrintError("Valid models: " + api.ValidClaudeModelsHelp())
-			return
+			return settingInvalid
 		}
 		cfg.DefaultModel = api.ResolveClaudeModel(value)
 		term.PrintSystem(fmt.Sprintf("Default model set to: %s", cfg.DefaultModel))
 
 	case "project":
-		if ag.Cfg.Context.LocalOnly {
+		if ag.Cfg.Context != nil && ag.Cfg.Context.LocalOnly {
 			printStandaloneCloudUnavailable(term, "/set project")
-			return
+			return settingInvalid
 		}
-		var pid int
-		if _, err := fmt.Sscanf(value, "%d", &pid); err != nil || pid < 0 {
-			term.PrintError("Project ID must be a non-negative integer.")
-			return
+		pid, err := strconv.Atoi(value)
+		if err != nil || pid < 0 {
+			term.PrintError("Project ID must be a positive integer (0 clears it).")
+			return settingInvalid
+		}
+		if pid == 0 {
+			cfg.DefaultProject = 0
+			if ag.Cfg.Context != nil {
+				ag.Cfg.Context.ProjectID = 0
+			}
+			term.PrintSystem("Default project cleared.")
+			return settingApplied
 		}
 		cfg.DefaultProject = pid
-		ag.Cfg.Context.ProjectID = pid
+		if ag.Cfg.Context != nil {
+			ag.Cfg.Context.ProjectID = pid
+		}
 		term.PrintSystem(fmt.Sprintf("Default project set to: #%d", pid))
 
 	case "professional":
@@ -1869,7 +1942,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 			term.PrintSystem("Professional mode disabled. Cat personality restored.")
 		default:
 			term.PrintError("Value must be true or false.")
-			return
+			return settingInvalid
 		}
 
 	case "autosave":
@@ -1882,7 +1955,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 			term.PrintSystem("Auto-save disabled.")
 		default:
 			term.PrintError("Value must be true or false.")
-			return
+			return settingInvalid
 		}
 
 	case "output_verbose", "output-verbose", "output":
@@ -1897,13 +1970,13 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 			term.PrintSystem("Output mode set to compact.")
 		default:
 			term.PrintError("Value must be compact/verbose or true/false.")
-			return
+			return settingInvalid
 		}
 
 	case "cloud_sync", "cloudsync":
-		if ag.Cfg.Context.LocalOnly {
+		if ag.Cfg.Context != nil && ag.Cfg.Context.LocalOnly {
 			printStandaloneCloudUnavailable(term, "/set cloud_sync")
-			return
+			return settingInvalid
 		}
 		switch strings.ToLower(value) {
 		case "true", "1", "yes", "on":
@@ -1916,53 +1989,62 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 			term.PrintSystem("Cloud session sync disabled.")
 		default:
 			term.PrintError("Value must be true or false.")
-			return
+			return settingInvalid
 		}
 
 	case "live_feed", "live-feed", "livefeed":
-		if ag.Cfg.Context.LocalOnly {
+		if ag.Cfg.Context != nil && ag.Cfg.Context.LocalOnly {
 			printStandaloneCloudUnavailable(term, "/set live_feed")
-			return
+			return settingInvalid
 		}
 		switch strings.ToLower(value) {
 		case "true", "1", "yes", "on":
 			cfg.LiveFeed = true
-			ag.Cfg.Context.LiveFeed = true
+			if ag.Cfg.Context != nil {
+				ag.Cfg.Context.LiveFeed = true
+			}
 			term.PrintSystem("Live feed enabled — test runs and AI crawls will stream in QM Cloud Sandbox.")
 		case "false", "0", "no", "off":
 			cfg.LiveFeed = false
-			ag.Cfg.Context.LiveFeed = false
+			if ag.Cfg.Context != nil {
+				ag.Cfg.Context.LiveFeed = false
+			}
 			term.PrintSystem("Live feed disabled.")
 		default:
 			term.PrintError("Value must be true or false.")
-			return
+			return settingInvalid
 		}
 
 	case "budget":
-		var budget int
-		if _, err := fmt.Sscanf(value, "%d", &budget); err != nil || budget < 0 {
+		budget, err := strconv.Atoi(value)
+		if err != nil || budget < 0 {
 			term.PrintError("Budget must be a non-negative integer (token count).")
-			return
+			return settingInvalid
 		}
 		cfg.MaxTokenBudget = budget
 		term.PrintSystem(fmt.Sprintf("Token budget set to: %d", budget))
 
 	case "apikey":
-		if ag.Cfg.Context.LocalOnly {
+		if ag.Cfg.Context != nil && ag.Cfg.Context.LocalOnly {
 			printStandaloneCloudUnavailable(term, "/set apikey")
-			return
+			return settingInvalid
+		}
+		// The auth update below writes through Context; guarantee it exists
+		// (a zero-value Agent in tests or early startup has it nil).
+		if ag.Cfg.Context == nil {
+			ag.Cfg.Context = &api.SessionContext{}
 		}
 		// Allow pasting API key directly: /set apikey qm-...
 		auth, err := api.LoginWithAPIKey(value)
 		if err != nil {
 			term.PrintError(fmt.Sprintf("Invalid API key: %v", err))
-			return
+			return settingInvalid
 		}
 		ag.Cfg.Context.Auth = auth
 		ag.Cfg.Context.API = api.NewAPIClient(auth)
 		tui.AnimateMax(tui.MoodHappy, fmt.Sprintf("Connected as %s", auth.Email))
 		fmt.Println()
-		return // auth.json handles persistence
+		return settingAppliedNoSave // auth.json handles persistence
 
 	case "ollama":
 		switch strings.ToLower(value) {
@@ -1971,44 +2053,44 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 				term.PrintError("No Ollama URL configured. Set it first:")
 				term.PrintSystem("  qmax-code config set ollama_url https://user:pass@llm.example.com")
 				term.PrintSystem("  qmax-code config set ollama_model gemma3:4b-it-q4_K_M")
-				return
+				return settingInvalid
 			}
 			if err := agent.ValidateOllamaURL(cfg.OllamaURL); err != nil {
 				term.PrintError(fmt.Sprintf("Ollama URL rejected: %v", err))
-				return
+				return settingInvalid
 			}
 			ag.Ollama = agent.NewOllamaClient(cfg)
 			term.PrintSystem(fmt.Sprintf("Ollama enabled: %s (%s)", sysutil.MaskURL(cfg.OllamaURL), cfg.OllamaModel))
 		case "false", "0", "no", "off", "disabled":
-			if ag.Cfg.Context.LocalOnly && ag.Cfg.Context.Backend == "" && ag.Cfg.AnthropicKey == "" {
+			if ag.Cfg.Context != nil && ag.Cfg.Context.LocalOnly && ag.Cfg.Context.Backend == "" && ag.Cfg.AnthropicKey == "" {
 				term.PrintError("Cannot disable Ollama: no Anthropic API key or CLI backend is active.")
-				return
+				return settingInvalid
 			}
 			ag.Ollama = nil
 			term.PrintSystem("Ollama disabled. Using Claude for all calls.")
 		default:
 			term.PrintError("Value must be true/false (or enabled/disabled).")
-			return
+			return settingInvalid
 		}
-		return // no config persistence needed — runtime toggle
+		return settingAppliedNoSave // runtime toggle — no config persistence needed
 
 	case "backend":
 		// /set backend cc|codex|api — persist backend choice.
 		// For live switching use /cc, /codex, or /api instead.
 		switch strings.ToLower(value) {
 		case "cc":
-			if bin := agent.FindClaudeCode(); bin == "" {
+			if agent.FindClaudeCode() == "" {
 				term.PrintError("'claude' CLI not found. Install Claude Code first.")
 				term.PrintSystem("  https://claude.ai/download")
-				return
+				return settingInvalid
 			}
 			cfg.Backend = "cc"
 			term.PrintSystem("Backend set to CC. Use /cc to switch live, or restart to apply.")
 		case "codex":
-			if bin := agent.FindCodex(); bin == "" {
+			if agent.FindCodex() == "" {
 				term.PrintError("'codex' CLI not found.")
 				term.PrintSystem("  npm install -g @openai/codex")
-				return
+				return settingInvalid
 			}
 			cfg.Backend = "codex"
 			term.PrintSystem("Backend set to Codex. Use /codex to switch live, or restart to apply.")
@@ -2017,7 +2099,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 			term.PrintSystem("Backend set to Anthropic API. Restart or use /api to switch live.")
 		default:
 			term.PrintError("Valid backends: cc, codex, api (use /gemma for cerebras)")
-			return
+			return settingInvalid
 		}
 
 	case "cerebras_model", "cerebras-model":
@@ -2034,7 +2116,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 		} else {
 			if !api.ValidCerebrasReasoningEffort(value) {
 				term.PrintError(fmt.Sprintf("Invalid value %q; allowed: none, low, medium, high", value))
-				return
+				return settingInvalid
 			}
 			cfg.CerebrasReasoningEffort = api.NormalizeCerebrasReasoningEffort(value)
 		}
@@ -2058,7 +2140,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 		}
 		if !found {
 			term.PrintError(fmt.Sprintf("Unknown theme %q. Available: %s", value, strings.Join(valid, ", ")))
-			return
+			return settingInvalid
 		}
 		cfg.Theme = strings.ToLower(value)
 		tui.ApplyTheme(tui.ThemeByName(cfg.Theme))
@@ -2073,19 +2155,121 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 		} else {
 			term.PrintSystem("Anthropic API key saved to OS keychain.")
 		}
-		return // don't save to config.json — keychain handles it
+		return settingAppliedNoSave // keychain handles persistence
 
 	default:
 		term.PrintError(fmt.Sprintf("Unknown config key: %s", key))
-		term.PrintSystem("Keys: model, project, local_only, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme")
-		return
+		term.PrintSystem(setUsageKeys)
+		return settingInvalid
 	}
 
-	// Persist to disk
-	if err := cfg.Save(); err != nil {
-		term.PrintError(fmt.Sprintf("api.Config updated in memory but failed to save: %v", err))
-	} else {
-		term.PrintSystem("api.Config saved to ~/.qmax-code/config.json")
+	return settingApplied
+}
+
+// secretSetRe matches any /set form that carries a secret value, tolerating
+// the whitespace variations strings.Fields accepts ("/set  apikey  k",
+// tabs, ...) so none of them can slip past the redaction into history.
+var secretSetRe = regexp.MustCompile(`(?i)^/set[\s\p{Zs}]+(apikey|anthropic[-_]key)[\s\p{Zs}]+\S`)
+
+// redactSecretInput rewrites secret-carrying inputs to a redacted form before
+// they enter the recallable history; anything else passes through unchanged.
+func redactSecretInput(input string) string {
+	if m := secretSetRe.FindStringSubmatch(input); m != nil {
+		return "/set " + m[1] + " <redacted>"
+	}
+	return input
+}
+
+// buildSettingsRows snapshots the config into picker rows.
+func buildSettingsRows(cfg *api.Config) []tui.SettingsRow {
+	cloudSync := cfg.CloudSync != nil && *cfg.CloudSync
+	boolStr := func(b bool) string {
+		if b {
+			return "true"
+		}
+		return "false"
+	}
+	return []tui.SettingsRow{
+		{Key: "project", Label: "Default project", Kind: tui.SettingsText,
+			Value: strconv.Itoa(cfg.DefaultProject), Hint: "0 = unset"},
+		{Key: "budget", Label: "Token budget", Kind: tui.SettingsText,
+			Value: strconv.Itoa(cfg.MaxTokenBudget), Hint: "0 = unlimited"},
+		{Key: "output_verbose", Label: "Output mode", Kind: tui.SettingsCycle,
+			Value: boolStr(cfg.OutputVerbose), Options: []string{"compact", "verbose"},
+			Display: func(v string) string {
+				if v == "true" || v == "verbose" {
+					return "verbose"
+				}
+				return "compact"
+			}},
+		{Key: "professional", Label: "Professional mode", Kind: tui.SettingsToggle,
+			Value: boolStr(cfg.Professional)},
+		{Key: "autosave", Label: "Auto-save sessions", Kind: tui.SettingsToggle,
+			Value: boolStr(cfg.AutoSave)},
+		{Key: "cloud_sync", Label: "Cloud session sync", Kind: tui.SettingsToggle,
+			Value: boolStr(cloudSync)},
+		{Key: "live_feed", Label: "Live browser feed", Kind: tui.SettingsToggle,
+			Value: boolStr(cfg.LiveFeed)},
+		{Key: "local_only", Label: "Local-only mode", Kind: tui.SettingsToggle,
+			Value: boolStr(cfg.LocalOnly), Hint: "restart applies"},
+		{Key: "theme", Label: "Theme", Kind: tui.SettingsCycle,
+			Value: cfg.Theme, Options: tui.ThemeNames(),
+			Display: func(v string) string {
+				if v == "" {
+					return "(default)"
+				}
+				return v
+			}},
+		{Key: "cerebras_model", Label: "Cerebras model", Kind: tui.SettingsCycle,
+			Value: cfg.CerebrasModel, Options: []string{api.CerebrasDefaultModel, api.CerebrasGemma4Model},
+			Display: func(v string) string {
+				if v == "" {
+					return api.CerebrasDefaultModel
+				}
+				return v
+			}},
+		{Key: "cerebras_reasoning_effort", Label: "Cerebras reasoning", Kind: tui.SettingsCycle,
+			Value: cfg.CerebrasReasoningEffort, Options: []string{"", "low", "medium", "high"},
+			Display: func(v string) string {
+				if v == "" {
+					return "none (off)"
+				}
+				return v
+			}},
+	}
+}
+
+// runSettingsPicker opens the interactive settings editor and applies every
+// changed row through applySettingValue — the same validation and messaging
+// path /set uses.
+func runSettingsPicker(ag *agent.Agent, term *tui.Terminal) {
+	cfg := ag.AppConfig
+	if cfg == nil {
+		cfg = api.DefaultConfig()
+		ag.AppConfig = cfg
+	}
+	res := tui.ShowSettingsPicker(buildSettingsRows(cfg))
+	if !res.Confirmed {
+		term.PrintSystem("Settings unchanged.")
+		return
+	}
+	keys := make([]string, 0, len(res.Changes))
+	for k := range res.Changes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	needSave := false
+	for _, k := range keys {
+		if applySettingValue(k, res.Changes[k], ag, term) == settingApplied {
+			needSave = true
+		}
+	}
+	if needSave {
+		if err := cfg.Save(); err != nil {
+			term.PrintError(fmt.Sprintf("api.Config updated in memory but failed to save: %v", err))
+		} else {
+			term.PrintSystem("api.Config saved to ~/.qmax-code/config.json")
+		}
 	}
 }
 
