@@ -105,6 +105,18 @@ background-job health—remain experimental and are only exposed when
 
 ## What is new
 
+### v1.29
+
+- **No more silent opencode failures:** `/orch` retries a flaky model-list
+  query once and tells you when a provider's models could not be fetched,
+  instead of them quietly disappearing from the picker.
+- **Real causes on failed turns:** a provider refusal (e.g. a model outside
+  your subscription plan) surfaces its message and a pointer to opencode's log
+  instead of a bare "exit status 1".
+- **Crash-proof turns:** an internal opencode crash mid-turn is retried
+  automatically once; the final error carries a secret-redacted stderr tail
+  when both attempts die.
+
 ### v1.28
 
 - **Public Codex runner:** the terminal-neutral `codexrunner` Go package gives

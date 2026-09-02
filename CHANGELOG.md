@@ -4,6 +4,8 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-09-02
+
 ### Added
 - `codexrunner` checkpoints carry `RolloutPath`, the local Codex rollout
   backing the thread, so a session moved to a replacement sandbox can be
@@ -12,6 +14,16 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   `$CODEX_HOME`.
 
 ### Fixed
+- `opencode models` queries no longer fail silently in `/orch`: a transient
+  timeout or error is retried once and surfaced per provider, instead of the
+  provider's models quietly missing from the picker.
+- A failed opencode turn surfaces the real provider error (e.g. an entitlement
+  refusal masked as "Unexpected server error") with a pointer to opencode's
+  log, instead of a bare "exit status 1". Deterministic provider refusals are
+  not retried.
+- An opencode internal crash mid-turn (empty-result exit, no stream error) is
+  retried once automatically; if both attempts die, the returned error carries
+  a secret-redacted stderr tail.
 - `Continuity.Run` and `Runner.Result` now carry the rollout reference the
   checkpoint sink already receives, instead of rebuilding a checkpoint from the
   thread ID and model alone and dropping it on every turn.
