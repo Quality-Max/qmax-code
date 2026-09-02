@@ -34,6 +34,32 @@ func TestRedactStderrTail(t *testing.T) {
 	}
 }
 
+// TestRedactStderrTailEdgeCases pins the review findings on PR #181 from both
+// directions: non-secret identifiers (git SHAs are hex and cannot start with a
+// credential prefix) must survive redaction, while header/env-var credential
+// shapes (X-API-Key:, token=…) and AWS access-key ids must be redacted.
+func TestRedactStderrTailEdgeCases(t *testing.T) {
+	sha := "abcdef1234567890abcdef1234567890abcdef12"
+	in := "Commit: " + sha + "\n" +
+		"X-API-Key: k_abc123def456ghi789\n" +
+		"token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpX\n" +
+		"AKIAIOSFODNN7EXAMPLE\n" +
+		"Error: Unexpected error G.includes is not a function"
+	got := redactStderrTail(in)
+
+	if !strings.Contains(got, sha) {
+		t.Errorf("a hex git SHA is not a credential and must survive redaction, got: %s", got)
+	}
+	for _, leaked := range []string{"k_abc123def456ghi789", "eyJhbGciOiJIUzI1NiIsInR5cCI6", "AKIAIOSFODNN7EXAMPLE"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("stderr tail leaked credential %q: %s", leaked, got)
+		}
+	}
+	if !strings.Contains(got, "G.includes is not a function") {
+		t.Errorf("redaction must keep the diagnostic text, got: %s", got)
+	}
+}
+
 // The Run-level tests drive the real spawn/parse/wait path through a stub
 // `opencode` binary. The stub must answer the `run --help` probe
 // (openCodeSupportsAutoFlag) with exit 0 so the flag support check is

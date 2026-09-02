@@ -336,7 +336,7 @@ var stderrSecretPatterns = []struct {
 }{
 	{regexp.MustCompile(`(?i)\b(api[_-]?key|token|secret|password|authorization)\b\s*[=:]\s*(bearer\s+)?\S+`), "${1}=<redacted>"},
 	{regexp.MustCompile(`(?i)\bbearer\s+\S+`), "bearer <redacted>"},
-	{regexp.MustCompile(`\b(sk|gsk|rk|ghp|gho|ghu|ghs|xox[bpars]|AIza)[A-Za-z0-9_\-]{16,}\b`), "<redacted>"},
+	{regexp.MustCompile(`\b(sk|gsk|rk|ghp|gho|ghu|ghs|xox[bpars]|AIza|AKIA|ASIA)[A-Za-z0-9_\-]{16,}\b`), "<redacted>"},
 	{regexp.MustCompile(`\beyJ[A-Za-z0-9_\-.]{20,}\b`), "<redacted>"},
 }
 
