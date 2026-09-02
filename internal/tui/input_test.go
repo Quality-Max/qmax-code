@@ -192,7 +192,7 @@ func TestSlashMenuCoversCriticalCommands(t *testing.T) {
 	}
 	critical := []string{
 		"/update", "/context", "/gemma", "/plan", // were missing
-		"/orch", "/help", "/set", "/clear", "/quit", "/gate",
+		"/orch", "/help", "/set", "/settings", "/clear", "/quit", "/gate",
 	}
 	for _, cmd := range critical {
 		if !have[cmd] {
