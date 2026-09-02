@@ -60,12 +60,15 @@ func TestApplySettingUnknownKey(t *testing.T) {
 }
 
 // TestRedactSecretInput pins the history hygiene fix: /set values for the
-// secret keys must never be recallable via up-arrow.
+// secret keys must never be recallable via up-arrow — including the
+// whitespace variations strings.Fields accepts as valid commands.
 func TestRedactSecretInput(t *testing.T) {
 	cases := map[string]string{
 		"/set apikey qm-live-secret123":      "/set apikey <redacted>",
 		"/set anthropic-key sk-ant-abc123":   "/set anthropic-key <redacted>",
-		"/SET ANTHROPIC_KEY sk-ant-abc123":   "/set anthropic_key <redacted>",
+		"/SET ANTHROPIC_KEY sk-ant-abc123":   "/set ANTHROPIC_KEY <redacted>",
+		"/set  apikey   qm-live-secret123":   "/set apikey <redacted>",
+		"/set\tanthropic-key\tsk-ant-x":      "/set anthropic-key <redacted>",
 		"/set apikey":                        "/set apikey",
 		"/set theme dark":                    "/set theme dark",
 		"what is the anthropic-key for this": "what is the anthropic-key for this",

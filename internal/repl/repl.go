@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -2160,18 +2161,16 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 	return settingApplied
 }
 
-// secretSetPrefixes are the /set forms whose value must never be stored in
-// the in-session input history (up-arrow would otherwise recall the secret).
-var secretSetPrefixes = []string{"/set apikey ", "/set anthropic-key ", "/set anthropic_key "}
+// secretSetRe matches any /set form that carries a secret value, tolerating
+// the whitespace variations strings.Fields accepts ("/set  apikey  k",
+// tabs, ...) so none of them can slip past the redaction into history.
+var secretSetRe = regexp.MustCompile(`(?i)^/set\s+(apikey|anthropic[-_]key)\s+\S`)
 
 // redactSecretInput rewrites secret-carrying inputs to a redacted form before
 // they enter the recallable history; anything else passes through unchanged.
 func redactSecretInput(input string) string {
-	lower := strings.ToLower(input)
-	for _, p := range secretSetPrefixes {
-		if strings.HasPrefix(lower, p) {
-			return p + "<redacted>"
-		}
+	if m := secretSetRe.FindStringSubmatch(input); m != nil {
+		return "/set " + m[1] + " <redacted>"
 	}
 	return input
 }
