@@ -26,7 +26,7 @@ Thanks for your interest in improving `qmax-code`. This document covers everythi
 
 | Requirement | Notes |
 |---|---|
-| **Go 1.24+** | See `go.mod` for the exact version. `go version` to check. |
+| **Go 1.25.13+** | See `go.mod` for the exact version. `go version` to check. |
 | **Inference backend** | The direct API path needs an Anthropic key. You can instead develop against a logged-in Claude Code/Codex CLI, an enabled OpenCode provider, Cerebras, or Ollama. |
 | **QualityMax account** | Required only for connected cloud tools (test generation, crawl, repo review). Standalone `--local` development and most unit tests do not need one. |
 

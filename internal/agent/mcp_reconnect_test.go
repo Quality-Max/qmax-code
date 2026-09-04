@@ -31,7 +31,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111
 printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"codex ok"}}'
 `)
 
-	a := NewCodexAgent(codexBin, "high", false, &api.SessionContext{
+	a := NewCodexAgent(codexBin, "", "high", false, &api.SessionContext{
 		ProjectID: 88,
 		LiveFeed:  true,
 		LocalOnly: true,

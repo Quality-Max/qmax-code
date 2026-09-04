@@ -16,12 +16,12 @@ func TestPickerIncludesClaudeCodeFableAndSonnet5(t *testing.T) {
 		}
 	}
 
-	fable, ok := seen[api.ModelFable]
+	fable, ok := seen[api.ModelFable51]
 	if !ok {
-		t.Fatalf("Claude Code picker missing %s", api.ModelFable)
+		t.Fatalf("Claude Code picker missing %s", api.ModelFable51)
 	}
-	if fable.label != "Fable 5" {
-		t.Errorf("Fable label = %q, want Fable 5", fable.label)
+	if fable.label != "Fable 5.1" {
+		t.Errorf("Fable label = %q, want Fable 5.1", fable.label)
 	}
 	if fable.subLabel != "1M ctx · long agents" {
 		t.Errorf("Fable subLabel = %q, want 1M ctx · long agents", fable.subLabel)
@@ -47,24 +47,24 @@ func TestPickerClaudeCodeDefaultCursorOnSonnet5(t *testing.T) {
 	}
 }
 
-func TestPickerUsesCodexConfigurationInsteadOfClaimingModelControl(t *testing.T) {
-	// A legacy saved model must still put the cursor on the terminal-neutral
-	// Codex entry; the runner no longer puts model IDs on the command line.
-	m := newModelPickerModel("codex", "legacy-model", "high", "", "", true, true, false, false, nil)
-
-	var entries []pickerEntry
-	for _, e := range m.allEntries {
-		if e.backend == "codex" {
-			entries = append(entries, e)
+func TestPickerCodexDefaultAndExplicitModel(t *testing.T) {
+	for _, model := range []string{"", "legacy-model", "gpt-6-astra"} {
+		m := newModelPickerModel("codex", model, "high", "", "", true, true, false, false, nil)
+		want := model
+		if model == "legacy-model" {
+			want = ""
+		}
+		cur := m.allEntries[m.cursor]
+		if cur.backend != "codex" || cur.modelID != want {
+			t.Fatalf("selection %q: cursor on %s/%s, want codex/%s", model, cur.backend, cur.modelID, want)
 		}
 	}
-	if len(entries) != 1 {
-		t.Fatalf("Codex picker entries = %d, want 1", len(entries))
-	}
-	if entries[0].modelID != "" || entries[0].subLabel != "uses Codex config" || !entries[0].isFav {
-		t.Fatal("Codex picker must defer model selection to Codex configuration")
-	}
-	if got := m.allEntries[m.cursor].backend; got != "codex" {
-		t.Fatalf("cursor backend = %q, want codex", got)
+}
+
+func TestPickerIncludesFable51ForDirectAPI(t *testing.T) {
+	m := newModelPickerModel("", api.ModelFable51, "high", "", "", false, false, false, false, nil)
+	cur := m.allEntries[m.cursor]
+	if cur.backend != "" || cur.modelID != api.ModelFable51 {
+		t.Fatal("direct API Fable 5.1 selection is missing")
 	}
 }

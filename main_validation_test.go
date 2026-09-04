@@ -25,6 +25,8 @@ func TestIsValidModelName(t *testing.T) {
 		{"claude-opus-4-7", true},
 		{"claude-sonnet-5", true},
 		{"claude-fable-5", true},
+		{"claude-fable-5-1", true},
+		{"fable", true},
 		{"claude-sonnet-4-6", true},
 		{"claude-haiku-4-5-20251001", true},
 		// Rejected.

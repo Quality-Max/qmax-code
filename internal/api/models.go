@@ -14,6 +14,8 @@ var sonnet5StandardPricingStart = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 // sentinel.
 func ResolveClaudeModel(m string) string {
 	switch strings.ToLower(m) {
+	case "fable":
+		return ModelFable51
 	case "sonnet":
 		return ModelSonnet5
 	case "opus":
@@ -30,7 +32,7 @@ func ResolveClaudeModel(m string) string {
 // instead of being forwarded to the Anthropic API or Claude Code.
 func IsValidClaudeModelName(m string) bool {
 	switch ResolveClaudeModel(m) {
-	case "auto", ModelFable, ModelSonnet5, ModelSonnet, ModelOpus, ModelOpus1M, ModelOpus47, ModelHaiku:
+	case "auto", ModelFable51, ModelFable, ModelSonnet5, ModelSonnet, ModelOpus, ModelOpus1M, ModelOpus47, ModelHaiku:
 		return true
 	default:
 		return false
@@ -38,7 +40,7 @@ func IsValidClaudeModelName(m string) bool {
 }
 
 func ValidClaudeModelsHelp() string {
-	return "auto, sonnet, opus, haiku, " + ModelFable + ", " + ModelSonnet5 + ", " + ModelSonnet + ", " + ModelOpus + ", " + ModelOpus1M + ", " + ModelOpus47 + ", " + ModelHaiku
+	return "auto, fable, sonnet, opus, haiku, " + ModelFable51 + ", " + ModelFable + ", " + ModelSonnet5 + ", " + ModelSonnet + ", " + ModelOpus + ", " + ModelOpus1M + ", " + ModelOpus47 + ", " + ModelHaiku
 }
 
 // ContextWindow returns the assumed context-window size in tokens for a model
@@ -49,7 +51,7 @@ func ContextWindow(model string) int {
 	switch {
 	case strings.Contains(m, "[1m]"):
 		return 1_000_000
-	case m == ModelFable, m == ModelSonnet5:
+	case m == ModelFable51, m == ModelFable, m == ModelSonnet5:
 		return 1_000_000
 	default:
 		return 200_000

@@ -16,18 +16,19 @@ import (
 )
 
 // CodexAgent orchestrates an OpenAI Codex CLI subprocess for LLM inference.
-// Inference runs through the user's ChatGPT/OpenAI subscription — no OpenAI
-// API tokens consumed by qmax-code. qmax tools are served via the same MCP
-// server used for CC mode.
+// Inference uses Codex's configured authentication and billing, including
+// ChatGPT subscription login or API credentials. qmax tools are served via
+// the same MCP server used for CC mode.
 //
 // Per-message flow:
 //  1. qmax-code writes ~/.codex/config.toml with the qmax MCP server entry
 //  2. qmax-code starts or resumes a Codex thread through codexrunner
 //  3. Codex picks up the MCP config and spawns qmax-code serve --mcp
-//  4. Codex uses qmax tools natively, runs on OpenAI subscription
+//  4. Codex uses qmax tools natively with its configured authentication
 //  5. qmax-code streams Codex's stdout to the terminal
 type CodexAgent struct {
 	codexBin       string
+	modelID        string
 	effort         string // "low" | "medium" | "high"
 	outputVerbose  bool   // false = compact answer style; true = previous detailed style
 	sctx           *api.SessionContext
@@ -61,15 +62,15 @@ func FindCodex() string {
 	return ""
 }
 
-// NewCodexAgent creates a Codex subprocess orchestrator. Model, approval, and
-// sandbox choices come from Codex's own configuration because the public
-// runner intentionally uses a fixed command line.
-func NewCodexAgent(bin, effort string, outputVerbose bool, sctx *api.SessionContext) *CodexAgent {
+// NewCodexAgent creates a Codex subprocess orchestrator. An empty modelID uses
+// Codex configuration. Approval and sandbox choices always come from Codex.
+func NewCodexAgent(bin, modelID, effort string, outputVerbose bool, sctx *api.SessionContext) *CodexAgent {
 	if effort == "" {
 		effort = "high"
 	}
 	return &CodexAgent{
 		codexBin:      bin,
+		modelID:       modelID,
 		effort:        effort,
 		outputVerbose: outputVerbose,
 		sctx:          sctx,
@@ -146,6 +147,11 @@ func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 
 	continuity := a.getContinuity()
 	isInitialTurn := continuity.Checkpoint().ThreadID == ""
+	if isInitialTurn && a.modelID != "" {
+		if err := continuity.Restore(codexrunner.Checkpoint{Model: a.modelID}); err != nil {
+			return "", fmt.Errorf("codex model: %w", err)
+		}
+	}
 	prompt := a.buildPrompt(userMsg, isInitialTurn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -222,6 +228,8 @@ func (a *CodexAgent) buildPrompt(userMsg string, initial bool) string {
 
 // ClearHistory resets native Codex continuity (used when the user types /clear).
 func (a *CodexAgent) ClearHistory() {
+	a.turnMu.Lock()
+	defer a.turnMu.Unlock()
 	a.getContinuity().Reset()
 }
 

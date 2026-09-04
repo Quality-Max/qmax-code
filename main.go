@@ -31,7 +31,7 @@ func main() {
 
 	// Flags
 	projectID := flag.Int("project-id", 0, "Default project ID for this session")
-	model := flag.String("model", "", "Claude model: auto (haiku+sonnet), sonnet, opus, haiku, or full ID")
+	model := flag.String("model", "", "Model: auto, fable, sonnet, opus, haiku, or full Claude/Codex ID")
 	anthropicAPIKey := flag.String("anthropic-api-key", "", "Anthropic API key (or set ANTHROPIC_API_KEY)")
 	cloudURL := flag.String("cloud-url", "", "QualityMax cloud URL (or use qmax login)")
 	oneShot := flag.String("p", "", "Run a single prompt and exit (non-interactive)")
@@ -228,18 +228,10 @@ func main() {
 		}
 	}
 
-	// Resolve model: CLI flag > saved config > "auto"
-	effectiveModel := *model
-	if effectiveModel == "" {
-		effectiveModel = appConfig.DefaultModel
-	}
-	if effectiveModel == "" {
-		effectiveModel = "auto"
-	}
-	effectiveModel = resolveModel(effectiveModel)
-	if !isValidModelName(effectiveModel) {
-		fmt.Fprintf(os.Stderr, "Error: --model %q is not recognized.\n", *model)
-		fmt.Fprintf(os.Stderr, "  Valid: %s.\n", api.ValidClaudeModelsHelp())
+	// Resolve the model for the active backend before authentication or setup.
+	effectiveModel, modelErr := resolveSessionModel(appConfig, *model)
+	if modelErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", modelErr)
 		exitWithReceipt(2)
 	}
 
@@ -324,9 +316,8 @@ func main() {
 
 	// CLI backend mode: route all LLM inference through a local CLI subprocess.
 	// Neither a QM-held Anthropic API key nor an OpenAI key is required. In cc
-	// mode, qmax-code uses the user's Claude Code login via `claude --print`;
-	// starting 2026-06-15, that traffic draws from the user's monthly Claude
-	// Agent SDK credit before any extra-usage billing.
+	// mode, `claude --print` uses Claude Code's configured authentication and
+	// billing (subscription login or API/provider credentials).
 	// qmax tools are served to the CLI via the embedded MCP server.
 	var cliAgent agent.CLIAgent
 	cliBackend := appConfig.Backend // "cc" | "codex" | "" (API)
@@ -438,7 +429,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "\nError: Anthropic API key required.")
 		fmt.Fprintln(os.Stderr, "  export ANTHROPIC_API_KEY=sk-ant-...")
 		fmt.Fprintln(os.Stderr, "  Or use a CLI backend (no API key needed):")
-		fmt.Fprintln(os.Stderr, "    qmax-code config set backend cc      # Claude Code login / Agent SDK credit")
+		fmt.Fprintln(os.Stderr, "    qmax-code config set backend cc      # Claude Code login")
 		fmt.Fprintln(os.Stderr, "    qmax-code config set backend codex   # OpenAI/Codex subscription")
 		if localOnly {
 			fmt.Fprintln(os.Stderr, "    qmax-code config set ollama_url http://127.0.0.1:11434")
@@ -531,7 +522,7 @@ func main() {
 		if appConfig.OrchGlobalInstall {
 			_, _ = setup.InstallSkills("codex")
 		}
-		ca := agent.NewCodexAgent(agent.FindCodex(), appConfig.Effort, appConfig.OutputVerbose, ctx)
+		ca := agent.NewCodexAgent(agent.FindCodex(), appConfig.CodexModel, appConfig.Effort, appConfig.OutputVerbose, ctx)
 		if err := ca.WriteMCPConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not write Codex MCP config: %v\n", err)
 		}

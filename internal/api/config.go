@@ -53,7 +53,7 @@ type Config struct {
 	// Backend selects the LLM inference backend.
 	//   ""  / "api" → Anthropic API directly (default, requires ANTHROPIC_API_KEY)
 	//   "cc"        → Claude Code CLI subprocess (no QM API key; `claude --print`
-	//                 uses the user's Agent SDK credit starting 2026-06-15)
+	//                 uses Claude Code's configured subscription or provider billing)
 	//   "codex"     → OpenAI Codex CLI subprocess (uses OpenAI subscription, no API key needed)
 	//   "cerebras"  → Cerebras OpenAI-compatible API (requires CEREBRAS_API_KEY).
 	//                 Drives the native qmax agent loop with the full tool set via
@@ -73,9 +73,12 @@ type Config struct {
 	EnabledProviders []string `json:"enabled_providers,omitempty"`
 
 	// ModelOverride is the specific model ID selected via the /orch TUI picker.
-	// Empty means "let the backend pick its default". Codex always uses its own
-	// configuration; this override remains relevant to CC and opencode.
+	// Empty means "let the backend pick its default". Used by CC and opencode.
 	ModelOverride string `json:"model_override,omitempty"`
+
+	// CodexModel is an optional exact model ID; empty uses Codex configuration.
+	// Keep this separate so switching backends preserves the Claude preference.
+	CodexModel string `json:"codex_model,omitempty"`
 
 	// Effort controls how thorough the CLI agent should be: "low", "medium", "high".
 	// Injected into the system prompt on every turn.

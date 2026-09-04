@@ -9,7 +9,7 @@ func TestResolveClaudeModelSonnetShorthandUsesSonnet5(t *testing.T) {
 }
 
 func TestIsValidClaudeModelNameIncludesFableAndSonnet5(t *testing.T) {
-	for _, model := range []string{"sonnet", ModelFable, ModelSonnet5, ModelOpus1M} {
+	for _, model := range []string{"fable", ModelFable51, "sonnet", ModelFable, ModelSonnet5, ModelOpus1M} {
 		if !IsValidClaudeModelName(model) {
 			t.Errorf("IsValidClaudeModelName(%q) = false, want true", model)
 		}
@@ -22,11 +22,18 @@ func TestContextWindow(t *testing.T) {
 		want  int
 	}{
 		{ModelSonnet5, 1_000_000},
+		{ModelFable51, 1_000_000},
 		{"claude-opus-4-6[1m]", 1_000_000},
 		{"unknown-model", 200_000},
 	} {
 		if got := ContextWindow(tc.model); got != tc.want {
 			t.Errorf("ContextWindow(%q) = %d, want %d", tc.model, got, tc.want)
 		}
+	}
+}
+
+func TestResolveClaudeModelFableShorthand(t *testing.T) {
+	if got := ResolveClaudeModel("FABLE"); got != ModelFable51 {
+		t.Fatalf("fable alias = %q, want %q", got, ModelFable51)
 	}
 }

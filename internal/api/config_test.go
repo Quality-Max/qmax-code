@@ -26,6 +26,7 @@ func TestConfigSaveAndLoad(t *testing.T) {
 
 	cfg := &Config{
 		DefaultModel:   "opus",
+		CodexModel:     "gpt-6-astra",
 		DefaultProject: 42,
 		Professional:   true,
 		AutoSave:       false,
@@ -37,6 +38,9 @@ func TestConfigSaveAndLoad(t *testing.T) {
 	}
 
 	loaded := LoadQMaxCodeConfig()
+	if loaded.CodexModel != "gpt-6-astra" {
+		t.Fatal("Codex model did not survive save/load")
+	}
 	if loaded.DefaultModel != "opus" {
 		t.Errorf("DefaultModel: got %s, want opus", loaded.DefaultModel)
 	}

@@ -9,7 +9,7 @@ standalone on a local repository or connected to QualityMax. Through `/orch`
 it can launch Claude Code, Codex, or OpenCode while keeping qmax tools and
 terminal UX — or run the built-in loop on Anthropic, Cerebras, or Ollama.
 
-This repository is **Go 1.24+**, not TypeScript. The thing users install is one
+This repository is **Go 1.25.13+**, not TypeScript. The thing users install is one
 compiled binary.
 
 ## Positioning

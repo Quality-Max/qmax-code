@@ -210,7 +210,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				permissionMode = ag.AppConfig.OrchPermissionMode
 			}
 			if backend == "codex" {
-				model = "Codex config"
+				model = codexModelLabel(ag.AppConfig.CodexModel)
 				permissionMode = "codex policy"
 			}
 		}
@@ -511,6 +511,9 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				currentBackend = "ollama"
 			}
 			currentModelID := cfg.ModelOverride
+			if currentBackend == "codex" {
+				currentModelID = cfg.CodexModel
+			}
 			currentEffort := cfg.Effort
 			if currentBackend == "cerebras" {
 				currentModelID = api.ResolveCerebrasModel(cfg.CerebrasModel)
@@ -694,12 +697,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
 				term.PrintSystem(fmt.Sprintf("Backend: Claude Code  model: %s  effort: %s", result.ModelID, result.Effort))
 			case "codex":
-				ca := agent.NewCodexAgent(agent.FindCodex(), result.Effort, cfg.OutputVerbose, ag.Cfg.Context)
+				ca := agent.NewCodexAgent(agent.FindCodex(), result.ModelID, result.Effort, cfg.OutputVerbose, ag.Cfg.Context)
 				if err := ca.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: Codex MCP config: %v", err))
 				}
 				cliAgent = ca
-				term.PrintSystem(fmt.Sprintf("Backend: Codex  model/policy: Codex config  prompt effort: %s", result.Effort))
+				term.PrintSystem(fmt.Sprintf("Backend: Codex  model: %s  policy: Codex config  prompt effort: %s", codexModelLabel(result.ModelID), result.Effort))
 			case "opencode":
 				oc := agent.NewOpenCodeAgent(agent.FindOpenCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg, ag.Cfg.Context)
 				if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context, cfg.OrchPermissionMode); err != nil {
@@ -708,6 +711,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				cliAgent = oc
 				term.PrintSystem(fmt.Sprintf("Backend: opencode  model: %s  effort: %s", result.ModelID, result.Effort))
 			default:
+				applyAPIModelSelection(ag, result.ModelID)
 				term.PrintSystem(fmt.Sprintf("Backend: Anthropic API  model: %s", result.ModelID))
 			}
 
@@ -875,7 +879,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					}
 					setup.InstallSkillsReport("codex", term)
 				}
-				ca := agent.NewCodexAgent(bin, cfg.Effort, cfg.OutputVerbose, ag.Cfg.Context)
+				ca := agent.NewCodexAgent(bin, cfg.CodexModel, cfg.Effort, cfg.OutputVerbose, ag.Cfg.Context)
 				if err := ca.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
 				}
@@ -1758,11 +1762,27 @@ func resetCLIConversation(cliAgent agent.CLIAgent) {
 	}
 }
 
+// applyAPIModelSelection updates both routing and the persisted startup model.
+func applyAPIModelSelection(ag *agent.Agent, model string) {
+	ag.Cfg.AutoRoute = model == "auto"
+	ag.Cfg.Model, ag.Cfg.ChatModel = model, model
+	if ag.Cfg.AutoRoute {
+		ag.Cfg.Model, ag.Cfg.ChatModel = api.ModelSonnet, api.ModelHaiku
+	}
+	ag.AppConfig.DefaultModel = model
+}
+
+func codexModelLabel(model string) string {
+	if model == "" {
+		return "Codex config"
+	}
+	return model
+}
+
 func persistOrchModelSelection(cfg *api.Config, backend, modelID string) {
-	// Codex owns its model selection in Codex config. Its terminal-neutral
-	// picker entry intentionally has no model ID, so do not let choosing it
-	// erase the saved preference used by the other orchestration backends.
-	if backend != "codex" {
+	if backend == "codex" {
+		cfg.CodexModel = modelID
+	} else {
 		cfg.ModelOverride = modelID
 	}
 }
