@@ -19,6 +19,10 @@ const (
 	// reasoning via the top-level reasoning_effort parameter (off by default).
 	// Model ID per the Cerebras + Gemma 4 hackathon docs.
 	CerebrasGemma4Model = "gemma-4-31b"
+	// CerebrasQwen38Model is Alibaba's Qwen 3.8 as hosted on Cerebras.
+	// Announced as coming soon to the Cerebras model catalog; the ID follows
+	// Cerebras naming and must be confirmed against the live API at launch.
+	CerebrasQwen38Model = "qwen-3.8"
 )
 
 // ResolveCerebrasModel expands shorthand aliases to full Cerebras model IDs.
@@ -27,12 +31,15 @@ const (
 //	""            → CerebrasDefaultModel (gpt-oss-120b)
 //	"gemma"       → CerebrasGemma4Model (gemma-4-31b)
 //	"gemma-4-31b" → CerebrasGemma4Model
+//	"qwen"        → CerebrasQwen38Model (qwen-3.8)
 func ResolveCerebrasModel(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", "default":
 		return CerebrasDefaultModel
 	case "gemma", "gemma4", "gemma-4", "gemma-4-31b", "gemma4-31b", "gemma-4-31":
 		return CerebrasGemma4Model
+	case "qwen", "qwen3.8", "qwen-3-8", "qwen-3.8":
+		return CerebrasQwen38Model
 	}
 	return name
 }

@@ -15,6 +15,10 @@ func TestResolveCerebrasModel(t *testing.T) {
 		{"gemma-4-31b", CerebrasGemma4Model},
 		{"gemma4-31b", CerebrasGemma4Model},
 		{"gemma-4-31", CerebrasGemma4Model},
+		{"qwen", CerebrasQwen38Model},
+		{"Qwen3.8", CerebrasQwen38Model},
+		{"qwen-3-8", CerebrasQwen38Model},
+		{"qwen-3.8", CerebrasQwen38Model},
 		{"zai-glm-4.7", "zai-glm-4.7"},     // unknown passes through
 		{"  gemma  ", CerebrasGemma4Model}, // whitespace trimmed
 	}
