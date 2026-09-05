@@ -14,6 +14,7 @@ var (
 	ErrInvalidModel = errors.New("codex runner: invalid model")
 
 	supportedModels = [...]string{
+		"gpt-6-astra",
 		"gpt-5.6-sol",
 		DefaultModel,
 		"gpt-5.6-luna",

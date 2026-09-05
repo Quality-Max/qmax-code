@@ -197,7 +197,7 @@ go build -o qmax-code .
 ./qmax-code --version
 ```
 
-Go 1.24 or newer is required for source builds.
+Go 1.25.13 or newer is required for source builds.
 
 ## Why Go
 
@@ -334,7 +334,7 @@ troubleshooting.
 | Backend | Select with | Authentication | Notes |
 | --- | --- | --- | --- |
 | Anthropic API | `/api` or `/orch` | `ANTHROPIC_API_KEY` or OS keychain | Built-in agent loop; tool set follows connected vs. standalone mode. |
-| Claude Code | `/cc` or `/orch` | Local Claude Code login | CLI subprocess; qmax tools arrive through MCP. Agent SDK usage may be separately metered by Anthropic. |
+| Claude Code | `/cc` or `/orch` | Local Claude Code login | CLI subprocess; qmax tools arrive through MCP. Uses Claude Code authentication and plan/provider billing; see [subscription setup](docs/ORCHESTRATION.md#claude-code-subscription-billing). |
 | Codex | `/codex` or `/orch` | Local Codex login | CLI subprocess using the user's OpenAI access; qmax tools arrive through MCP. |
 | Cerebras | `/gemma`, `/orch`, or `--backend cerebras` | `CEREBRAS_API_KEY` or OS keychain | Built-in native function calling. Fast inference (~1000–2000+ tok/s): GPT-OSS 120B, GLM 4.7, Gemma 4 (vision + effort). **Qwen 3.8 coming soon.** |
 | OpenCode | `/opencode` or `/orch` | Per-provider key in OS keychain | CLI subprocess for opt-in Z.AI, Groq, and OpenRouter providers. |

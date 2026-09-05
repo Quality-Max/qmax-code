@@ -829,6 +829,17 @@ func (a *Agent) callAPI() (*api.APIResponse, error) {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
+	// Like the streaming path, retain visible text and tool calls only. The wire
+	// type does not preserve signed thinking payloads; replaying a partial
+	// thinking block on the next tool iteration would be rejected by the API.
+	content := apiResp.Content[:0]
+	for _, block := range apiResp.Content {
+		if block.Type != "thinking" && block.Type != "redacted_thinking" {
+			content = append(content, block)
+		}
+	}
+	apiResp.Content = content
+
 	// Track usage
 	a.Usage.InputTokens += apiResp.Usage.InputTokens
 	a.LastContextTokens = apiResp.Usage.InputTokens

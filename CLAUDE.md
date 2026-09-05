@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-qmax-code is a **Go** terminal **QA** agent (Go 1.24+). It ships as one
+qmax-code is a **Go** terminal **QA** agent (Go 1.25.13+). It ships as one
 compiled binary: `curl | bash` installs a file, not a Node or Python runtime.
 Claude Code, Codex, and OpenCode are separate subprocesses that `/orch` can
 host; they are not this repository's runtime.

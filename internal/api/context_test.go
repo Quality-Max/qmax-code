@@ -24,6 +24,7 @@ func TestEstimatedCost(t *testing.T) {
 		want  float64 // cost of 1M input + 1M output tokens
 	}{
 		{"claude-fable-5", introSonnet5, 10.0 + 50.0},
+		{"claude-fable-5-1", introSonnet5, 10.0 + 50.0},
 		{"claude-opus-4-8", introSonnet5, 5.0 + 25.0},
 		{"claude-opus-4-8[1m]", introSonnet5, 5.0 + 25.0}, // 1M variant bills at standard rate
 		{"claude-opus-4-7", introSonnet5, 5.0 + 25.0},

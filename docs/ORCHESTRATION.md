@@ -56,6 +56,86 @@ QualityMax authentication is separate from backend authentication. Use
 `--local` to skip QualityMax authentication entirely. QualityMax cloud tools
 require connected mode and `qmax-code login`.
 
+## Go integration with Claude Code and Codex
+
+qmax-code calls both native harnesses directly from Go. As of September 5,
+2026, their official harness SDKs are available for Python and TypeScript;
+neither provider documents an official Go harness SDK.
+
+| Harness | Go integration used here | Continuation |
+| --- | --- | --- |
+| Claude Code | `os/exec` with `claude --print --output-format stream-json` | `--resume` with the native session ID |
+| Codex | The Go `codexrunner` package with `codex exec --json` | `codex exec resume` with the native thread ID |
+
+Anthropic explicitly recommends a CLI subprocess for other languages in its
+[Agent SDK overview](https://code.claude.com/docs/en/agent-sdk). OpenAI documents
+the JSONL stream and saved CLI authentication in its
+[non-interactive guide](https://learn.chatgpt.com/docs/non-interactive-mode);
+its [SDK guide](https://developers.openai.com/codex/sdk/) covers the Python and
+TypeScript libraries. Codex's [app server](https://learn.chatgpt.com/docs/app-server)
+also exposes a language-independent JSON-RPC interface for richer custom clients.
+
+The providers' Go **API client** SDKs are separate from these coding harnesses.
+Adding an API client would not provide the native agent loop or subscription
+login. The current subprocess integration keeps qmax-code a single Go binary,
+with Claude Code and Codex installed and updated separately. `go mod tidy` or
+updating Go modules does not update those CLI executables.
+
+## GPT 6 Astra and Claude Fable 5.1
+
+Select **GPT 6 Astra** under Codex, or **Fable 5.1** under Claude Code or
+Anthropic API in `/orch`. The exact IDs are `gpt-6-astra` and
+`claude-fable-5-1`; `fable` is a shorthand for Fable 5.1. Existing defaults
+and the explicit Fable 5 model remain available.
+
+```bash
+qmax-code --local --backend codex --model gpt-6-astra
+qmax-code --local --backend cc --model fable
+# Direct API billing:
+qmax-code --local --backend api --model claude-fable-5-1
+```
+
+The `/orch` Codex selection is saved separately from Claude's preference and
+survives `/clear`. **Codex default** (or `--backend codex --model auto`)
+uses Codex's own model configuration. Approval and sandbox policy continue to
+come from Codex configuration. Model access depends on the account used by
+the native CLI. See the [Astra model reference](https://developers.openai.com/api/docs/models/gpt-6-astra)
+and [Fable 5.1 reference](https://platform.claude.com/docs/en/models/fable-5-1/overview).
+
+## Claude Code subscription billing
+
+Yes: qmax-code can use the native Claude Code harness with a Claude subscription
+login, without an Anthropic API key. The `cc` backend runs `claude --print`
+and connects qmax tools through MCP. It inherits Claude Code authentication;
+it does not require `qmax-code cc connect` or a QualityMax login in local mode.
+
+For subscription authentication, remove the API-key override from the shell
+that launches qmax-code, then open Claude Code and use `/login` to sign in with
+your Claude account and `/status` to verify authentication:
+
+```bash
+unset ANTHROPIC_API_KEY
+claude
+# After signing in and exiting Claude Code:
+qmax-code --local --backend cc --model fable
+```
+
+An inherited `ANTHROPIC_API_KEY` takes precedence over subscription login and
+causes API billing. See [Anthropic's authentication guidance](https://support.claude.com/en/articles/12304248-manage-api-key-environment-variables-in-claude-code).
+
+As of September 5, 2026, the separate third-party Agent SDK billing change
+announced for June 15 remains paused. Anthropic's
+[June 15 update](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
+confirms that Agent SDK, `claude -p`, and third-party app usage still draw from
+subscription limits. Conductor also documents continued subscription use in
+its [billing update](https://www.conductor.build/blog/claude-subscription-update).
+
+Fable 5.1 specifically requires Claude Code **2.1.255 or later**. Max and eligible
+premium Team/legacy Enterprise seats include Fable usage up to 50% of the weekly
+limit. Pro and standard seats use paid usage credits for Fable 5.1 from the first
+request. A subscription login therefore does not guarantee included Fable usage;
+check your tier and extra-usage settings in [Anthropic's Fable plan guide](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan).
+
 ## Standalone local-only orchestration
 
 Every backend can be selected in standalone mode:

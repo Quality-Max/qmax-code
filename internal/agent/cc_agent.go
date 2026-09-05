@@ -55,8 +55,8 @@ type PlanLimitReporter interface {
 
 // CCAgent orchestrates a Claude Code CLI subprocess for LLM inference.
 // Inference runs through the user's Claude Code login, so qmax-code does not
-// need a QM-held Anthropic API key. Because this agent uses `claude --print`,
-// usage moves to the user's monthly Claude Agent SDK credit on 2026-06-15.
+// need a QM-held Anthropic API key. `claude --print` uses Claude Code's
+// configured authentication and billing, including inherited API credentials.
 // qmax tools are exposed to CC as an MCP server so CC can call them natively
 // via its own tool-use mechanism.
 //
