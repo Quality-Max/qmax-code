@@ -22,9 +22,9 @@ jobs:
         run: go build ./...
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+        # Build with the project's Go toolchain; the v1 release binary was
+        # built with Go 1.24 and cannot analyze this module's Go 1.25 target.
+        run: go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run
 
       - name: Vet
         run: go vet ./...
