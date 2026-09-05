@@ -3,6 +3,7 @@ package tui
 import (
 	"testing"
 
+	"github.com/qualitymax/qmax-code/codexrunner"
 	"github.com/qualitymax/qmax-code/internal/api"
 )
 
@@ -57,6 +58,25 @@ func TestPickerCodexDefaultAndExplicitModel(t *testing.T) {
 		cur := m.allEntries[m.cursor]
 		if cur.backend != "codex" || cur.modelID != want {
 			t.Fatalf("selection %q: cursor on %s/%s, want codex/%s", model, cur.backend, cur.modelID, want)
+		}
+	}
+}
+
+func TestPickerOffersEverySupportedCodexModel(t *testing.T) {
+	offered := map[string]bool{}
+	for _, e := range codexModels {
+		if e.backend == "codex" && e.modelID != "" {
+			offered[e.modelID] = true
+		}
+	}
+	for _, m := range codexrunner.SupportedModels() {
+		if !offered[m] {
+			t.Errorf("picker is missing supported Codex model %q", m)
+		}
+	}
+	for m := range offered {
+		if codexrunner.ValidateModel(m) != nil {
+			t.Errorf("picker offers Codex model %q outside the runner allowlist", m)
 		}
 	}
 }

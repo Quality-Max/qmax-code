@@ -144,6 +144,13 @@ var ccModels = []pickerEntry{
 var codexModels = []pickerEntry{
 	{backend: "codex", modelID: "", label: "Codex default", subLabel: "uses Codex config", external: true, isFav: true, shortcut: '6'},
 	{backend: "codex", modelID: "gpt-6-astra", label: "GPT 6 Astra", external: true, isNew: true},
+	{backend: "codex", modelID: "gpt-5.6-sol", label: "GPT 5.6 Sol", external: true},
+	{backend: "codex", modelID: "gpt-5.6-terra", label: "GPT 5.6 Terra", external: true},
+	{backend: "codex", modelID: "gpt-5.6-luna", label: "GPT 5.6 Luna", external: true},
+	{backend: "codex", modelID: "gpt-5.5", label: "GPT 5.5", external: true},
+	{backend: "codex", modelID: "gpt-5.4", label: "GPT 5.4", external: true},
+	{backend: "codex", modelID: "gpt-5.4-mini", label: "GPT 5.4 Mini", external: true},
+	{backend: "codex", modelID: "gpt-5.3-codex-spark", label: "GPT 5.3 Codex Spark", external: true},
 }
 
 var apiModels = []pickerEntry{
@@ -161,6 +168,7 @@ var cerebrasModels = []pickerEntry{
 	{backend: "cerebras", modelID: "gpt-oss-120b", label: "GPT-OSS 120B", subLabel: "fast", isFav: true, external: true},
 	{backend: "cerebras", modelID: "zai-glm-4.7", label: "GLM 4.7", subLabel: "premium", external: true},
 	{backend: "cerebras", modelID: "gemma-4-31b", label: "Gemma 4 31B", subLabel: "vision · preview", external: true},
+	{backend: "cerebras", modelID: api.CerebrasQwen38Model, label: "Qwen 3.8", subLabel: "coming soon", external: true, isNew: true},
 }
 
 // OpenCodeModelEntry is one model offered by an enabled opencode provider. The
