@@ -4,6 +4,28 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-09-05
+
+### Added
+- GPT 6 Astra is available through the native Codex harness in `/orch` and via
+  `--backend codex --model gpt-6-astra`. Its selection is retained across
+  Codex resumed turns and `/clear`; choosing Codex default continues to use
+  the local Codex configuration.
+- Claude Fable 5.1 (`claude-fable-5-1`) is selectable in `/orch` for Claude
+  Code and the Anthropic API. The `fable` alias resolves to Fable 5.1 while
+  the existing Fable 5 model remains available.
+- Orchestration documentation now explains the Go subprocess integrations for
+  Claude Code and Codex, Claude Code subscription authentication, API-key
+  billing overrides, and Fable 5.1 plan requirements.
+
+### Changed
+- Go dependencies were refreshed and source builds now require Go 1.25.13 or
+  later. CI builds the pinned linter with that same Go toolchain.
+
+### Fixed
+- Anthropic API tool continuations omit incomplete thinking blocks, avoiding
+  invalid replay of provider-signed reasoning payloads.
+
 ## [1.30.0] - 2026-09-02
 
 ### Added
