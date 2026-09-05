@@ -4,6 +4,17 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.32.0] - 2026-09-05
+
+### Added
+- `/orch` lists every supported Codex model — GPT 6 Astra, GPT 5.6 Sol,
+  Terra, and Luna, GPT 5.5, GPT 5.4, GPT 5.4 Mini, and GPT 5.3 Codex Spark —
+  alongside Codex default. A picker sync test keeps the list aligned with the
+  Codex runner allowlist in both directions.
+- Coming-soon Qwen 3.8 row in the `/orch` Cerebras section with `qwen-3.8`
+  model ID and `qwen` / `qwen3.8` config aliases. The ID follows Cerebras
+  naming conventions and must be confirmed against the live API at launch.
+
 ## [1.31.0] - 2026-09-05
 
 ### Added
