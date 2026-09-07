@@ -540,6 +540,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				OllamaModel:       cfg.OllamaModel,
 				CCInstalled:       agent.FindClaudeCode() != "",
 				CodexInstalled:    agent.FindCodex() != "",
+				AgyInstalled:      agent.FindAgy() != "",
 				CerebrasKeySet:    cfg.CerebrasKey != "",
 				OpenCodeInstalled: agent.FindOpenCode() != "",
 				OpenCodeModels:    ocModels,
@@ -652,6 +653,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					term.PrintSystem("  npm install -g @openai/codex")
 					continue
 				}
+			case "agy":
+				if agent.FindAgy() == "" {
+					term.PrintError("Antigravity CLI ('agy') not found.")
+					term.PrintSystem("  curl -fsSL https://antigravity.google/cli/install.sh | bash")
+					term.PrintSystem("  Then run `agy` and sign in with Google")
+					continue
+				}
 			case "opencode":
 				if agent.FindOpenCode() == "" {
 					term.PrintError("opencode CLI ('opencode') not found.")
@@ -682,6 +690,9 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				if consent.GlobalInstall || result.Backend == "opencode" {
 					setup.InstallSkillsReport(result.Backend, term)
 				}
+				if result.Backend == "agy" {
+					setup.PromptAgyGoogleLogin(agent.FindAgy())
+				}
 			}
 
 			// Tear down current CLI agent and disable Ollama/Cerebras if switching away.
@@ -703,6 +714,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				}
 				cliAgent = ca
 				term.PrintSystem(fmt.Sprintf("Backend: Codex  model: %s  policy: Codex config  prompt effort: %s", codexModelLabel(result.ModelID), result.Effort))
+			case "agy":
+				aa := agent.NewAgyAgent(agent.FindAgy(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				if err := aa.WriteMCPConfig(); err != nil {
+					term.PrintSystem(fmt.Sprintf("Warning: Antigravity MCP config: %v", err))
+				}
+				cliAgent = aa
+				term.PrintSystem(fmt.Sprintf("Backend: Antigravity  model: %s  effort: %s  (Google OAuth)", agyModelLabel(result.ModelID), result.Effort))
 			case "opencode":
 				oc := agent.NewOpenCodeAgent(agent.FindOpenCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg, ag.Cfg.Context)
 				if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context, cfg.OrchPermissionMode); err != nil {
@@ -769,7 +787,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 			continue
 
-		case input == "/cc", input == "/codex", input == "/api", input == "/opencode":
+		case input == "/cc", input == "/codex", input == "/api", input == "/opencode", input == "/agy":
 			// Instant backend switching — no restart needed.
 			cfg := ag.AppConfig
 			if cfg == nil {
@@ -783,6 +801,8 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				wantBackend = "cc"
 			case "/codex":
 				wantBackend = "codex"
+			case "/agy":
+				wantBackend = "agy"
 			case "/opencode":
 				wantBackend = "opencode"
 			case "/api":
@@ -824,6 +844,29 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				}
 				cfg.OrchPermissionMode = consent.PermissionMode
 				cfg.ModelOverride = model
+			}
+
+			if wantBackend == "agy" {
+				if agent.FindAgy() == "" {
+					term.PrintError("'agy' CLI not found.")
+					term.PrintSystem("  curl -fsSL https://antigravity.google/cli/install.sh | bash")
+					term.PrintSystem("  Then run `agy` and sign in with Google")
+					continue
+				}
+				consent := setup.PromptOrchConsent(cfg, "agy")
+				if !consent.Proceed {
+					term.PrintSystem("Backend not changed.")
+					continue
+				}
+				cfg.OrchPermissionMode = consent.PermissionMode
+				cfg.OrchGlobalInstall = consent.GlobalInstall
+				if consent.GlobalInstall {
+					if !setup.IsOrchInstalled("agy") {
+						setup.RunOrch("agy", term)
+					}
+					setup.InstallSkillsReport("agy", term)
+				}
+				setup.PromptAgyGoogleLogin(agent.FindAgy())
 			}
 
 			// Tear down current CLI agent.
@@ -887,6 +930,17 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				cfg.Backend = "codex"
 				_ = cfg.Save()
 				term.PrintSystem(fmt.Sprintf("Backend → Codex (%s) · Codex config policy", bin))
+
+			case "agy":
+				bin := agent.FindAgy()
+				aa := agent.NewAgyAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				if err := aa.WriteMCPConfig(); err != nil {
+					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
+				}
+				cliAgent = aa
+				cfg.Backend = "agy"
+				_ = cfg.Save()
+				term.PrintSystem(fmt.Sprintf("Backend → Antigravity (%s) · Google OAuth · %s mode", bin, cfg.OrchPermissionMode))
 
 			case "opencode":
 				// Pre-flight above already validated the CLI, providers, model, and
@@ -1561,7 +1615,7 @@ func handleKeys(ag *agent.Agent, term *tui.Terminal) {
 // per-token or run locally, so they have no such window.
 func isPlanBackend(backend string) bool {
 	switch backend {
-	case "cc", "codex", "opencode":
+	case "cc", "codex", "opencode", "agy":
 		return true
 	default:
 		return false
@@ -1633,6 +1687,7 @@ Commands:
   /api              Switch to direct Anthropic API
   /cc               Switch to Claude Code (Agent SDK credit)
   /codex            Switch to Codex CLI
+  /agy              Switch to Antigravity CLI (Google OAuth)
   /opencode         Switch to OpenCode (opt-in providers)
   /gemma [none|low|medium|high|off]
                     Activate Gemma 4 on Cerebras, or return to API
@@ -1642,7 +1697,7 @@ Commands:
                     Manage Z.AI, Groq, or OpenRouter
   /reconnect        Restore the active CC/Codex MCP transport
   /skills           List 27 qmax QA skills + install status
-  /skills install   Refresh skills for CC, Codex, and OpenCode
+  /skills install   Refresh skills for CC, Codex, OpenCode, and Antigravity
 
   /connect          Log in to QualityMax (opens browser)
   /disconnect       Log out and clear saved credentials
@@ -1710,7 +1765,7 @@ Models (--model flag):
 Flags:
   -p "prompt"     Run once and exit
   --local         Standalone mode: no QualityMax login or cloud tools
-  --backend NAME  Override backend: api, cc, codex, cerebras, opencode
+  --backend NAME  Override backend: api, cc, codex, agy, cerebras, opencode
   --resume ID     Resume a saved session (or "last")
   --save-session  Force saving this run (built-in backends)
   --professional  Disable cat personality for this session
@@ -1751,8 +1806,14 @@ func reconnectMCPTransport(cliAgent agent.CLIAgent, term *tui.Terminal) {
 			return
 		}
 		term.PrintSystem("QMax MCP transport restored for Codex.")
+	case *agent.AgyAgent:
+		if err := a.WriteMCPConfig(); err != nil {
+			term.PrintError(fmt.Sprintf("Could not restore Antigravity MCP transport: %v", err))
+			return
+		}
+		term.PrintSystem("QMax MCP transport restored for Antigravity.")
 	default:
-		term.PrintSystem("No CC/Codex MCP transport is active. Use /cc or /codex first.")
+		term.PrintSystem("No CC/Codex/Antigravity MCP transport is active. Use /cc, /codex, or /agy first.")
 	}
 }
 
@@ -1775,6 +1836,13 @@ func applyAPIModelSelection(ag *agent.Agent, model string) {
 func codexModelLabel(model string) string {
 	if model == "" {
 		return "Codex config"
+	}
+	return model
+}
+
+func agyModelLabel(model string) string {
+	if model == "" {
+		return "Antigravity config"
 	}
 	return model
 }
@@ -2114,11 +2182,20 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 			}
 			cfg.Backend = "codex"
 			term.PrintSystem("Backend set to Codex. Use /codex to switch live, or restart to apply.")
+		case "agy":
+			if agent.FindAgy() == "" {
+				term.PrintError("'agy' CLI not found.")
+				term.PrintSystem("  curl -fsSL https://antigravity.google/cli/install.sh | bash")
+				term.PrintSystem("  Then run `agy` and sign in with Google")
+				return settingInvalid
+			}
+			cfg.Backend = "agy"
+			term.PrintSystem("Backend set to Antigravity. Use /agy to switch live, or restart to apply.")
 		case "", "api":
 			cfg.Backend = ""
 			term.PrintSystem("Backend set to Anthropic API. Restart or use /api to switch live.")
 		default:
-			term.PrintError("Valid backends: cc, codex, api (use /gemma for cerebras)")
+			term.PrintError("Valid backends: cc, codex, agy, api (use /gemma for cerebras)")
 			return settingInvalid
 		}
 

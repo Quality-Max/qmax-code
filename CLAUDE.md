@@ -2,11 +2,11 @@
 
 qmax-code is a **Go** terminal **QA** agent (Go 1.25.13+). It ships as one
 compiled binary: `curl | bash` installs a file, not a Node or Python runtime.
-Claude Code, Codex, and OpenCode are separate subprocesses that `/orch` can
+Claude Code, Codex, Antigravity, and OpenCode are separate subprocesses that `/orch` can
 host; they are not this repository's runtime.
 
 **Positioning:** not an IDE, not a faster Claude. Cursor owns the editor.
-Claude Code / Codex own hard coding. qmax-code owns QA (tests, crawls, review,
+Claude Code / Codex / Antigravity own hard coding. qmax-code owns QA (tests, crawls, review,
 receipts) and switches inference in `/orch`. **Cerebras** is the fast path
 (~1000–2000+ tok/s: GPT-OSS 120B, GLM 4.7, Gemma 4; **Qwen 3.8 coming soon**).
 Do not add Qwen to the picker until Cerebras publishes the live model ID.

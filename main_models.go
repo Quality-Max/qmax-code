@@ -24,6 +24,17 @@ func resolveSessionModel(cfg *api.Config, requested string) (string, error) {
 		cfg.CodexModel = model
 		return "auto", nil
 	}
+	if cfg.Backend == "agy" {
+		model := cfg.ModelOverride
+		if requested != "" {
+			model = requested
+			if model == "auto" {
+				model = ""
+			}
+		}
+		cfg.ModelOverride = model
+		return "auto", nil
+	}
 
 	model := requested
 	if model == "" {

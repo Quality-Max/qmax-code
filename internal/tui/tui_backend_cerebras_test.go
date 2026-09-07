@@ -8,7 +8,7 @@ import (
 )
 
 func TestPickerIncludesCerebrasEntries(t *testing.T) {
-	m := newModelPickerModel("", "", "high", "", "", true, true, false, false, nil)
+	m := newModelPickerModel("", "", "high", "", "", true, true, false, false, false, nil)
 	var got []string
 	for _, e := range m.allEntries {
 		if e.backend == "cerebras" {
@@ -25,7 +25,7 @@ func TestPickerIncludesCerebrasEntries(t *testing.T) {
 
 func TestPickerCerebrasSectionRenders(t *testing.T) {
 	// No key configured → status should advertise the inline prompt.
-	m := newModelPickerModel("", "", "high", "", "", true, true, false, false, nil)
+	m := newModelPickerModel("", "", "high", "", "", true, true, false, false, false, nil)
 	view := m.View()
 	if !strings.Contains(view, "Cerebras") {
 		t.Error("picker view missing Cerebras section header")
@@ -35,7 +35,7 @@ func TestPickerCerebrasSectionRenders(t *testing.T) {
 	}
 
 	// Key configured → status should say so.
-	m2 := newModelPickerModel("", "", "high", "", "", true, true, true, false, nil)
+	m2 := newModelPickerModel("", "", "high", "", "", true, true, true, false, false, nil)
 	if !strings.Contains(m2.View(), "key set") {
 		t.Error("picker should show 'key set' status when CerebrasKeySet is true")
 	}
@@ -44,7 +44,7 @@ func TestPickerCerebrasSectionRenders(t *testing.T) {
 func TestPickerCerebrasCursorOnCurrent(t *testing.T) {
 	// When cerebras is the active backend, the cursor should land on the
 	// matching model entry.
-	m := newModelPickerModel("cerebras", "zai-glm-4.7", "high", "", "", true, true, true, false, nil)
+	m := newModelPickerModel("cerebras", "zai-glm-4.7", "high", "", "", true, true, true, false, false, nil)
 	cur := m.allEntries[m.cursor]
 	if cur.backend != "cerebras" || cur.modelID != "zai-glm-4.7" {
 		t.Errorf("cursor on %s/%s, want cerebras/zai-glm-4.7", cur.backend, cur.modelID)
@@ -52,7 +52,7 @@ func TestPickerCerebrasCursorOnCurrent(t *testing.T) {
 }
 
 func TestPickerEnterConfirmsWhileEffortFocused(t *testing.T) {
-	m := newModelPickerModel("cerebras", "gemma-4-31b", "high", "", "", true, true, true, false, nil)
+	m := newModelPickerModel("cerebras", "gemma-4-31b", "high", "", "", true, true, true, false, false, nil)
 	m.effortFocus = true
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	next, ok := updated.(modelPickerModel)
@@ -77,7 +77,7 @@ func TestPickerOpenCodeSetupRowsAreEnableActions(t *testing.T) {
 	models := []OpenCodeModelEntry{
 		{ProviderID: "zai-coding-plan", ProviderName: "Enter to enable", ModelID: "enable:zai-coding-plan", Label: "Z.AI Coding Plan"},
 	}
-	m := newModelPickerModel("", "", "high", "", "", true, true, false, true, models)
+	m := newModelPickerModel("", "", "high", "", "", true, true, false, true, false, models)
 	view := m.View()
 	if !strings.Contains(view, "opencode") {
 		t.Fatal("picker missing opencode section for setup rows")

@@ -51,10 +51,13 @@ qmax tools supplied through MCP.
 Only use Unattended mode in a trusted, recoverable workspace. Neither mode
 creates a sandbox or worktree boundary.
 
-Claude Code and Codex can optionally receive a user-level qmax MCP entry in
-`~/.claude/settings.json` or `~/.codex/config.toml`. That makes qmax tools
-available whenever the CLI is launched, not only inside qmax-code. OpenCode
-uses a separate qmax-managed overlay at `~/.qmax-code/opencode.json`.
+Claude Code, Codex, and Antigravity can optionally receive a user-level qmax MCP
+entry in `~/.claude/settings.json`, `~/.codex/config.toml`, or
+`~/.gemini/config/mcp_config.json`. That makes qmax tools available whenever
+the CLI is launched, not only inside qmax-code. OpenCode uses a separate
+qmax-managed overlay at `~/.qmax-code/opencode.json`. Antigravity authenticates
+with Google OAuth via interactive `agy` (browser sign-in); qmax-code does not store a Gemini API
+key for that backend.
 
 qmax-code also installs managed QA skills into the selected CLI's user-level
 skills directory. See [Orchestration mode](docs/ORCHESTRATION.md) for the

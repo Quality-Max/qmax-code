@@ -45,7 +45,7 @@ func TestSetConfigField_DefaultFrameworkRejectsBadValues(t *testing.T) {
 func TestSetConfigField_BackendValidation(t *testing.T) {
 	withTempHome(t)
 
-	for _, b := range []string{"api", "cc", "codex", "cerebras", ""} {
+	for _, b := range []string{"api", "cc", "codex", "agy", "cerebras", ""} {
 		if err := setConfigField("backend", b); err != nil {
 			t.Errorf("backend %q should be accepted: %v", b, err)
 		}

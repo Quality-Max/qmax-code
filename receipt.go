@@ -43,6 +43,8 @@ func receiptKind(args []string) string {
 			return "cc"
 		case "codex":
 			return "codex"
+		case "agy":
+			return "agy"
 		case "config":
 			return "config"
 		}

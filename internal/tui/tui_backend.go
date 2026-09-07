@@ -50,6 +50,9 @@ var (
 	pickerIconOpenCode = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("170")) // magenta — opencode ◈
 
+	pickerIconAgy = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("33")) // google-blue — Antigravity ✧
+
 	pickerDotGreen = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 	pickerDotRed   = lipgloss.NewStyle().Foreground(lipgloss.Color("160"))
 
@@ -115,6 +118,11 @@ var (
 				Foreground(lipgloss.Color("107")).
 				Background(lipgloss.Color("236")).
 				Bold(true)
+
+	pickerStatusIconAgy = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("33")).
+				Background(lipgloss.Color("236")).
+				Bold(true)
 )
 
 // ─── Model catalogue ──────────────────────────────────────────────────────────
@@ -151,6 +159,13 @@ var codexModels = []pickerEntry{
 	{backend: "codex", modelID: "gpt-5.4", label: "GPT 5.4", external: true},
 	{backend: "codex", modelID: "gpt-5.4-mini", label: "GPT 5.4 Mini", external: true},
 	{backend: "codex", modelID: "gpt-5.3-codex-spark", label: "GPT 5.3 Codex Spark", external: true},
+}
+
+var agyModels = []pickerEntry{
+	{backend: "agy", modelID: "", label: "Antigravity default", subLabel: "Google OAuth", external: true, isFav: true},
+	{backend: "agy", modelID: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash", subLabel: "high", external: true, isNew: true},
+	{backend: "agy", modelID: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash", subLabel: "medium", external: true},
+	{backend: "agy", modelID: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro", subLabel: "high", external: true},
 }
 
 var apiModels = []pickerEntry{
@@ -230,6 +245,7 @@ type modelPickerModel struct {
 	// the View doesn't shell out to LookPath on every frame).
 	ccInstalled       bool
 	codexInstalled    bool
+	agyInstalled      bool
 	openCodeInstalled bool
 
 	// hasOpenCode is true when at least one enabled provider contributed a model.
@@ -246,10 +262,11 @@ type modelPickerModel struct {
 	chosen    *pickerEntry
 }
 
-func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string, ccInstalled, codexInstalled, cerebrasKeySet, openCodeInstalled bool, openCodeModels []OpenCodeModelEntry) modelPickerModel {
-	entries := make([]pickerEntry, 0, len(ccModels)+len(codexModels)+len(apiModels)+len(cerebrasModels)+len(openCodeModels)+1)
+func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, ollamaModel string, ccInstalled, codexInstalled, cerebrasKeySet, openCodeInstalled, agyInstalled bool, openCodeModels []OpenCodeModelEntry) modelPickerModel {
+	entries := make([]pickerEntry, 0, len(ccModels)+len(codexModels)+len(agyModels)+len(apiModels)+len(cerebrasModels)+len(openCodeModels)+1)
 	entries = append(entries, ccModels...)
 	entries = append(entries, codexModels...)
+	entries = append(entries, agyModels...)
 	entries = append(entries, apiModels...)
 	entries = append(entries, cerebrasModels...)
 
@@ -306,6 +323,7 @@ func newModelPickerModel(currentBackend, currentModelID, effort, ollamaURL, olla
 		ollamaURL:         ollamaURL,
 		ccInstalled:       ccInstalled,
 		codexInstalled:    codexInstalled,
+		agyInstalled:      agyInstalled,
 		cerebrasKeySet:    cerebrasKeySet,
 		openCodeInstalled: openCodeInstalled,
 		hasOpenCode:       len(openCodeModels) > 0,
@@ -399,6 +417,7 @@ func (m modelPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m modelPickerModel) View() string {
 	ccInstalled := m.ccInstalled
 	codexInstalled := m.codexInstalled
+	agyInstalled := m.agyInstalled
 
 	var b strings.Builder
 
@@ -437,6 +456,27 @@ func (m modelPickerModel) View() string {
 			continue
 		}
 		b.WriteString(m.renderRow(i, e, "codex"))
+		b.WriteByte('\n')
+	}
+
+	// ── Divider ─────────────────────────────────────────────────────
+	b.WriteString(pickerDivider.Render(strings.Repeat("─", 52)))
+	b.WriteByte('\n')
+
+	// ── Antigravity section ──────────────────────────────────────────
+	sectionIconAgy := pickerIconAgy.Render("✧")
+	sectionLabelAgy := "Antigravity"
+	if !agyInstalled {
+		sectionLabelAgy += pickerBadgeExt.Render("  not installed")
+	}
+	b.WriteString(pickerSectionHeader.Render(fmt.Sprintf("%s  %s", sectionIconAgy, sectionLabelAgy)))
+	b.WriteByte('\n')
+
+	for i, e := range m.allEntries {
+		if e.backend != "agy" {
+			continue
+		}
+		b.WriteString(m.renderRow(i, e, "agy"))
 		b.WriteByte('\n')
 	}
 
@@ -575,6 +615,8 @@ func (m modelPickerModel) renderRow(idx int, e pickerEntry, backend string) stri
 		icon = pickerIcon.Render("✦")
 	case "codex":
 		icon = pickerIconCodex.Render("⊗")
+	case "agy":
+		icon = pickerIconAgy.Render("✧")
 	case "ollama":
 		icon = pickerIconOllama.Render("⬡")
 	case "cerebras":
@@ -662,6 +704,8 @@ func (m modelPickerModel) renderStatusBar() string {
 		icon = pickerStatusIcon.Render("✦")
 	case "codex":
 		icon = pickerStatusIconCodex.Render("⊗")
+	case "agy":
+		icon = pickerStatusIconAgy.Render("✧")
 	case "ollama":
 		icon = pickerStatusBar.Render("⬡")
 	case "cerebras":
@@ -824,6 +868,7 @@ type ModelPickerOpts struct {
 	OllamaModel    string // currently configured Ollama model; "" hides the section
 	CCInstalled    bool   // pre-resolved (don't shell out from picker.View per frame)
 	CodexInstalled bool
+	AgyInstalled   bool
 	CerebrasKeySet bool // true when a Cerebras API key is configured (drives the section status dot)
 
 	OpenCodeInstalled bool                 // true when the opencode CLI is present
@@ -833,7 +878,7 @@ type ModelPickerOpts struct {
 // ShowModelPicker opens the unified model + effort TUI.
 // Returns the result; Confirmed=false means the user cancelled.
 func ShowModelPicker(opts ModelPickerOpts) ModelPickerResult {
-	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled, opts.CerebrasKeySet, opts.OpenCodeInstalled, opts.OpenCodeModels)
+	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled, opts.CerebrasKeySet, opts.OpenCodeInstalled, opts.AgyInstalled, opts.OpenCodeModels)
 	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {

@@ -21,6 +21,9 @@ func TestResolveSessionModel(t *testing.T) {
 		{name: "Fable harness", backend: "cc", requested: "fable", wantModel: api.ModelFable51, wantClaude: api.ModelFable51},
 		{name: "Fable API", requested: api.ModelFable51, wantModel: api.ModelFable51, wantClaude: "saved-claude"},
 		{name: "Claude default", backend: "cc", requested: "auto", wantModel: "auto"},
+		{name: "Agy default", backend: "agy", wantModel: "auto", wantClaude: "saved-claude"},
+		{name: "Agy flash", backend: "agy", requested: "gemini-3.7-flash-high", wantModel: "auto", wantClaude: "gemini-3.7-flash-high"},
+		{name: "Agy auto", backend: "agy", requested: "auto", wantModel: "auto", wantClaude: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &api.Config{Backend: tc.backend, CodexModel: tc.savedCodex, ModelOverride: "saved-claude"}

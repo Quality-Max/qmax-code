@@ -55,6 +55,9 @@ type Config struct {
 	//   "cc"        → Claude Code CLI subprocess (no QM API key; `claude --print`
 	//                 uses Claude Code's configured subscription or provider billing)
 	//   "codex"     → OpenAI Codex CLI subprocess (uses OpenAI subscription, no API key needed)
+	//   "agy"       → Google Antigravity CLI subprocess (Google OAuth via
+	//                 interactive `agy` Google sign-in; same Google account as AI Studio.
+	//                 No Gemini API key required.)
 	//   "cerebras"  → Cerebras OpenAI-compatible API (requires CEREBRAS_API_KEY).
 	//                 Drives the native qmax agent loop with the full tool set via
 	//                 native function calling — fast and low-cost.
@@ -62,7 +65,7 @@ type Config struct {
 	//                 support (Z.AI, Groq, OpenRouter, …); the specific model is
 	//                 ModelOverride in "provider/model" form. Providers are opted
 	//                 into per-user via EnabledProviders + the /providers command.
-	// In the CLI modes (cc/codex/opencode) qmax tools are served via an embedded MCP server.
+	// In the CLI modes (cc/codex/agy/opencode) qmax tools are served via an embedded MCP server.
 	Backend string `json:"backend,omitempty"`
 
 	// EnabledProviders is the per-user opt-in set of opencode provider IDs
@@ -85,7 +88,7 @@ type Config struct {
 	Effort string `json:"effort,omitempty"`
 
 	// OrchPermissionMode records the autonomy level the user consented to for
-	// CC and opencode backends. Codex uses its own approval and sandbox policy:
+	// CC, Antigravity, and opencode backends. Codex uses its own approval and sandbox policy:
 	//   ""           = no consent yet; activation will prompt
 	//   "standard"   = curated allowlist auto-approved (reads, test runners,
 	//                  qmax MCP tools); edits and destructive shell still gated

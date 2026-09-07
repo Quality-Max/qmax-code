@@ -85,6 +85,29 @@ func TestMaterializeCodexEmitsOpenAIYAML(t *testing.T) {
 	}
 }
 
+func TestMaterializeAgy(t *testing.T) {
+	home := t.TempDir()
+	res, err := Materialize(BackendAgy, home)
+	if err != nil {
+		t.Fatalf("Materialize(agy): %v", err)
+	}
+	if len(res.Written) != len(Catalog) {
+		t.Fatalf("wrote %d skills, want %d", len(res.Written), len(Catalog))
+	}
+	md := filepath.Join(home, ".gemini", "antigravity-cli", "skills", "qa-triage", "SKILL.md")
+	data, err := os.ReadFile(md)
+	if err != nil {
+		t.Fatalf("read %s: %v", md, err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "name: qa-triage") {
+		t.Errorf("missing name frontmatter:\n%s", text)
+	}
+	if strings.Contains(text, "allowed-tools:") {
+		t.Errorf("agy SKILL.md should not carry allowed-tools")
+	}
+}
+
 func TestMaterializeOpenCode(t *testing.T) {
 	home := t.TempDir()
 	res, err := Materialize(BackendOpenCode, home)
@@ -163,7 +186,7 @@ func TestSkillsDirRejectsUnknownBackend(t *testing.T) {
 			t.Errorf("SkillsDir(%q): expected error, got nil", b)
 		}
 	}
-	for _, b := range []Backend{BackendCC, BackendCodex, BackendOpenCode} {
+	for _, b := range []Backend{BackendCC, BackendCodex, BackendOpenCode, BackendAgy} {
 		if _, err := SkillsDir(b, home); err != nil {
 			t.Errorf("SkillsDir(%q): unexpected error: %v", b, err)
 		}

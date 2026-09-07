@@ -4,6 +4,14 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Added
+- Antigravity CLI (`agy`) is a first-class `/orch` backend. It runs Google's
+  native agent harness as a subprocess (`agy -p --output-format stream-json`),
+  attaches qmax tools through `~/.gemini/config/mcp_config.json`, and authenticates
+  with **Google OAuth** (interactive `agy` browser sign-in) using the same Google account as
+  AI Studio. A Gemini API key is not required. Select it with `/agy`,
+  `/orch`, or `--backend agy`.
+
 ## [1.32.0] - 2026-09-05
 
 ### Added

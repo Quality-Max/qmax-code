@@ -416,6 +416,11 @@ func (t *Terminal) PrintBanner(version string, ctx *api.SessionContext) {
 		if ctx.Auth != nil && ctx.Auth.Email != "" {
 			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, ColorReset)
 		}
+	case "agy":
+		fmt.Printf("  %s▸ Backend: Antigravity CLI (Google OAuth — no Gemini API key)%s\n", themeStatusColor, ColorReset)
+		if ctx.Auth != nil && ctx.Auth.Email != "" {
+			fmt.Printf("  %s▸ QualityMax: %s%s\n", themeStatusColor, ctx.Auth.Email, ColorReset)
+		}
 	default:
 		// API mode — show direct API or qmax CLI connection status.
 		if ctx.LocalOnly {

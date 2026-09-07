@@ -34,7 +34,7 @@ qmax-code serve --mcp
 | `--verbose` | Show tool calls and raw responses. |
 | `--professional` | Disable the cat personality for this run. |
 | `-q` | Reserved for a future quiet/CI output mode; currently has no effect. |
-| `--backend NAME` | Override the saved backend with `api`, `cc`, `codex`, `cerebras`, or `opencode`. |
+| `--backend NAME` | Override the saved backend with `api`, `cc`, `codex`, `agy`, `cerebras`, or `opencode`. |
 | `--version` | Print the version and exit. |
 
 Non-interactive stdin must include either `-p` or a positional prompt. This
@@ -87,7 +87,7 @@ qmax-code codex connect
 
 These attach the active local Claude Code or a fresh Codex login to the
 currently authenticated QualityMax user. They are separate from selecting a
-backend with `/cc` or `/codex`.
+backend with `/cc`, `/codex`, or `/agy`.
 
 ## Configuration subcommand
 
@@ -151,6 +151,7 @@ prints the selected local manifest. `verify` checks its signature offline.
 | `/api` | Switch to the direct Anthropic API. |
 | `/cc` | Switch to the Claude Code CLI backend. |
 | `/codex` | Switch to the Codex CLI backend. |
+| `/agy` | Switch to the Antigravity CLI backend (Google OAuth). |
 | `/opencode` | Switch to the OpenCode CLI backend. |
 | `/gemma [none\|low\|medium\|high]` | Activate Gemma 4 on Cerebras with the chosen reasoning level. |
 | `/gemma off` | Return to the direct Anthropic API. |
@@ -174,7 +175,7 @@ behavior.
 | `/status` | Show connection, session, usage, and model information. |
 | `/cost` | Show token usage and estimated model cost. |
 | `/update` | Check for a newer qmax-code release and install it when found. |
-| `/plan` | Show the subscription coding-plan usage window: elapsed, turns, and time until the rolling 5-hour limit resets (cc/codex/opencode backends). |
+| `/plan` | Show the subscription coding-plan usage window: elapsed, turns, and time until the rolling 5-hour limit resets (cc/codex/agy/opencode backends). |
 
 In standalone mode, `/connect` and `/project` explain how to return to connected
 mode. `/status`, `/context`, and `/config` identify the active standalone
@@ -200,7 +201,7 @@ after the current turn.
 | Command | Action |
 | --- | --- |
 | `/skills` | List all qmax QA skills and their install status by CLI backend. |
-| `/skills install` | Refresh skills for Claude Code, Codex, and OpenCode. |
+| `/skills install` | Refresh skills for Claude Code, Codex, OpenCode, and Antigravity. |
 | `/config` | Show selected session configuration. |
 | `/set KEY VALUE` | Change a supported setting from the REPL. |
 | `/keys` | Open the interactive API-key menu. |

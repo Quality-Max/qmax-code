@@ -26,6 +26,7 @@ qmax-code
 └─ CLI subprocess
    ├─ Claude Code
    ├─ Codex
+   ├─ Antigravity
    └─ OpenCode
        └─ qmax MCP server
           ├─ connected mode: QualityMax + approved local tools
@@ -48,6 +49,7 @@ inference backend within one qmax-code process.
 | Anthropic API | Anthropic API key | Built in | Yes | qmax-code local/cloud sessions |
 | Claude Code (`cc`) | `claude` installed and logged in | Embedded MCP | No, text-only subprocess path | Claude Code native state plus qmax history |
 | Codex | `codex` installed and logged in | Embedded MCP | No, text-only subprocess path | Codex native state plus qmax history |
+| Antigravity (`agy`) | `agy` installed and signed in with Google OAuth | Embedded MCP via `~/.gemini/config/mcp_config.json` | No, text-only subprocess path | Antigravity native conversation plus qmax history |
 | Cerebras | Cerebras API key | Built-in native function calling | Yes for vision-capable models such as Gemma 4 | qmax-code local/cloud sessions |
 | OpenCode | `opencode` installed and at least one enabled provider | Embedded MCP through a qmax-managed overlay | No, text-only subprocess path | OpenCode native state plus qmax history |
 | Ollama | Reachable HTTP(S) endpoint and configured model | Built in | Model/path dependent; do not assume vision | qmax-code local/cloud sessions |
@@ -56,7 +58,7 @@ QualityMax authentication is separate from backend authentication. Use
 `--local` to skip QualityMax authentication entirely. QualityMax cloud tools
 require connected mode and `qmax-code login`.
 
-## Go integration with Claude Code and Codex
+## Go integration with Claude Code, Codex, and Antigravity
 
 qmax-code calls both native harnesses directly from Go. As of September 5,
 2026, their official harness SDKs are available for Python and TypeScript;
@@ -66,6 +68,7 @@ neither provider documents an official Go harness SDK.
 | --- | --- | --- |
 | Claude Code | `os/exec` with `claude --print --output-format stream-json` | `--resume` with the native session ID |
 | Codex | The Go `codexrunner` package with `codex exec --json` | `codex exec resume` with the native thread ID |
+| Antigravity | `os/exec` with `agy -p --output-format stream-json` | `--conversation` with the native conversation ID |
 
 Anthropic explicitly recommends a CLI subprocess for other languages in its
 [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk). OpenAI documents
@@ -136,6 +139,43 @@ limit. Pro and standard seats use paid usage credits for Fable 5.1 from the firs
 request. A subscription login therefore does not guarantee included Fable usage;
 check your tier and extra-usage settings in [Anthropic's Fable plan guide](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan).
 
+## Antigravity Google OAuth
+
+Yes: qmax-code can use the native Antigravity harness with a Google account
+login, without a Gemini API key. The `agy` backend runs `agy -p` and connects
+qmax tools through MCP. It inherits Antigravity authentication; it does not
+require QualityMax login in local mode.
+
+Sign in once with Google OAuth (the same Google account you use for AI Studio).
+Antigravity CLI 1.1.x has no `auth login` subcommand — run the interactive CLI
+and complete the browser sign-in, then exit:
+
+```bash
+agy
+# After Google sign-in and exiting Antigravity:
+qmax-code --local --backend agy
+```
+
+Inside qmax-code, `/agy` and `/orch` offer to launch interactive `agy` on first
+activation so the browser OAuth flow can run. Headless print mode uses the
+cached Google token (OS keyring, or
+`~/.gemini/antigravity-cli/antigravity-oauth-token` when file storage is
+forced). An unauthenticated run fails with `authentication required` rather
+than hanging.
+
+A Gemini API key (`GEMINI_API_KEY` + `modelProvider: gemini` in Antigravity
+settings) is a CI fallback that Antigravity itself supports. qmax-code does
+not set that path; prefer Google OAuth for interactive use.
+
+```bash
+qmax-code --local --backend agy --model gemini-3.7-flash-high
+```
+
+As of September 7, 2026, Antigravity CLI has no per-invocation `--mcp-config`
+flag, so qmax-code merges the qmax MCP entry into
+`~/.gemini/config/mcp_config.json`. Pass `--add-dir` for the workspace so
+print-mode writes land in the repo rather than Antigravity's scratch directory.
+
 ## Standalone local-only orchestration
 
 Every backend can be selected in standalone mode:
@@ -145,6 +185,7 @@ qmax-code --local --backend codex
 qmax-code --local --backend cc
 qmax-code --local --backend cerebras
 qmax-code --local --backend opencode
+qmax-code --local --backend agy
 ```
 
 The direct API path also works with `--local` when Anthropic is configured.
@@ -170,7 +211,7 @@ start cloud session/live-feed services. The qmax tool boundary is:
 | Surface | Standalone tools |
 | --- | --- |
 | Built-in agent | `update_plan`, `read_file`, `run_command`, `edit_file`, `write_file` |
-| MCP for Claude Code, Codex, OpenCode | `read_file`, `run_command`, `edit_file`, `write_file` |
+| MCP for Claude Code, Codex, Antigravity, OpenCode | `read_file`, `run_command`, `edit_file`, `write_file` |
 
 `run_local_test` is not in that list: it downloads a script from QualityMax and
 reports its result, despite executing the test process locally. CLI agents may
@@ -198,6 +239,7 @@ Direct switches are also available:
 /api
 /cc
 /codex
+/agy
 /opencode
 /gemma
 /ollama
@@ -207,6 +249,7 @@ For non-interactive use:
 
 ```bash
 qmax-code --backend cc -p "review the current diff"
+qmax-code --backend agy -p "review the current diff"
 qmax-code --backend codex -p "run the narrowest relevant tests"
 qmax-code --backend cerebras -p "inspect this repository for test gaps"
 qmax-code --backend opencode -p "review error handling"
@@ -224,7 +267,7 @@ Ollama is selected from the REPL rather than the `backend` config field.
 
 ## Permission modes
 
-The first activation of Claude Code, Codex, or OpenCode asks how much autonomy
+The first activation of Claude Code, Codex, Antigravity, or OpenCode asks how much autonomy
 to grant. The answer is persisted in `~/.qmax-code/config.json`.
 
 ### Standard
@@ -255,12 +298,13 @@ backend again. Valid values are `standard` and `unattended`.
 
 ## MCP installation scope
 
-Claude Code and Codex ask whether qmax should be registered globally.
+Claude Code, Codex, and Antigravity ask whether qmax should be registered globally.
 
 If accepted, qmax-code adds or updates only the `qmax` MCP entry in:
 
 - Claude Code: `~/.claude/settings.json`
 - Codex: `~/.codex/config.toml`
+- Antigravity: `~/.gemini/config/mcp_config.json`
 
 Existing unrelated settings are preserved. The global entry runs:
 
@@ -268,10 +312,14 @@ Existing unrelated settings are preserved. The global entry runs:
 qmax-code serve --mcp
 ```
 
-This makes qmax tools available in ordinary `claude` or `codex` sessions as
+This makes qmax tools available in ordinary `claude`, `codex`, or `agy` sessions as
 well as sessions launched by qmax-code.
 
-If global installation is declined, qmax-code uses session-scoped integration
+Antigravity has no per-invocation `--mcp-config` flag, so qmax-code also writes
+that MCP entry when the `agy` backend starts a turn (same class as Codex writing
+`~/.codex/config.toml`).
+
+If global installation is declined, Claude Code uses session-scoped integration
 and does not add the user-level MCP entry.
 
 OpenCode is different: qmax-code writes a separate overlay at
@@ -292,8 +340,9 @@ The same catalog is materialized in the native format of each CLI:
 - Claude Code: `~/.claude/skills/`
 - Codex: `~/.codex/skills/`
 - OpenCode: `~/.config/opencode/skills/`
+- Antigravity: `~/.gemini/antigravity-cli/skills/`
 
-Claude Code and Codex skill installation follows the global-install consent.
+Claude Code, Codex, and Antigravity skill installation follows the global-install consent.
 OpenCode skills are refreshed whenever that backend is activated. Installation
 is idempotent, and upgrading qmax-code refreshes managed skill content.
 
@@ -303,7 +352,7 @@ is idempotent, and upgrading qmax-code refreshes managed skill content.
 ```
 
 `/skills` shows the install status for all 27 skills. `/skills install`
-materializes the catalog for all three CLI backends. Codex receives additional
+materializes the catalog for all four CLI backends. Codex receives additional
 `agents/openai.yaml` metadata; browser/runtime skills declare their Playwright
 MCP dependency there.
 
@@ -396,9 +445,11 @@ Activating orchestration may create or update:
 | `~/.qmax-code/opencode.json` | qmax-managed OpenCode overlay |
 | `~/.claude/settings.json` | Optional global qmax MCP entry |
 | `~/.codex/config.toml` | Optional global qmax MCP entry |
+| `~/.gemini/config/mcp_config.json` | Antigravity qmax MCP entry |
 | `~/.claude/skills/` | Managed Claude Code QA skills |
 | `~/.codex/skills/` | Managed Codex QA skills |
 | `~/.config/opencode/skills/` | Managed OpenCode QA skills |
+| `~/.gemini/antigravity-cli/skills/` | Managed Antigravity QA skills |
 
 Provider secrets are not written to those files by qmax-code. They are loaded
 from the OS keychain or the provider's supported environment variable and
@@ -412,7 +463,7 @@ The same config file stores the optional `local_only` default. A per-run
 
 ### The backend is missing from `/orch`
 
-- Claude Code, Codex, and OpenCode only become selectable when their executable
+- Claude Code, Codex, Antigravity, and OpenCode only become selectable when their executable
   is installed and discoverable.
 - OpenCode provider models only appear after the provider is enabled and has a
   usable key.

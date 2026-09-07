@@ -21,6 +21,7 @@ const (
 	BackendCC       Backend = "cc"
 	BackendCodex    Backend = "codex"
 	BackendOpenCode Backend = "opencode"
+	BackendAgy      Backend = "agy"
 )
 
 // MaterializeResult reports what Materialize wrote, for display to the user.
@@ -41,6 +42,8 @@ func SkillsDir(backend Backend, home string) (string, error) {
 		return filepath.Join(home, ".codex", "skills"), nil
 	case BackendOpenCode:
 		return filepath.Join(home, ".config", "opencode", "skills"), nil
+	case BackendAgy:
+		return filepath.Join(home, ".gemini", "antigravity-cli", "skills"), nil
 	default:
 		return "", fmt.Errorf("skills: unknown backend %q", backend)
 	}
@@ -172,10 +175,9 @@ func renderSkillMD(backend Backend, sk Skill) string {
 			b.WriteString("metadata:\n")
 			b.WriteString("  short-description: " + yamlScalar(sk.ShortDescription) + "\n")
 		}
-	case BackendOpenCode:
-		// opencode recognizes only name + description in frontmatter (plus
-		// optional license/compatibility/metadata); it ignores allowed-tools, so
-		// we emit nothing extra. The body is identical across backends.
+	case BackendOpenCode, BackendAgy:
+		// opencode and Antigravity recognize name + description in frontmatter;
+		// extra keys such as allowed-tools are ignored, so we emit nothing extra.
 	default:
 		// Materialize validates the backend via SkillsDir before reaching here,
 		// so an unknown value is a programming error, not a runtime condition.

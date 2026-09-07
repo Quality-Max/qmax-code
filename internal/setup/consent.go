@@ -33,6 +33,10 @@ func PromptOrchConsent(cfg *api.Config, backend string) ConsentResult {
 		cliName = "opencode"
 		globalConfigPath = "~/.qmax-code/opencode.json"
 	}
+	if backend == "agy" {
+		cliName = "Antigravity"
+		globalConfigPath = "~/.gemini/config/mcp_config.json"
+	}
 
 	res := ConsentResult{
 		PermissionMode: cfg.OrchPermissionMode,

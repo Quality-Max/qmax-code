@@ -6,7 +6,7 @@ Instructions for coding agents working on qmax-code.
 
 qmax-code is a terminal **QA** agent that can also host coding CLIs. It runs
 standalone on a local repository or connected to QualityMax. Through `/orch`
-it can launch Claude Code, Codex, or OpenCode while keeping qmax tools and
+it can launch Claude Code, Codex, Antigravity, or OpenCode while keeping qmax tools and
 terminal UX — or run the built-in loop on Anthropic, Cerebras, or Ollama.
 
 This repository is **Go 1.25.13+**, not TypeScript. The thing users install is one
@@ -23,7 +23,8 @@ those other agents when the job is coding.
 - **Cerebras** = fast inference (~1000–2000+ tok/s). Models today: GPT-OSS
   120B, GLM 4.7, Gemma 4. **Qwen 3.8 is coming soon** on Cerebras; do not
   wire it into `/orch` until the model ID is live on the Cerebras API.
-- **Claude Code / Codex** = judgment for hard design and tricky refactors.
+- **Claude Code / Codex / Antigravity** = judgment for hard design and tricky refactors.
+  Antigravity uses Google OAuth (run interactive `agy` to sign in), not a Gemini API key.
 - **OpenCode** = opt-in providers (Z.AI GLM, Groq, OpenRouter) via
   `/providers`.
 

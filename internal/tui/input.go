@@ -55,6 +55,7 @@ var slashMenuItems = []SlashMenuItem{
 	{"/feed", "Open the most recent live browser feed (after a test/crawl with /live on)"},
 	{"/cc", "Switch to Claude Code backend"},
 	{"/codex", "Switch to Codex CLI backend"},
+	{"/agy", "Switch to Antigravity CLI (Google OAuth)"},
 	{"/opencode", "Switch to opencode backend (Z.AI / Groq / OpenRouter)"},
 	{"/api", "Switch to direct Anthropic API"},
 	{"/providers", "Pick and enable an opencode provider (arrows + Enter)"},

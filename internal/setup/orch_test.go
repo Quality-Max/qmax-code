@@ -45,6 +45,29 @@ func TestInstallCodexWritesConfigTOML(t *testing.T) {
 	}
 }
 
+func TestInstallAgyWritesMCPConfigJSON(t *testing.T) {
+	home := withTempHome(t)
+
+	res, err := InstallAgy()
+	if err != nil {
+		t.Fatalf("InstallAgy: %v", err)
+	}
+	want := filepath.Join(home, ".gemini", "config", "mcp_config.json")
+	if res.MCPPath != want {
+		t.Fatalf("MCPPath = %q, want %q", res.MCPPath, want)
+	}
+	data, err := os.ReadFile(res.MCPPath)
+	if err != nil {
+		t.Fatalf("read mcp_config.json: %v", err)
+	}
+	if !strings.Contains(string(data), `"qmax"`) {
+		t.Fatalf("missing qmax MCP entry:\n%s", data)
+	}
+	if !IsOrchInstalled("agy") {
+		t.Fatal("IsOrchInstalled(agy) should detect mcp_config.json qmax entry")
+	}
+}
+
 func TestWriteCodexMCPEntryReportsAlreadyHad(t *testing.T) {
 	home := withTempHome(t)
 	path := filepath.Join(home, ".codex", "config.toml")
