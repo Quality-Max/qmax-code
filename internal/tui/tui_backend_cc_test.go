@@ -8,7 +8,7 @@ import (
 )
 
 func TestPickerIncludesClaudeCodeFableAndSonnet5(t *testing.T) {
-	m := newModelPickerModel("cc", "", "high", "", "", true, true, false, false, nil)
+	m := newModelPickerModel("cc", "", "high", "", "", true, true, false, false, false, nil)
 
 	seen := map[string]pickerEntry{}
 	for _, e := range m.allEntries {
@@ -41,7 +41,7 @@ func TestPickerIncludesClaudeCodeFableAndSonnet5(t *testing.T) {
 }
 
 func TestPickerClaudeCodeDefaultCursorOnSonnet5(t *testing.T) {
-	m := newModelPickerModel("cc", "", "high", "", "", true, true, false, false, nil)
+	m := newModelPickerModel("cc", "", "high", "", "", true, true, false, false, false, nil)
 	cur := m.allEntries[m.cursor]
 	if cur.backend != "cc" || cur.modelID != api.ModelSonnet5 {
 		t.Errorf("cursor on %s/%s, want cc/%s", cur.backend, cur.modelID, api.ModelSonnet5)
@@ -50,7 +50,7 @@ func TestPickerClaudeCodeDefaultCursorOnSonnet5(t *testing.T) {
 
 func TestPickerCodexDefaultAndExplicitModel(t *testing.T) {
 	for _, model := range []string{"", "legacy-model", "gpt-6-astra"} {
-		m := newModelPickerModel("codex", model, "high", "", "", true, true, false, false, nil)
+		m := newModelPickerModel("codex", model, "high", "", "", true, true, false, false, false, nil)
 		want := model
 		if model == "legacy-model" {
 			want = ""
@@ -82,7 +82,7 @@ func TestPickerOffersEverySupportedCodexModel(t *testing.T) {
 }
 
 func TestPickerIncludesFable51ForDirectAPI(t *testing.T) {
-	m := newModelPickerModel("", api.ModelFable51, "high", "", "", false, false, false, false, nil)
+	m := newModelPickerModel("", api.ModelFable51, "high", "", "", false, false, false, false, false, nil)
 	cur := m.allEntries[m.cursor]
 	if cur.backend != "" || cur.modelID != api.ModelFable51 {
 		t.Fatal("direct API Fable 5.1 selection is missing")

@@ -59,6 +59,21 @@ func InstallCodex() (*InstallResult, error) {
 	return writeCodexMCPEntry(cfgPath, nil)
 }
 
+// InstallAgy writes the qmax MCP server into ~/.gemini/config/mcp_config.json
+// so Antigravity CLI picks up qmax tools in ordinary `agy` sessions as well as
+// sessions launched by qmax-code. agy has no per-invocation --mcp-config flag.
+func InstallAgy() (*InstallResult, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(home, ".gemini", "config")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	return writeMCPEntry(filepath.Join(dir, "mcp_config.json"))
+}
+
 // writeMCPEntry merges the qmax MCP entry into a JSON config file.
 // Existing keys are preserved; only the "qmax" entry under "mcpServers" is
 // added or updated.
@@ -147,6 +162,20 @@ func RunOrch(backend string, term *tui.Terminal) {
 			term.PrintSystem(fmt.Sprintf("qmax MCP entry added to %s", res.MCPPath))
 		}
 		term.PrintSystem("Codex now has qmax tools in every session.")
+
+	case "agy":
+		term.PrintSystem("Setting up Antigravity integration…")
+		res, err := InstallAgy()
+		if err != nil {
+			term.PrintError(fmt.Sprintf("Antigravity setup failed: %v", err))
+			return
+		}
+		if res.AlreadyHadMCP {
+			term.PrintSystem(fmt.Sprintf("qmax MCP entry updated in %s", res.MCPPath))
+		} else {
+			term.PrintSystem(fmt.Sprintf("qmax MCP entry added to %s", res.MCPPath))
+		}
+		term.PrintSystem("Antigravity now has qmax tools in every `agy` session.")
 	}
 }
 
@@ -185,6 +214,7 @@ func InstallSkillsAll(term *tui.Terminal) {
 	InstallSkillsReport("cc", term)
 	InstallSkillsReport("codex", term)
 	InstallSkillsReport("opencode", term)
+	InstallSkillsReport("agy", term)
 }
 
 // PrintSkillsStatus lists the qmax QA skill catalog and shows, per skill,
@@ -200,20 +230,22 @@ func PrintSkillsStatus(term *tui.Terminal) {
 	ccDir, _ := skills.SkillsDir(skills.BackendCC, home)
 	cxDir, _ := skills.SkillsDir(skills.BackendCodex, home)
 	ocDir, _ := skills.SkillsDir(skills.BackendOpenCode, home)
+	agyDir, _ := skills.SkillsDir(skills.BackendAgy, home)
 
 	catalog := skills.SortedCatalog()
-	term.PrintSystem(fmt.Sprintf("qmax QA skills (%d) — installed in:  cc = ~/.claude/skills · codex = ~/.codex/skills · oc = ~/.config/opencode/skills", len(catalog)))
+	term.PrintSystem(fmt.Sprintf("qmax QA skills (%d) — installed in:  cc = ~/.claude/skills · codex = ~/.codex/skills · oc = ~/.config/opencode/skills · agy = ~/.gemini/antigravity-cli/skills", len(catalog)))
 	for _, sk := range catalog {
 		cc := installMark(filepath.Join(ccDir, sk.Name, "SKILL.md"))
 		cx := installMark(filepath.Join(cxDir, sk.Name, "SKILL.md"))
 		oc := installMark(filepath.Join(ocDir, sk.Name, "SKILL.md"))
+		agy := installMark(filepath.Join(agyDir, sk.Name, "SKILL.md"))
 		desc := sk.ShortDescription
 		if desc == "" {
 			desc = sk.Description
 		}
-		fmt.Printf("  cc:%s codex:%s oc:%s  %s%-22s%s %s\n", cc, cx, oc, tui.ColorBold, sk.Name, tui.ColorReset, desc)
+		fmt.Printf("  cc:%s codex:%s oc:%s agy:%s  %s%-22s%s %s\n", cc, cx, oc, agy, tui.ColorBold, sk.Name, tui.ColorReset, desc)
 	}
-	term.PrintSystem("Skills load inside Claude Code / Codex / opencode sessions — auto-invoked by description, or `$name` in Codex.")
+	term.PrintSystem("Skills load inside Claude Code / Codex / OpenCode / Antigravity sessions — auto-invoked by description, or `$name` in Codex.")
 	term.PrintSystem("Run /skills install to (re)install them into all backends now.")
 }
 
@@ -239,6 +271,8 @@ func IsOrchInstalled(backend string) bool {
 		cfgPath = filepath.Join(home, ".claude", "settings.json")
 	case "codex":
 		cfgPath = filepath.Join(home, ".codex", "config.toml")
+	case "agy":
+		cfgPath = filepath.Join(home, ".gemini", "config", "mcp_config.json")
 	default:
 		return true
 	}

@@ -75,6 +75,7 @@ func TestPlanWindowKeySeparatesQuotas(t *testing.T) {
 	}{
 		{"claude code", "cc", &api.Config{}, "cc"},
 		{"codex", "codex", &api.Config{}, "codex"},
+		{"antigravity", "agy", &api.Config{}, "agy"},
 		{"opencode without a model override", "opencode", &api.Config{}, "opencode"},
 		{"opencode on zai", "opencode", &api.Config{ModelOverride: "zai/glm-4.6"}, "opencode/zai"},
 		{"opencode on groq", "opencode", &api.Config{ModelOverride: "groq/llama-3.3-70b"}, "opencode/groq"},

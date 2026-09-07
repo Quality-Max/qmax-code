@@ -174,6 +174,12 @@ func printConfig() {
 		} else {
 			fmt.Print("  (WARNING: opencode binary not found in PATH)")
 		}
+	case "agy":
+		if bin := agent.FindAgy(); bin != "" {
+			fmt.Printf("  (agy found: %s; Google OAuth)", bin)
+		} else {
+			fmt.Print("  (WARNING: agy binary not found in PATH)")
+		}
 	}
 	fmt.Println()
 	if len(cfg.EnabledProviders) > 0 {
@@ -276,10 +282,10 @@ func setConfigField(key, value string) error {
 
 	case "backend":
 		switch value {
-		case "", "api", "cc", "codex", "cerebras", "opencode":
+		case "", "api", "cc", "codex", "agy", "cerebras", "opencode":
 			cfg.Backend = value
 		default:
-			return fmt.Errorf("invalid backend %q; allowed: api, cc, codex, cerebras, opencode", value)
+			return fmt.Errorf("invalid backend %q; allowed: api, cc, codex, agy, cerebras, opencode", value)
 		}
 
 	case "cerebras_key":

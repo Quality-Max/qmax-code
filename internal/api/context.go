@@ -22,7 +22,7 @@ type SessionContext struct {
 	ProjectFile string      // name of .qmax.yml file if detected
 	API         *APIClient  // direct QualityMax API client (no legacy qmax CLI needed)
 	Auth        *AuthConfig // authentication credentials
-	Backend     string      // "" | "cc" | "codex" — active CLI inference backend
+	Backend     string      // "" | "cc" | "codex" | "agy" | "opencode" — active CLI inference backend
 
 	// LiveFeed enables QM Cloud Sandbox execution for run_test / start_crawl
 	// and turns on auto-launch of /browserfeed when a poll response surfaces

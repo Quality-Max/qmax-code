@@ -33,6 +33,11 @@ func PromptOrchConsent(cfg *api.Config, backend string) ConsentResult {
 		cliName = "opencode"
 		globalConfigPath = "~/.qmax-code/opencode.json"
 	}
+	if backend == "agy" {
+		cliName = "Antigravity"
+		globalConfigPath = "~/.gemini/config/mcp_config.json"
+	}
+	cliCmd := orchConsentCLICommand(backend, cliName)
 
 	res := ConsentResult{
 		PermissionMode: cfg.OrchPermissionMode,
@@ -89,7 +94,7 @@ func PromptOrchConsent(cfg *api.Config, backend string) ConsentResult {
 	if backend != "opencode" && !res.GlobalInstall && !IsOrchInstalled(backend) {
 		fmt.Println()
 		fmt.Printf("  Optional: register qmax tools globally in %s\n", globalConfigPath)
-		fmt.Printf("  so they appear in every `%s` session, not just qmax-code.\n", strings.ToLower(cliName))
+		fmt.Printf("  so they appear in every `%s` session, not just qmax-code.\n", cliCmd)
 		fmt.Println()
 		fmt.Print("  Install globally? [y/N]: ")
 		line, _ := reader.ReadString('\n')
@@ -103,4 +108,14 @@ func PromptOrchConsent(cfg *api.Config, backend string) ConsentResult {
 
 func qmaxSelectsPermissionMode(backend string) bool {
 	return backend != "codex"
+}
+
+// orchConsentCLICommand is the executable name shown in backticks during
+// consent. Display names like "Antigravity" must not be lowercased into a
+// fake command; the binary is `agy`.
+func orchConsentCLICommand(backend, cliName string) string {
+	if backend == "agy" {
+		return "agy"
+	}
+	return strings.ToLower(cliName)
 }

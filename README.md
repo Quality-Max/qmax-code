@@ -33,7 +33,7 @@ repositories, heal scripts, and prepare CI. It calls the QualityMax API
 directly, so the separate `qmax` CLI is optional.
 
 Use the built-in agent with Anthropic, Cerebras, or Ollama, or use
-**orchestration mode** to run Claude Code, Codex, or OpenCode with the same qmax
+**orchestration mode** to run Claude Code, Codex, Antigravity, or OpenCode with the same qmax
 QA tools through MCP.
 
 ![Five open QualityMax tools and where qmax-code sits among them](docs/img/family.svg)
@@ -175,7 +175,7 @@ background-job health—remain experimental and are only exposed when
   multimodal input for Gemma 4, optional reasoning effort, and live speed
   metrics.
 - **27 managed QA skills:** the catalog is refreshed into Claude Code, Codex,
-  and OpenCode and can be inspected or reinstalled with `/skills`.
+  OpenCode, and Antigravity and can be inspected or reinstalled with `/skills`.
 - **Improved terminal sessions:** a stable input panel, prompt queue, session
   status and cost metrics, compact/verbose output toggle, ten themes, saved
   sessions, and optional cloud sync.
@@ -336,6 +336,7 @@ troubleshooting.
 | Anthropic API | `/api` or `/orch` | `ANTHROPIC_API_KEY` or OS keychain | Built-in agent loop; tool set follows connected vs. standalone mode. |
 | Claude Code | `/cc` or `/orch` | Local Claude Code login | CLI subprocess; qmax tools arrive through MCP. Uses Claude Code authentication and plan/provider billing; see [subscription setup](docs/ORCHESTRATION.md#claude-code-subscription-billing). |
 | Codex | `/codex` or `/orch` | Local Codex login | CLI subprocess using the user's OpenAI access; qmax tools arrive through MCP. |
+| Antigravity | `/agy` or `/orch` | Google OAuth (run `agy` once to sign in) | CLI subprocess using the same Google account as AI Studio. No Gemini API key. qmax tools arrive through MCP. |
 | Cerebras | `/gemma`, `/orch`, or `--backend cerebras` | `CEREBRAS_API_KEY` or OS keychain | Built-in native function calling. Fast inference (~1000–2000+ tok/s): GPT-OSS 120B, GLM 4.7, Gemma 4 (vision + effort). **Qwen 3.8 coming soon.** |
 | OpenCode | `/opencode` or `/orch` | Per-provider key in OS keychain | CLI subprocess for opt-in Z.AI, Groq, and OpenRouter providers. |
 | Ollama | `/ollama` or `/orch` | Configured Ollama endpoint | Self-hosted inference; configure the URL and model first. |
@@ -373,6 +374,7 @@ agent. qmax-code declares that dependency in the Codex skill metadata.
 
 ```text
 /orch                    Pick backend, model, and effort
+/agy                     Switch to Antigravity (Google OAuth)
 /providers               List opt-in OpenCode providers
 /providers enable groq   Store a provider key and enable its models
 /skills                   Show managed QA skills and install status

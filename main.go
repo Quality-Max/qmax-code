@@ -42,7 +42,7 @@ func main() {
 	professional := flag.Bool("professional", false, "Disable cat personality, be direct and professional")
 	quiet := flag.Bool("q", false, "Reserved for future quiet/CI mode")
 	showVersion := flag.Bool("version", false, "Show version")
-	backendFlag := flag.String("backend", "", "Orchestration backend: cc, codex, cerebras, opencode, or api (overrides saved config)")
+	backendFlag := flag.String("backend", "", "Orchestration backend: cc, codex, agy, cerebras, opencode, or api (overrides saved config)")
 	localFlag := flag.Bool("local", false, "Standalone local-only mode: skip QualityMax login and expose only local workspace tools")
 	flag.Parse()
 	_ = quiet // reserved for future CI mode
@@ -216,14 +216,14 @@ func main() {
 	// --backend flag overrides saved config for this session only.
 	if *backendFlag != "" {
 		switch *backendFlag {
-		case "cc", "codex", "cerebras", "opencode", "api", "":
+		case "cc", "codex", "agy", "cerebras", "opencode", "api", "":
 			if *backendFlag == "api" {
 				appConfig.Backend = ""
 			} else {
 				appConfig.Backend = *backendFlag
 			}
 		default:
-			fmt.Fprintf(os.Stderr, "Error: --backend must be cc, codex, cerebras, opencode, or api\n")
+			fmt.Fprintf(os.Stderr, "Error: --backend must be cc, codex, agy, cerebras, opencode, or api\n")
 			exitWithReceipt(2)
 		}
 	}
@@ -358,6 +358,26 @@ func main() {
 			appConfig.OrchGlobalInstall = consent.GlobalInstall
 			_ = appConfig.Save()
 		}
+	} else if cliBackend == "agy" {
+		agyBin := agent.FindAgy()
+		if agyBin == "" {
+			fmt.Fprintln(os.Stderr, "\nError: backend=agy but 'agy' CLI was not found.")
+			fmt.Fprintln(os.Stderr, "  Install Antigravity CLI: curl -fsSL https://antigravity.google/cli/install.sh | bash")
+			fmt.Fprintln(os.Stderr, "  Then sign in with Google: run `agy` and complete the browser login")
+			fmt.Fprintln(os.Stderr, "  Or switch backend: qmax-code config set backend api")
+			exitWithReceipt(1)
+		}
+		consent := setup.PromptOrchConsent(appConfig, "agy")
+		if !consent.Proceed {
+			fmt.Fprintln(os.Stderr, "  Antigravity backend not activated. Falling back to direct API.")
+			cliBackend = ""
+			appConfig.Backend = ""
+		} else {
+			appConfig.OrchPermissionMode = consent.PermissionMode
+			appConfig.OrchGlobalInstall = consent.GlobalInstall
+			_ = appConfig.Save()
+			setup.PromptAgyGoogleLogin(agyBin)
+		}
 	} else if cliBackend == "cerebras" {
 		// Cerebras drives the native qmax agent loop (mode-filtered tool set, native
 		// function calling) via its OpenAI-compatible API. No Anthropic key,
@@ -431,6 +451,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  Or use a CLI backend (no API key needed):")
 		fmt.Fprintln(os.Stderr, "    qmax-code config set backend cc      # Claude Code login")
 		fmt.Fprintln(os.Stderr, "    qmax-code config set backend codex   # OpenAI/Codex subscription")
+		fmt.Fprintln(os.Stderr, "    qmax-code config set backend agy     # Google Antigravity (Google OAuth)")
 		if localOnly {
 			fmt.Fprintln(os.Stderr, "    qmax-code config set ollama_url http://127.0.0.1:11434")
 			fmt.Fprintln(os.Stderr, "    qmax-code config set ollama_model <model>")
@@ -527,6 +548,20 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Warning: could not write Codex MCP config: %v\n", err)
 		}
 		cliAgent = ca
+	case "agy":
+		if appConfig.OrchGlobalInstall && !setup.IsOrchInstalled("agy") {
+			if res, err := setup.InstallAgy(); err == nil && !res.AlreadyHadMCP {
+				fmt.Printf("  qmax MCP entry added to %s\n", res.MCPPath)
+			}
+		}
+		if appConfig.OrchGlobalInstall {
+			_, _ = setup.InstallSkills("agy")
+		}
+		aa := agent.NewAgyAgent(agent.FindAgy(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
+		if err := aa.WriteMCPConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not write Antigravity MCP config: %v\n", err)
+		}
+		cliAgent = aa
 	case "opencode":
 		oc := agent.NewOpenCodeAgent(agent.FindOpenCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, appConfig, ctx)
 		if _, err := agent.WriteOpenCodeConfig(appConfig, ctx, appConfig.OrchPermissionMode); err != nil {
