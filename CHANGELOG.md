@@ -4,6 +4,8 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-09-07
+
 ### Added
 - Antigravity CLI (`agy`) is a first-class `/orch` backend. It runs Google's
   native agent harness as a subprocess (`agy -p --output-format stream-json`),
