@@ -421,6 +421,19 @@ type agyToolError struct {
 	Message string `json:"message"`
 }
 
+// agyToolName is the label used for both ACTIVE and DONE tool events so
+// verbose start/result lines stay aligned when ToolName and ToolInfo.Name differ.
+func agyToolName(su *agyStepUpdate) string {
+	if su == nil {
+		return ""
+	}
+	name := su.ToolName
+	if su.ToolInfo != nil && su.ToolInfo.Name != "" {
+		name = su.ToolInfo.Name
+	}
+	return stripMCPPrefix(name)
+}
+
 func (a *AgyAgent) parseStream(stdout io.Reader, term *tui.Terminal) string {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)
@@ -462,13 +475,9 @@ func (a *AgyAgent) parseStream(stdout io.Reader, term *tui.Terminal) string {
 					term.StreamText(su.TextDelta)
 				}
 			case "tool":
+				name := agyToolName(su)
 				if su.State == "ACTIVE" && !seenTool[su.StepIndex] {
 					seenTool[su.StepIndex] = true
-					name := su.ToolName
-					if su.ToolInfo != nil && su.ToolInfo.Name != "" {
-						name = su.ToolInfo.Name
-					}
-					name = stripMCPPrefix(name)
 					if term != nil {
 						term.PrintToolIcon(name)
 						if a.outputVerbose && su.ToolInfo != nil {
@@ -484,7 +493,7 @@ func (a *AgyAgent) parseStream(stdout io.Reader, term *tui.Terminal) string {
 						if su.ToolInfo.Error != nil && su.ToolInfo.Error.Message != "" {
 							out = su.ToolInfo.Error.Message
 						}
-						term.PrintToolResult(stripMCPPrefix(su.ToolName), tui.TruncateStr(out, 200))
+						term.PrintToolResult(name, tui.TruncateStr(out, 200))
 					} else {
 						term.StartThinking()
 					}

@@ -68,6 +68,22 @@ func TestInstallAgyWritesMCPConfigJSON(t *testing.T) {
 	}
 }
 
+func TestClaimAgyGoogleLoginPromptOncePerProcess(t *testing.T) {
+	resetAgyGoogleLoginPrompt()
+	t.Cleanup(resetAgyGoogleLoginPrompt)
+
+	PromptAgyGoogleLogin("")
+	if agyGoogleLoginOffered.Load() {
+		t.Fatal("empty binary must not consume the prompt")
+	}
+	if !claimAgyGoogleLoginPrompt() {
+		t.Fatal("first claim should offer the Google login prompt")
+	}
+	if claimAgyGoogleLoginPrompt() {
+		t.Fatal("second claim in the same process should not re-prompt")
+	}
+}
+
 func TestWriteCodexMCPEntryReportsAlreadyHad(t *testing.T) {
 	home := withTempHome(t)
 	path := filepath.Join(home, ".codex", "config.toml")

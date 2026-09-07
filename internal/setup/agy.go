@@ -6,21 +6,39 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 
 	"github.com/qualitymax/qmax-code/internal/agent"
 	"golang.org/x/term"
 )
 
+// agyGoogleLoginOffered is set after the first Google sign-in prompt in this
+// process. AgyFileTokenPresent is a file-path probe only: macOS Keychain
+// tokens are invisible, so a missing file must not keep re-asking on every
+// /agy or /orch switch.
+var agyGoogleLoginOffered atomic.Bool
+
+func claimAgyGoogleLoginPrompt() bool {
+	return agyGoogleLoginOffered.CompareAndSwap(false, true)
+}
+
+func resetAgyGoogleLoginPrompt() {
+	agyGoogleLoginOffered.Store(false)
+}
+
 // PromptAgyGoogleLogin offers to launch Antigravity's Google OAuth flow.
 // agy 1.1.x has no `auth login` subcommand: Google sign-in runs when the
 // interactive CLI starts with no cached token. An AI Studio API key is not
-// required. Skipped when stdin is not a TTY, or when a file-backed OAuth
-// token is already present.
+// required. Skipped when stdin is not a TTY, when a file-backed OAuth token
+// is already present, or when this process already offered the prompt.
 func PromptAgyGoogleLogin(agyBin string) {
 	if agyBin == "" {
 		return
 	}
 	if agent.AgyFileTokenPresent() {
+		return
+	}
+	if !claimAgyGoogleLoginPrompt() {
 		return
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {

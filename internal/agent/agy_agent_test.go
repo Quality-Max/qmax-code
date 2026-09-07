@@ -136,3 +136,20 @@ func TestAgyOAuthTokenPath(t *testing.T) {
 		t.Fatalf("path = %q, want %q", got, want)
 	}
 }
+
+func TestAgyToolNameAlignsActiveAndDoneLabels(t *testing.T) {
+	su := &agyStepUpdate{
+		ToolName: "mcp__qmax__run_tests",
+		ToolInfo: &agyToolInfo{Name: "run_tests"},
+	}
+	if got := agyToolName(su); got != "run_tests" {
+		t.Fatalf("prefer ToolInfo.Name = %q", got)
+	}
+	su.ToolInfo.Name = ""
+	if got := agyToolName(su); got != "run_tests" {
+		t.Fatalf("fallback strip ToolName = %q", got)
+	}
+	if got := agyToolName(nil); got != "" {
+		t.Fatalf("nil update = %q", got)
+	}
+}
