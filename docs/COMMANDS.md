@@ -30,7 +30,7 @@ qmax-code serve --mcp
 | `-p "PROMPT"` | Run one prompt and exit. |
 | `--resume ID` | Resume a saved qmax-code session; use `last` for the newest. |
 | `--list-sessions` | List recent saved sessions and exit. |
-| `--save-session` | Save this run even when automatic saving is disabled. Applies to interactive and one-shot built-in-backend sessions; CLI backends manage native resume state. |
+| `--save-session` | Save this run even when automatic saving is disabled. Applies to interactive and one-shot sessions on every backend, including shared context and CLI resume checkpoints. |
 | `--verbose` | Show tool calls and raw responses. |
 | `--professional` | Disable the cat personality for this run. |
 | `-q` | Reserved for a future quiet/CI output mode; currently has no effect. |

@@ -38,6 +38,7 @@ import (
 //  4. opencode runs the turn on the user's provider, using qmax tools via MCP
 //  5. qmax-code parses opencode's NDJSON and renders it; session id → --session
 type OpenCodeAgent struct {
+	TurnTranscript
 	openCodeBin    string
 	modelID        string // "provider/model"; "" lets opencode use its default
 	effort         string // "low" | "medium" | "high"
@@ -230,10 +231,9 @@ func (a *OpenCodeAgent) runAttempt(ctx context.Context, safeUserMsg, configPath 
 	a.lastOCErrorSeen, a.lastOCErrorMsg = false, ""
 	a.lastStderrTail = ""
 	// On the first turn of a session, prepend the QA system prompt + effort/output
-	// directives. opencode persists conversation state per session, so later turns
-	// resume via --session and don't need it re-injected. A retry that already
-	// captured a session id re-evaluates this correctly.
-	message := safeUserMsg
+	// directives. Effort/output preferences are refreshed on every turn, including
+	// native resumes after the user changes settings.
+	message := effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + safeUserMsg
 	if a.sessionID == "" {
 		message = cliQASystemPrompt(a.sctx, codexQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + safeUserMsg
 	}
@@ -401,6 +401,8 @@ type ocPart struct {
 	Text   string          `json:"text"`
 	Tool   string          `json:"tool"`
 	State  string          `json:"state,omitempty"` // tool parts: pending|running|completed|error
+	Output string          `json:"output,omitempty"`
+	Error  string          `json:"error,omitempty"`
 	Input  json.RawMessage `json:"input,omitempty"` // tool parts: tool input (has file path)
 	Tokens *ocTokens       `json:"tokens,omitempty"`
 	Usage  *ocTokens       `json:"usage,omitempty"`
@@ -573,6 +575,7 @@ func (a *OpenCodeAgent) parseStream(stdout interface{ Read([]byte) (int, error) 
 			textByPart[id] = text
 
 		case ev.Part.Type == "tool" || ev.Type == "tool":
+			a.record("assistant", ev.Part)
 			if ev.Part.Tool == "" {
 				continue
 			}
@@ -704,3 +707,45 @@ func (a *OpenCodeAgent) Cancel() {
 // Cleanup is a no-op: the managed opencode config is persistent and syncable,
 // not a per-session temp file.
 func (a *OpenCodeAgent) Cleanup() {}
+
+// UnmarshalJSON supports both legacy flat tool state and nested tool snapshots.
+func (p *ocPart) UnmarshalJSON(data []byte) error {
+	type plain ocPart
+	var wire struct {
+		*plain
+		State json.RawMessage `json:"state"`
+	}
+	wire.plain = (*plain)(p)
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if len(wire.State) == 0 || string(wire.State) == "null" {
+		return nil
+	}
+	if wire.State[0] == '"' {
+		return json.Unmarshal(wire.State, &p.State)
+	}
+	var state struct {
+		Status string          `json:"status"`
+		Input  json.RawMessage `json:"input"`
+		Output string          `json:"output"`
+		Error  string          `json:"error"`
+	}
+	if err := json.Unmarshal(wire.State, &state); err != nil {
+		return err
+	}
+	// Only overwrite what the nested object actually carries: opencode may send
+	// the tool input at the top level alongside an object-shaped state, and
+	// parseStream needs Input to resolve the file path for snapshots.
+	p.State = state.Status
+	if len(state.Input) > 0 {
+		p.Input = state.Input
+	}
+	if state.Output != "" {
+		p.Output = state.Output
+	}
+	if state.Error != "" {
+		p.Error = state.Error
+	}
+	return nil
+}

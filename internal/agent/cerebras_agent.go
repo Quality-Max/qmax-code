@@ -94,7 +94,7 @@ func (a *Agent) RunCerebrasAgent(term *tui.Terminal) (string, bool) {
 		if len(blocks) == 0 {
 			blocks = append(blocks, api.ContentBlock{Type: "text", Text: ""})
 		}
-		a.History = append(a.History, api.Message{Role: "assistant", Content: blocks})
+		a.AppendHistory(api.Message{Role: "assistant", Content: blocks})
 
 		// Tool round: execute every requested tool, append results, loop.
 		if len(choice.Message.ToolCalls) > 0 {
@@ -125,7 +125,7 @@ func (a *Agent) RunCerebrasAgent(term *tui.Terminal) (string, bool) {
 			a.cancelMu.Unlock()
 			tcancel()
 
-			a.History = append(a.History, api.Message{Role: "user", Content: results})
+			a.AppendHistory(api.Message{Role: "user", Content: results})
 			continue
 		}
 

@@ -79,6 +79,8 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 		return "", false
 	}
 
+	a.compressHistory()
+
 	// Build system prompt with action instructions
 	system := a.buildSystemPrompt() + a.ollamaToolInstructions()
 
@@ -99,7 +101,7 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 	action, params, remaining := parseActionBlock(ollamaText)
 	if action == "" {
 		// Pure chat response — no tool needed
-		a.History = append(a.History, api.Message{
+		a.AppendHistory(api.Message{
 			Role:    "assistant",
 			Content: []api.ContentBlock{{Type: "text", Text: ollamaText}},
 		})
@@ -120,11 +122,11 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 	term.PrintToolResult(action, tui.TruncateStr(toolResult, 200))
 
 	// Phase 3: Feed results back to the local model for formatting.
-	a.History = append(a.History, api.Message{
+	a.AppendHistory(api.Message{
 		Role:    "assistant",
 		Content: []api.ContentBlock{{Type: "text", Text: remaining}},
 	})
-	a.History = append(a.History, api.Message{
+	a.AppendHistory(api.Message{
 		Role:    "user",
 		Content: fmt.Sprintf("[Tool result for %s]:\n%s\n\nSummarize these results for the user concisely.", action, truncateToolResult(toolResult)),
 	})
@@ -140,7 +142,7 @@ func (a *Agent) RunOllamaAgent(term *tui.Terminal) (string, bool) {
 		summary = toolResult
 	}
 
-	a.History = append(a.History, api.Message{
+	a.AppendHistory(api.Message{
 		Role:    "assistant",
 		Content: []api.ContentBlock{{Type: "text", Text: summary}},
 	})

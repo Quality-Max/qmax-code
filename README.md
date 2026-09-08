@@ -395,7 +395,7 @@ configuration keys, and keyboard shortcuts.
 ## Sessions and automation
 
 Interactive sessions auto-save by default. For a one-shot command, use
-`--save-session` on the built-in backends if you want it available through
+`--save-session` with any backend to make it available through
 `--resume last`:
 
 ```bash
@@ -404,10 +404,28 @@ qmax-code --resume last
 qmax-code --list-sessions
 ```
 
-Claude Code, Codex, and OpenCode manage their own native CLI session and resume
-state. qmax-code mirrors successful interactive turns into its in-memory
-history, but `--save-session` does not replace a CLI backend's native resume
-mechanism.
+Switching models, effort levels, or providers preserves one shared conversation.
+Claude Code, Codex, Antigravity, and OpenCode reuse their native session when
+available; returning to a backend transfers the turns it missed. Built-in
+Anthropic, Cerebras, and Ollama receive the shared history, including exposed
+CLI tool activity. `/save`, `/resume`, and `--resume` retain this state across
+restarts. `--resume last -p "continue the review" --save-session` also works.
+
+The retained transcript is separate from the model's compacted working context.
+Large conversations use a private, searchable JSONL file plus recent context;
+the destination agent can retrieve older details with its file tools. Provider
+context windows still apply. Hidden reasoning and provider-private state cannot
+be transferred, and image interpretation depends on the destination's support.
+Only content exposed to qmax-code can be retained; this cannot recover history
+that an older version already discarded.
+
+Saved conversations live in `~/.qmax-code/sessions/`; those carrying a portable
+transcript are kept for 90 days, legacy sessions for 7. `/clear` resets the
+shared conversation and native resume state and starts a new session ID, so the
+conversation you cleared stays listed by `/sessions` and remains resumable.
+Save errors are reported.
+If a native session is rejected by its CLI, the failed turn remains in the
+transcript and the next request restores portable context into a fresh session.
 
 Cloud session sync is opt-in:
 

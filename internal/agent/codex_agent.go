@@ -27,6 +27,7 @@ import (
 //  4. Codex uses qmax tools natively with its configured authentication
 //  5. qmax-code streams Codex's stdout to the terminal
 type CodexAgent struct {
+	TurnTranscript
 	codexBin       string
 	modelID        string
 	effort         string // "low" | "medium" | "high"
@@ -168,6 +169,10 @@ func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 
 	result, err := continuity.Run(ctx, prompt, codexrunner.Hooks{
 		Presenter: codexrunner.PresenterFunc(func(_ context.Context, presentation codexrunner.Presentation) error {
+			if presentation.Kind == codexrunner.PresentationTool {
+				a.record("assistant", presentation.Text)
+				return nil
+			}
 			if term == nil {
 				return nil
 			}

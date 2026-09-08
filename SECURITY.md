@@ -131,3 +131,28 @@ Report vulnerabilities by emailing **strazhnyk@gmail.com**. Include a descriptio
 of the issue, steps to reproduce, and any relevant environment details. You will
 receive a response within 48 hours. We ask that you give us reasonable time to
 address the issue before any public disclosure.
+
+## Local Conversation Retention
+
+Saved conversations include user/assistant messages, tool inputs and outputs
+exposed to qmax-code, and native CLI session identifiers and workspace paths.
+They do not collect hidden reasoning, provider configuration, or credentials
+from the environment. Switching providers makes retained conversation content
+available to the newly selected provider.
+
+Session writes use an owner-only temporary file and atomic replacement.
+Portable transcripts in `~/.qmax-code/sessions/` are reclaimed after 90 days;
+legacy sessions keep the seven-day cleanup. Large handoffs and built-in
+compaction use an owner-only temporary directory containing a searchable
+transcript. These temporary files are removed on clear, on normal exit, and on
+the `Ctrl+C` / `SIGTERM` exit paths; only an uncatchable kill (`SIGKILL`,
+power loss) can leave them in the OS temporary directory.
+
+Structured credential fields are redacted before saving or transferring
+archived content, along with unambiguous credential shapes in prose. Retained
+content is redacted more conservatively than displayed content: it is replayed
+as the conversation itself, so an over-eager match would silently corrupt the
+only copy of your context. Redaction is best effort, not a substitute for
+keeping secrets out of prompts and tool output. Turning off
+auto-save prevents automatic qmax session writes, including on exit; `/save`
+still writes explicitly. Native CLIs manage their own persistence independently.
