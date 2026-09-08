@@ -4,6 +4,43 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-09-08
+
+### Added
+- One shared conversation now survives switching models, effort levels, and
+  providers. A lossless portable transcript is retained separately from the
+  model's compacted working context. Claude Code, Codex, Antigravity, and
+  OpenCode reuse their native session when it is still valid and receive only
+  the turns they missed; the built-in Anthropic, Cerebras, and Ollama loops
+  receive the shared history including exposed CLI tool activity.
+- `/save`, `/resume`, and `--resume` carry this state across restarts on every
+  backend, one-shot `-p` runs included. Large conversations stay available
+  through a private, searchable JSONL archive so a backend can retrieve older
+  detail without spending its whole context window on it.
+
+### Changed
+- Retained content is redacted more conservatively than displayed content.
+  Because a saved transcript is replayed as the conversation itself, an
+  over-eager match would silently corrupt the only copy of your context, so
+  only unambiguous credential shapes are rewritten. Structured credential
+  fields are still redacted by key name.
+- `/clear` starts a new session ID instead of overwriting the saved file, so
+  the conversation you cleared stays listed by `/sessions` and resumable.
+- Session storage is bounded: portable transcripts are reclaimed after 90 days,
+  legacy sessions keep the existing 7-day cleanup. Session files no longer
+  store the same conversation twice.
+- Session writes are atomic and owner-only.
+
+### Fixed
+- Turn counts no longer include tool traffic, so a prompt with five tool calls
+  reports one turn rather than six.
+- The temporary context archive is removed on the `Ctrl+C` and `SIGTERM` exit
+  paths, not only on deferred cleanup.
+- A read-only or full temporary directory no longer fails an agent turn; the
+  archive degrades instead of blocking compaction.
+- OpenCode tool parts with a nested `state` object keep their top-level tool
+  input, so file snapshots continue to resolve.
+
 ## [1.33.0] - 2026-09-07
 
 ### Added
