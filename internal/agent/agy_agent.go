@@ -32,6 +32,7 @@ import (
 //  4. qmax-code parses NDJSON events and renders them
 //  5. conversation_id is kept for --conversation on the next turn
 type AgyAgent struct {
+	TurnTranscript
 	agyBin         string
 	modelID        string // "" = agy default; otherwise --model
 	effort         string // "low" | "medium" | "high"
@@ -264,7 +265,7 @@ func (a *AgyAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		cwd = "."
 	}
 
-	message := userMsg
+	message := effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + userMsg
 	if conversationID == "" {
 		message = cliQASystemPrompt(a.sctx, agyQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + userMsg
 	}
@@ -475,6 +476,9 @@ func (a *AgyAgent) parseStream(stdout io.Reader, term *tui.Terminal) string {
 					term.StreamText(su.TextDelta)
 				}
 			case "tool":
+				if su.ToolInfo != nil && su.State == "DONE" {
+					a.record("assistant", su.ToolInfo)
+				}
 				name := agyToolName(su)
 				if su.State == "ACTIVE" && !seenTool[su.StepIndex] {
 					seenTool[su.StepIndex] = true

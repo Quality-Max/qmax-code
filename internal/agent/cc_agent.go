@@ -69,6 +69,7 @@ type PlanLimitReporter interface {
 //  4. qmax-code parses CC's stream-json and renders in the terminal
 //  5. CC session ID is saved for --resume on the next turn
 type CCAgent struct {
+	TurnTranscript
 	claudeBin      string
 	modelID        string // "" = let CC decide; otherwise passed as --model
 	effort         string // "low" | "medium" | "high" — injected into system prompt
@@ -604,6 +605,14 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 				continue
 			}
 			blocks := parseCCBlocks(event.Message.Content)
+			for _, b := range blocks {
+				// Text is deliberately not recorded here: the final answer also
+				// arrives on the "result" event and RunCLI appends that, so
+				// recording it again stores every CC reply twice.
+				if b.Type == "tool_use" || b.Type == "tool_result" {
+					a.record("assistant", b)
+				}
+			}
 			for _, block := range blocks {
 				switch block.Type {
 				case "text":
@@ -631,11 +640,20 @@ func (a *CCAgent) parseStream(stdout interface{ Read([]byte) (int, error) }, ter
 			}
 
 		case "user":
-			// User events during an agentic loop carry tool_result blocks.
+			// Retain tool results, but not echoed prompts: RunCLI already stores
+			// the original request, and an echo may include the entire handoff.
 			if event.Message == nil {
 				continue
 			}
 			blocks := parseCCBlocks(event.Message.Content)
+			for _, b := range blocks {
+				// Recorded as assistant activity, not as a user turn: these are
+				// the CLI's own tool results, and counting them as user messages
+				// inflates the session turn count.
+				if b.Type == "tool_result" {
+					a.record("assistant", b)
+				}
+			}
 			for _, block := range blocks {
 				if block.Type == "tool_result" {
 					a.mu.Lock()

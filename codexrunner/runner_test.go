@@ -466,3 +466,29 @@ func assertPromptAbsent(t *testing.T, prompt string, args []string, err error) {
 		t.Fatal("prompt escaped into a public error")
 	}
 }
+
+func TestToolContentOnlyReachesPresenter(t *testing.T) {
+	executor := &scriptedExecutor{streams: []string{eventStream(t,
+		map[string]any{"type": "thread.started", "thread_id": firstThreadID},
+		map[string]any{"type": "item.completed", "item": map[string]any{"type": "command_execution", "command": "go test ./...", "aggregated_output": "test result detail", "exit_code": 0}},
+		map[string]any{"type": "item.completed", "item": map[string]any{"type": "reasoning", "text": "private reasoning marker"}},
+	)}}
+	var events []Event
+	var presentations []Presentation
+	result, err := New(Options{Executor: executor}).Run(context.Background(), Turn{Hooks: Hooks{
+		Events: EventSinkFunc(func(_ context.Context, event Event) error { events = append(events, event); return nil }),
+		Presenter: PresenterFunc(func(_ context.Context, presentation Presentation) error {
+			presentations = append(presentations, presentation)
+			return nil
+		}),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || result.Response != "" {
+		t.Fatal("tool content escaped into lifecycle events or response")
+	}
+	if len(presentations) != 1 || presentations[0].Kind != PresentationTool || !strings.Contains(presentations[0].Text, "test result detail") || strings.Contains(presentations[0].Text, "private reasoning marker") {
+		t.Fatal("tool/hidden reasoning boundary failed")
+	}
+}

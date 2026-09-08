@@ -124,9 +124,11 @@ type PresentationKind uint8
 const (
 	PresentationText PresentationKind = iota + 1
 	PresentationPlanLimit
+	// PresentationTool carries exposed tool activity only to the content boundary.
+	PresentationTool
 )
 
-// Presentation is the only callback value that may contain response text.
+// Presentation is the only callback value that may contain response or tool content.
 type Presentation struct {
 	Kind PresentationKind
 	Text string
@@ -369,6 +371,18 @@ func (r *Runner) handleEvent(ctx context.Context, turn Turn, event wireEvent, re
 		return emitEvent(ctx, turn.Hooks.Events, Event{Kind: EventTurnStarted})
 	case "item.completed":
 		if event.Item.Type != "agent_message" {
+			if turn.Hooks.Presenter != nil {
+				switch event.Item.Type {
+				case "command_execution", "mcp_tool_call", "file_change", "web_search", "todo_list":
+					// Encoding a fixed struct cannot fail; if it somehow does,
+					// skip the record rather than failing the whole turn.
+					if data, err := json.Marshal(event.Item); err == nil {
+						if err := turn.Hooks.Presenter.Present(ctx, Presentation{Kind: PresentationTool, Text: string(data)}); err != nil {
+							return ErrPresenter
+						}
+					}
+				}
+			}
 			return nil
 		}
 		if turn.Hooks.Presenter != nil {
@@ -431,8 +445,19 @@ type wireEvent struct {
 	Message  string          `json:"message"`
 	Error    json.RawMessage `json:"error"`
 	Item     struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type      string          `json:"type"`
+		Text      string          `json:"text,omitempty"`
+		Command   string          `json:"command,omitempty"`
+		Output    string          `json:"aggregated_output,omitempty"`
+		ExitCode  *int            `json:"exit_code,omitempty"`
+		Server    string          `json:"server,omitempty"`
+		Tool      string          `json:"tool,omitempty"`
+		Arguments json.RawMessage `json:"arguments,omitempty"`
+		Result    json.RawMessage `json:"result,omitempty"`
+		Changes   json.RawMessage `json:"changes,omitempty"`
+		Query     string          `json:"query,omitempty"`
+		Items     json.RawMessage `json:"items,omitempty"`
+		Status    string          `json:"status,omitempty"`
 	} `json:"item"`
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`

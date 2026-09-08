@@ -376,3 +376,40 @@ func ValidateCommand(cmd string) string {
 
 	return "" // safe
 }
+
+// retainedSecretPatterns match only credential shapes that cannot plausibly be
+// ordinary prose or source code. RedactSensitive is tuned for a display and
+// telemetry boundary, where a false positive is cosmetic; these patterns are
+// used on the *retained* conversation, where a false positive silently corrupts
+// the only copy of the user's context. `token := lexer.Next()` and the string
+// `qm-code` must survive a round trip, so bare keyword/value pairs are matched
+// only when the value is long enough to be a real credential.
+var retainedSecretPatterns = []struct {
+	pattern     *regexp.Regexp
+	replacement string
+}{
+	{regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]{16,}`), "sk-ant-[REDACTED]"},
+	{regexp.MustCompile(`\bqm-[A-Za-z0-9_-]{24,}`), "qm-[REDACTED]"},
+	{regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{20,}`), "[REDACTED]"},
+	{regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`), "[REDACTED]"},
+	{regexp.MustCompile(`\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}`), "[REDACTED]"},
+	{regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`), "[REDACTED]"},
+	{regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{20,}`), "${1}[REDACTED]"},
+	{regexp.MustCompile(`(?i)((?:api[_-]?key|secret|password|passwd|access[_-]?token|refresh[_-]?token|private[_-]?key|service[_-]?role[_-]?key)"?\s*[:=]\s*"?)[A-Za-z0-9_\-./+=]{20,}`), "${1}[REDACTED]"},
+}
+
+// RedactRetained removes unambiguous credentials from content that is being
+// persisted to a session file or transferred to another provider. It is
+// deliberately narrower than RedactSensitive: retained content is replayed as
+// the conversation itself, so over-matching destroys context that cannot be
+// recovered.
+func RedactRetained(text string) string {
+	if text == "" {
+		return ""
+	}
+	redacted := text
+	for _, sp := range retainedSecretPatterns {
+		redacted = sp.pattern.ReplaceAllString(redacted, sp.replacement)
+	}
+	return redactURLCredentials(redacted)
+}

@@ -1,10 +1,12 @@
 package session
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,22 +14,30 @@ import (
 	"time"
 
 	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/qualitymax/qmax-code/internal/security"
 )
 
 // Session represents a saved conversation session.
 type Session struct {
-	ID        string         `json:"id"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	ProjectID int            `json:"project_id,omitempty"`
-	Model     string         `json:"model,omitempty"`
-	Messages  []api.Message  `json:"messages"`
-	Usage     api.TokenUsage `json:"usage"`
-	Turns     int            `json:"turns"`
+	ID           string                `json:"id"`
+	Conversation api.ConversationState `json:"conversation,omitempty"`
+	CreatedAt    time.Time             `json:"created_at"`
+	UpdatedAt    time.Time             `json:"updated_at"`
+	ProjectID    int                   `json:"project_id,omitempty"`
+	Model        string                `json:"model,omitempty"`
+	Messages     []api.Message         `json:"messages"`
+	Usage        api.TokenUsage        `json:"usage"`
+	Turns        int                   `json:"turns"`
 }
 
 const sessionsSubDir = "sessions"
 const sessionTTL = 7 * 24 * time.Hour // 7 days
+
+// durableSessionTTL is the grace period for sessions carrying a portable
+// transcript. They are far more valuable than a legacy session (they are what
+// --resume and provider switching replay) and far larger, so they live much
+// longer, but they are still reclaimed eventually.
+const durableSessionTTL = 90 * 24 * time.Hour // 90 days
 
 // GenerateSessionID creates a short random hex ID like Claude Code uses.
 func GenerateSessionID() string {
@@ -87,7 +97,10 @@ func isValidSessionID(id string) bool {
 
 // SaveSession persists the current conversation to disk.
 // Called after every message exchange for crash safety.
-func SaveSession(sessionID string, history []api.Message, projectID int, usage api.TokenUsage, model string) error {
+func SaveSession(sessionID string, history []api.Message, projectID int, usage api.TokenUsage, model string, states ...api.ConversationState) error {
+	if !isValidSessionID(sessionID) {
+		return fmt.Errorf("invalid session ID")
+	}
 	dir := sessionDirPath()
 	if dir == "" {
 		return fmt.Errorf("cannot determine home directory")
@@ -96,15 +109,22 @@ func SaveSession(sessionID string, history []api.Message, projectID int, usage a
 		return err
 	}
 
-	// Sanitize before saving to prevent persisting corruption
-	SanitizeSessionMessages(history)
+	// Work on a detached copy so saving cannot corrupt live tool blocks.
+	historyData, err := json.Marshal(history)
+	if err != nil {
+		return err
+	}
+	var savedHistory []api.Message
+	if err := json.Unmarshal(historyData, &savedHistory); err != nil {
+		return err
+	}
+	SanitizeSessionMessages(savedHistory)
+	history = savedHistory
 
-	// Count user turns
-	turns := 0
-	for _, msg := range history {
-		if msg.Role == "user" {
-			turns++
-		}
+	// Count against the retained transcript so compaction does not reset turns.
+	turnHistory := history
+	if len(states) > 0 && states[0].Transcript != nil {
+		turnHistory = states[0].Transcript
 	}
 
 	session := Session{
@@ -115,7 +135,17 @@ func SaveSession(sessionID string, history []api.Message, projectID int, usage a
 		Model:     model,
 		Messages:  history,
 		Usage:     usage,
-		Turns:     turns,
+		Turns:     CountTurns(turnHistory),
+	}
+
+	if len(states) > 0 {
+		session.Conversation = states[0]
+	}
+	// The transcript is a superset of the working history, and RestoreConversation
+	// rebuilds History from it, so storing both doubles the file for nothing.
+	// LoadSession rehydrates Messages for callers that still read it.
+	if session.Conversation.Transcript != nil {
+		session.Messages = nil
 	}
 
 	// Preserve original creation time if session file exists
@@ -124,12 +154,27 @@ func SaveSession(sessionID string, history []api.Message, projectID int, usage a
 		session.CreatedAt = existing.CreatedAt
 	}
 
-	data, err := json.Marshal(session) // no indent — saves disk and load time
+	data, err := MarshalRedacted(session)
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(sessionFilePath(sessionID), data, 0600)
+	file, err := os.CreateTemp(dir, ".session-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), sessionFilePath(sessionID))
 }
 
 // LoadSession loads a specific session by ID.
@@ -152,10 +197,59 @@ func LoadSession(id string) (*Session, error) {
 		return nil, err
 	}
 
+	// Saves that carry a transcript omit the redundant working history.
+	if len(session.Messages) == 0 && session.Conversation.Transcript != nil {
+		session.Messages = session.Conversation.Transcript
+	}
+
 	// Sanitize loaded messages — fix corrupted tool_use blocks
 	SanitizeSessionMessages(session.Messages)
 
 	return &session, nil
+}
+
+// CountTurns counts real user prompts. Tool results travel as user-role
+// messages in the Anthropic wire format, and CLI backends contribute one entry
+// per exposed tool call, so counting every user-role message reports a turn
+// count several times the number of things the user actually typed.
+func CountTurns(history []api.Message) int {
+	turns := 0
+	for _, msg := range history {
+		if msg.Role == "user" && !isToolResultOnly(msg.Content) {
+			turns++
+		}
+	}
+	return turns
+}
+
+// isToolResultOnly reports whether content consists solely of tool_result
+// blocks. It accepts both live ([]api.ContentBlock) and deserialized
+// ([]interface{}) shapes, since sessions round-trip through JSON.
+func isToolResultOnly(content interface{}) bool {
+	switch v := content.(type) {
+	case []api.ContentBlock:
+		if len(v) == 0 {
+			return false
+		}
+		for _, block := range v {
+			if block.Type != "tool_result" {
+				return false
+			}
+		}
+		return true
+	case []interface{}:
+		if len(v) == 0 {
+			return false
+		}
+		for _, raw := range v {
+			block, ok := raw.(map[string]interface{})
+			if !ok || block["type"] != "tool_result" {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // SanitizeSessionMessages fixes common corruption issues in saved sessions:
@@ -285,10 +379,9 @@ func SummaryFor(history []api.Message) string {
 		return ""
 	}
 	var firstUser string
-	turns := 0
+	turns := CountTurns(history)
 	for _, m := range history {
-		if m.Role == "user" {
-			turns++
+		if m.Role == "user" && !isToolResultOnly(m.Content) {
 			if firstUser == "" {
 				switch v := m.Content.(type) {
 				case string:
@@ -315,8 +408,10 @@ func SummaryFor(history []api.Message) string {
 	return fmt.Sprintf("%s  [%d turns]", firstUser, turns)
 }
 
-// CleanupOldSessions removes sessions older than sessionTTL.
-// Called on startup to prevent unbounded disk growth.
+// CleanupOldSessions removes expired sessions to prevent unbounded disk
+// growth. Portable transcripts get a much longer grace period than legacy
+// sessions, but they still expire: a lossless transcript is the largest thing
+// this tool writes, and "retain forever" is not a bounded policy.
 func CleanupOldSessions() int {
 	dir := sessionDirPath()
 	if dir == "" {
@@ -329,7 +424,9 @@ func CleanupOldSessions() int {
 	}
 
 	removed := 0
-	cutoff := time.Now().Add(-sessionTTL)
+	now := time.Now()
+	cutoff := now.Add(-sessionTTL)
+	durableCutoff := now.Add(-durableSessionTTL)
 
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
@@ -340,9 +437,16 @@ func CleanupOldSessions() int {
 		if err != nil {
 			continue
 		}
+		if !info.ModTime().Before(cutoff) {
+			continue // within the legacy window, so within every window
+		}
 
-		if info.ModTime().Before(cutoff) {
-			path := filepath.Join(dir, entry.Name())
+		path := filepath.Join(dir, entry.Name())
+		expiry := cutoff
+		if hasDurableTranscript(path) {
+			expiry = durableCutoff
+		}
+		if info.ModTime().Before(expiry) {
 			if os.Remove(path) == nil {
 				removed++
 			}
@@ -350,4 +454,67 @@ func CleanupOldSessions() int {
 	}
 
 	return removed
+}
+
+// hasDurableTranscript reports whether a session file carries a portable
+// transcript by reading only the head of the file. Session files can be
+// megabytes; startup cleanup must not JSON-parse every expired one just to
+// decide which cutoff applies. Session marshals ID then Conversation, so the
+// transcript key lands within the first few dozen bytes.
+func hasDurableTranscript(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	head := make([]byte, 512)
+	n, err := file.Read(head)
+	if n <= 0 || (err != nil && err != io.EOF) {
+		return false
+	}
+	head = head[:n]
+	return bytes.Contains(head, []byte(`"transcript":`)) &&
+		!bytes.Contains(head, []byte(`"transcript":null`))
+}
+
+func redactSessionValue(value any) any {
+	switch v := value.(type) {
+	case string:
+		// CLI tool content can itself be encoded JSON. Redact its fields too.
+		var nested any
+		if (strings.HasPrefix(v, "{") || strings.HasPrefix(v, "[")) && json.Unmarshal([]byte(v), &nested) == nil {
+			if data, err := json.Marshal(redactSessionValue(nested)); err == nil {
+				return string(data)
+			}
+		}
+		return security.RedactRetained(v)
+	case []any:
+		for i := range v {
+			v[i] = redactSessionValue(v[i])
+		}
+	case map[string]any:
+		for key := range v {
+			switch strings.ToLower(strings.ReplaceAll(key, "-", "_")) {
+			case "password", "passwd", "api_key", "apikey", "access_token", "refresh_token", "token", "secret", "client_secret", "private_key", "service_role_key", "authorization", "database_url", "redis_url", "webhook_secret", "signing_key", "encrypted_payload":
+				v[key] = "[REDACTED]"
+			default:
+				v[key] = redactSessionValue(v[key])
+			}
+		}
+	}
+	return value
+}
+
+// MarshalRedacted serializes portable content without mutating live history.
+// Structured credential fields and recognized secrets in prose are removed.
+func MarshalRedacted(value any) ([]byte, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var detached any
+	if err := json.Unmarshal(data, &detached); err != nil {
+		return nil, err
+	}
+	return json.Marshal(redactSessionValue(detached))
 }

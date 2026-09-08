@@ -507,6 +507,7 @@ func main() {
 		AutoRoute:     autoRoute,
 		Professional:  appConfig.Professional,
 	})
+	defer ag.CleanupConversation()
 	ag.AppConfig = appConfig
 	ag.Ollama = agent.NewOllamaClient(appConfig)
 	// Cerebras backend takes precedence: when selected it owns every turn
@@ -576,23 +577,39 @@ func main() {
 		cliAgent = oc
 	}
 
-	// One-shot mode and positional-arg mode honour the configured CLI backend.
-	// Prior to the QUA-576 fix these paths always called ag.Run (Anthropic API),
-	// silently ignoring backend=cc and backend=codex — which meant every CI /
-	// scripting / cloud-session invocation bypassed the cc backend and hit the
-	// Anthropic API. Now we route through cliAgent when configured, falling
-	// back to the API agent only when no CLI backend is active.
-	// One-shot sessions only accumulate into ag.History via the Cerebras and
-	// direct-API branches below (cliAgent runs cc/codex as a separate process
-	// and manages its own native --resume state, so there's nothing here for
-	// qmax-code's session store to persist). Generate the ID up front so a
-	// crash mid-run still leaves a partial session file behind.
-	oneShotSessionID := session.GenerateSessionID()
+	// Handle --resume flag
+	if *resumeID != "" {
+		var sess *session.Session
+		var loadErr error
+		if *resumeID == "last" {
+			sess, loadErr = session.LoadLastSession()
+		} else {
+			sess, loadErr = session.LoadSession(*resumeID)
+		}
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "Cannot resume session %q: %v\n", *resumeID, loadErr)
+			exitWithReceipt(1)
+		}
+		ag.RestoreConversation(sess.Messages, sess.Conversation)
+		ag.SessionID = sess.ID
+		ag.Usage = sess.Usage
+		if !ag.Cfg.Context.LocalOnly && sess.ProjectID > 0 {
+			ag.Cfg.Context.ProjectID = sess.ProjectID
+		}
+		fmt.Printf("Resumed session %s (%d turns)\n", sess.ID, sess.Turns)
+	}
+
+	// All backends share the portable session, including one-shot invocations.
+	oneShotSessionID := ag.SessionID
+	if !session.IsValidSessionID(oneShotSessionID) {
+		oneShotSessionID = session.GenerateSessionID()
+	}
+	ag.SessionID = oneShotSessionID
 	saveOneShotSession := func() {
 		if !shouldSaveOneShotSession(appConfig.AutoSave, ag.History) {
 			return
 		}
-		if err := session.SaveSession(oneShotSessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model); err != nil {
+		if err := session.SaveSession(oneShotSessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model, ag.Conversation); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to save session: %v\n", err)
 		}
 	}
@@ -605,7 +622,9 @@ func main() {
 			// the interactive Terminal instance).
 			term := tui.NewTerminal()
 			defer term.Close()
-			_, err := cliAgent.Run(prompt, term)
+			defer cliAgent.Cleanup()
+			_, err := ag.RunCLI(cliAgent, prompt, term)
+			saveOneShotSession()
 			return err
 		}
 		if shouldUseStreamingBuiltIn(ag) {
@@ -649,28 +668,7 @@ func main() {
 		return
 	}
 
-	// Handle --resume flag
-	if *resumeID != "" {
-		var sess *session.Session
-		var loadErr error
-		if *resumeID == "last" {
-			sess, loadErr = session.LoadLastSession()
-		} else {
-			sess, loadErr = session.LoadSession(*resumeID)
-		}
-		if loadErr != nil {
-			fmt.Fprintf(os.Stderr, "Cannot resume session %q: %v\n", *resumeID, loadErr)
-			exitWithReceipt(1)
-		}
-		ag.History = sess.Messages
-		ag.Usage = sess.Usage
-		if !ag.Cfg.Context.LocalOnly && sess.ProjectID > 0 {
-			ag.Cfg.Context.ProjectID = sess.ProjectID
-		}
-		fmt.Printf("Resumed session %s (%d turns)\n", sess.ID, sess.Turns)
-	}
-
-	// Clean up old sessions (>7 days)
+	// Clean up expired sessions (legacy >7 days, portable transcripts >90 days)
 	if removed := session.CleanupOldSessions(); removed > 0 && *verbose {
 		fmt.Printf("[cleanup] Removed %d old sessions\n", removed)
 	}

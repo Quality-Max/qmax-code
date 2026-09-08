@@ -35,16 +35,23 @@ import (
 // so that signal-based exits (Ctrl+C x2, SIGTERM — which call os.Exit and
 // bypass main's deferred finalizer) still write the Exposure Receipt.
 func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version string, finalizeReceipt func()) {
+	defer ag.CleanupConversation()
 	term := tui.NewTerminal()
 	defer term.Close()
-	if cliAgent != nil {
-		defer cliAgent.Cleanup()
-	}
+	defer func() {
+		if cliAgent != nil {
+			cliAgent.Cleanup()
+		}
+	}()
 
 	// Prompt queue — collects prompts typed while the agent is running.
 	pq := &session.PromptQueue{}
 
-	sessionID := session.GenerateSessionID()
+	sessionID := ag.SessionID
+	if !session.IsValidSessionID(sessionID) {
+		sessionID = session.GenerateSessionID()
+	}
+	ag.SessionID = sessionID
 
 	// Initialize structured logger
 	ag.Logger = sysutil.NewLogger(sessionID)
@@ -91,19 +98,38 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		lastSigTime time.Time
 	)
 
+	// Nothing said yet means nothing to persist: writing here would leave an
+	// empty session file behind for every launch and after every /clear.
+	hasConversation := func() bool {
+		return len(ag.History) > 0 || len(ag.Conversation.Transcript) > 0
+	}
+
 	autoSave := func() {
-		if len(ag.History) > 0 && (ag.AppConfig == nil || ag.AppConfig.AutoSave) {
-			_ = session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model)
+		if !hasConversation() {
+			return
+		}
+		if ag.AppConfig == nil || ag.AppConfig.AutoSave {
+			if err := session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model, ag.Conversation); err != nil {
+				term.PrintError("Could not save conversation: " + err.Error())
+			}
 		}
 	}
 
 	saveAndExit := func() {
-		_ = session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model)
+		if hasConversation() && (ag.AppConfig == nil || ag.AppConfig.AutoSave) {
+			if err := session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model, ag.Conversation); err != nil {
+				fmt.Fprintf(os.Stderr, "Could not save conversation: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "Session %s saved.\n", sessionID)
+			}
+		}
+		// Signal exits call os.Exit and bypass Run's deferred cleanup, so the
+		// temporary context archive has to be removed here too.
+		ag.CleanupConversation()
 		completeCloudSession()
 		if finalizeReceipt != nil {
 			finalizeReceipt()
 		}
-		fmt.Fprintf(os.Stderr, "Session %s saved.\n", sessionID)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -325,6 +351,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			ag.ClearHistory()
 			lastContextTokens = 0
 			resetCLIConversation(cliAgent)
+			// Rotate to a fresh ID instead of overwriting the saved file with an
+			// empty one: /clear starts a new conversation, it does not delete the
+			// previous one, which stays resumable via /sessions.
+			sessionID = session.GenerateSessionID()
+			ag.SessionID = sessionID
 			term.PrintSystem("Conversation cleared.")
 			continue
 		case strings.HasPrefix(input, "/project "):
@@ -389,9 +420,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintSystem("Use /sessions to see available sessions")
 			} else {
 				session.SanitizeSessionMessages(sess.Messages)
-				ag.History = sess.Messages
+				resetCLIConversation(cliAgent)
+				ag.RestoreConversation(sess.Messages, sess.Conversation)
 				ag.Usage = sess.Usage
 				sessionID = sess.ID
+				ag.SessionID = sess.ID
+				lastContextTokens = 0
 				if !ag.Cfg.Context.LocalOnly && sess.ProjectID > 0 {
 					ag.Cfg.Context.ProjectID = sess.ProjectID
 				}
@@ -426,9 +460,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintError(fmt.Sprintf("Cannot resume: %v", loadErr))
 			} else {
 				session.SanitizeSessionMessages(sess.Messages)
-				ag.History = sess.Messages
+				resetCLIConversation(cliAgent)
+				ag.RestoreConversation(sess.Messages, sess.Conversation)
 				ag.Usage = sess.Usage
 				sessionID = sess.ID
+				ag.SessionID = sess.ID
+				lastContextTokens = 0
 				if !ag.Cfg.Context.LocalOnly && sess.ProjectID > 0 {
 					ag.Cfg.Context.ProjectID = sess.ProjectID
 				}
@@ -438,7 +475,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 			continue
 		case input == "/save":
-			if err := session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model); err != nil {
+			if err := session.SaveSession(sessionID, ag.History, ag.Cfg.Context.ProjectID, ag.Usage, ag.Cfg.Model, ag.Conversation); err != nil {
 				term.PrintError(fmt.Sprintf("Failed to save: %v", err))
 			} else {
 				term.PrintSystem(fmt.Sprintf("Session %s saved.", sessionID))
@@ -1330,7 +1367,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
 				}
 				term.StartThinking()
-				llmResult, err = cliAgent.Run(cleanInput, term)
+				llmResult, err = ag.RunCLI(cliAgent, cleanInput, term)
 				term.StopThinking()
 
 				turnIn, turnOut := 0, 0
@@ -1351,13 +1388,6 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					recordPlanTurn(planWindowFor(currentBackend(ag)), time.Now(), err, turnIn, turnOut, cliAgent)
 				}
 
-				if err == nil {
-					// Mirror the turn into ag.History so autoSave records it.
-					ag.History = append(ag.History,
-						api.Message{Role: "user", Content: cleanInput},
-						api.Message{Role: "assistant", Content: llmResult},
-					)
-				}
 			} else if len(images) > 0 {
 				names := make([]string, len(images))
 				for i, img := range images {

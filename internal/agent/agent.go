@@ -59,10 +59,13 @@ func (m OllamaMode) String() string {
 // unexported fields (tools, client, cancel, priorSessions, sessionsFetched)
 // are pure internals.
 type Agent struct {
-	Cfg       AgentConfig
-	AppConfig *api.Config // persistent user preferences
-	History   []api.Message
-	Usage     api.TokenUsage
+	Cfg            AgentConfig
+	AppConfig      *api.Config // persistent user preferences
+	History        []api.Message
+	Conversation   api.ConversationState
+	SessionID      string
+	contextArchive string
+	Usage          api.TokenUsage
 	// LastContextTokens is the input-token count reported by the most recent
 	// model request. Unlike Usage.InputTokens, it is not cumulative and can be
 	// used to estimate the currently occupied context window in the TUI.
@@ -130,7 +133,9 @@ func NewAgent(cfg AgentConfig) *Agent {
 
 // ClearHistory resets conversation history.
 func (a *Agent) ClearHistory() {
+	a.CleanupConversation()
 	a.History = []api.Message{}
+	a.Conversation = api.ConversationState{}
 	a.LastContextTokens = 0
 }
 
@@ -150,25 +155,26 @@ func (a *Agent) Run(prompt string) (string, error) {
 	// This is a new top-level turn; do not show a prior request's context size
 	// if this request fails before the provider reports usage.
 	a.LastContextTokens = 0
-	a.History = append(a.History, api.Message{
+	a.AppendHistory(api.Message{
 		Role:    "user",
 		Content: prompt,
 	})
 
 	for iterations := 0; iterations < maxIterations; iterations++ {
+		a.compressHistory()
 		resp, err := a.callAPI()
 		if err != nil {
 			return "", fmt.Errorf("API call failed: %w", err)
 		}
 
-		a.History = append(a.History, api.Message{
+		a.AppendHistory(api.Message{
 			Role:    "assistant",
 			Content: resp.Content,
 		})
 
 		if resp.StopReason == "tool_use" {
 			toolResults := a.executeToolCalls(resp.Content, context.Background())
-			a.History = append(a.History, api.Message{
+			a.AppendHistory(api.Message{
 				Role:    "user",
 				Content: toolResults,
 			})
@@ -188,7 +194,11 @@ const (
 	maxIterations      = 50
 )
 
+// compressHistory is best-effort: it never fails a turn. The searchable archive
+// it writes is an optimization on top of compaction, so a read-only or full
+// temp directory degrades the summary instead of aborting the agent loop.
 func (a *Agent) compressHistory() {
+	a.EnsureTranscript()
 	// Rough token estimate: 4 chars ≈ 1 token
 	totalChars := 0
 	for _, msg := range a.History {
@@ -208,18 +218,22 @@ func (a *Agent) compressHistory() {
 	// Build a summary of older messages
 	var summary strings.Builder
 	summary.WriteString("[Previous conversation summary]\n")
+	if path, err := a.writeContextArchive(); err == nil {
+		summary.WriteString(archiveInstruction(path))
+	}
 	oldMessages := a.History[:len(a.History)-6]
 	for _, msg := range oldMessages {
 		role := msg.Role
-		switch v := msg.Content.(type) {
-		case string:
+		blocks, text, isString := normalizeContent(msg.Content)
+		if isString {
+			v := text
 			if len(v) > 200 {
 				summary.WriteString(fmt.Sprintf("%s: %s...\n", role, v[:200]))
 			} else {
 				summary.WriteString(fmt.Sprintf("%s: %s\n", role, v))
 			}
-		case []api.ContentBlock:
-			for _, block := range v {
+		} else {
+			for _, block := range blocks {
 				if block.Type == "text" && block.Text != "" {
 					text := block.Text
 					if len(text) > 200 {
@@ -250,7 +264,7 @@ func (a *Agent) compressHistory() {
 	// If the first kept message is a user tool_result without a preceding assistant tool_use,
 	// skip it to avoid orphaned tool_results
 	if len(keep) > 0 && keep[0].Role == "user" {
-		if blocks, ok := keep[0].Content.([]api.ContentBlock); ok && len(blocks) > 0 && blocks[0].Type == "tool_result" {
+		if blocks, _, _ := normalizeContent(keep[0].Content); len(blocks) > 0 && blocks[0].Type == "tool_result" {
 			keep = keep[1:] // skip orphaned tool_result
 		}
 	}
@@ -318,7 +332,7 @@ func BuildUserContent(text string, images []tui.ImageAttachment) interface{} {
 
 // RunStreamingWithImages is like RunStreaming but supports image attachments.
 func (a *Agent) RunStreamingWithImages(prompt string, images []tui.ImageAttachment, term *tui.Terminal) (string, error) {
-	a.History = append(a.History, api.Message{
+	a.AppendHistory(api.Message{
 		Role:    "user",
 		Content: BuildUserContent(prompt, images),
 	})
@@ -327,7 +341,7 @@ func (a *Agent) RunStreamingWithImages(prompt string, images []tui.ImageAttachme
 }
 
 func (a *Agent) RunStreaming(prompt string, term *tui.Terminal) (string, error) {
-	a.History = append(a.History, api.Message{
+	a.AppendHistory(api.Message{
 		Role:    "user",
 		Content: prompt,
 	})
@@ -392,7 +406,7 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 				a.cancelMu.Unlock()
 				cancel()
 				if ollamaErr == nil && ollamaText != "" {
-					a.History = append(a.History, api.Message{
+					a.AppendHistory(api.Message{
 						Role:    "assistant",
 						Content: []api.ContentBlock{{Type: "text", Text: ollamaText}},
 					})
@@ -414,7 +428,7 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 		}
 
 		// Add assistant response to history
-		a.History = append(a.History, api.Message{
+		a.AppendHistory(api.Message{
 			Role:    "assistant",
 			Content: content,
 		})
@@ -438,7 +452,7 @@ func (a *Agent) runStreamingLoop(term *tui.Terminal) (string, error) {
 			a.cancelMu.Unlock()
 			cancel()
 
-			a.History = append(a.History, api.Message{
+			a.AppendHistory(api.Message{
 				Role:    "user",
 				Content: toolResults,
 			})
