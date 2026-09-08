@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -456,25 +455,46 @@ func CleanupOldSessions() int {
 	return removed
 }
 
+// durableTranscriptKey marks a non-empty transcript. MarshalRedacted encodes
+// through map[string]any, so json.Marshal emits keys in sorted order and a
+// populated transcript always serializes as `[`, while a nil one is `null`.
+// Matching the opening bracket makes the two cases distinguishable with a
+// single needle, and escaping means a pasted `{"transcript":[...]}` inside
+// message content cannot match: it is written as `\"transcript\":[`.
+var durableTranscriptKey = []byte(`"transcript":[`)
+
 // hasDurableTranscript reports whether a session file carries a portable
-// transcript by reading only the head of the file. Session files can be
-// megabytes; startup cleanup must not JSON-parse every expired one just to
-// decide which cutoff applies. Session marshals ID then Conversation, so the
-// transcript key lands within the first few dozen bytes.
+// transcript. It scans raw bytes rather than unmarshalling: session files can
+// be megabytes and startup cleanup must not parse every expired one just to
+// pick a cutoff. The scan is chunked with an overlap because the key's offset
+// is not fixed — sorted keys put the native checkpoints before the transcript,
+// so a handful of backends easily pushes it past any small fixed-size head.
 func hasDurableTranscript(path string) bool {
 	file, err := os.Open(path)
 	if err != nil {
 		return false
 	}
 	defer file.Close()
-	head := make([]byte, 512)
-	n, err := file.Read(head)
-	if n <= 0 || (err != nil && err != io.EOF) {
-		return false
+
+	const chunkSize = 64 << 10
+	overlap := len(durableTranscriptKey) - 1
+	buf := make([]byte, chunkSize+overlap)
+	carried := 0
+	for {
+		n, readErr := file.Read(buf[carried:])
+		if n > 0 {
+			window := buf[:carried+n]
+			if bytes.Contains(window, durableTranscriptKey) {
+				return true
+			}
+			// Keep the tail so a key straddling the chunk boundary still matches.
+			carried = min(overlap, len(window))
+			copy(buf, window[len(window)-carried:])
+		}
+		if readErr != nil {
+			return false
+		}
 	}
-	head = head[:n]
-	return bytes.Contains(head, []byte(`"transcript":`)) &&
-		!bytes.Contains(head, []byte(`"transcript":null`))
 }
 
 func redactSessionValue(value any) any {

@@ -165,3 +165,52 @@ func TestSessionFileDoesNotStoreHistoryTwice(t *testing.T) {
 		t.Fatal("Messages was not rehydrated from the transcript for existing callers")
 	}
 }
+
+func TestDurableDetectionIsIndependentOfKeyOffsetAndEscaping(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	// MarshalRedacted encodes through map[string]any, so keys are emitted in
+	// sorted order: the native checkpoints precede the transcript. A handful of
+	// backends pushes the transcript key well past any small fixed-size head
+	// read, and misclassifying here expires a durable session 83 days early.
+	native := map[string]api.NativeConversation{}
+	for _, backend := range []string{"cc", "codex", "agy", "opencode"} {
+		native[backend] = api.NativeConversation{
+			ID:          strings.Repeat("a", 36),
+			Model:       "claude-opus-4-5-20260101",
+			RolloutPath: "/Users/someone/.codex/sessions/2026/09/08/" + strings.Repeat("r", 40) + ".jsonl",
+			Directory:   "/Users/someone/conductor/workspaces/qmax-code/" + strings.Repeat("w", 40),
+			Cursor:      12,
+		}
+	}
+	history := []api.Message{{Role: "user", Content: "real work"}}
+	if err := SaveSession("offset", history, 0, api.TokenUsage{}, "", api.ConversationState{Transcript: history, Native: native}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(sessionFilePath("offset"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := bytes.Index(raw, []byte(`"transcript":`)); at < 512 {
+		t.Fatalf("fixture no longer exercises a distant key (offset %d)", at)
+	}
+	if !hasDurableTranscript(sessionFilePath("offset")) {
+		t.Fatal("durable session misclassified as legacy because of the key's offset")
+	}
+
+	// A pasted JSON literal in message content is escaped, so it must not be
+	// mistaken for the real key in either direction.
+	pasted := []api.Message{{Role: "user", Content: `look at {"transcript":null} and {"transcript":[1]}`}}
+	if err := SaveSession("pasted", pasted, 0, api.TokenUsage{}, "", api.ConversationState{Transcript: pasted}); err != nil {
+		t.Fatal(err)
+	}
+	if !hasDurableTranscript(sessionFilePath("pasted")) {
+		t.Fatal("escaped content in a message was read as the transcript key")
+	}
+	if err := SaveSession("legacy", pasted, 0, api.TokenUsage{}, "", api.ConversationState{}); err != nil {
+		t.Fatal(err)
+	}
+	if hasDurableTranscript(sessionFilePath("legacy")) {
+		t.Fatal("session without a transcript was treated as durable")
+	}
+}
