@@ -339,11 +339,17 @@ var (
 	themeBannerColor = ColorCyan
 	themeCatColor    = ColorYellow
 	themeStatusColor = ColorGreen
+	
+	// ThemeIsDark exposes the active theme's background polarity.
+	ThemeIsDark      = true
 )
 
 // ApplyTheme rebuilds all lipgloss styles and ANSI prompt vars from t.
 // Must be called before NewTerminal() and ShowModelPicker().
 func ApplyTheme(t Theme) {
+	ThemeIsDark = t.Dark
+	lipgloss.SetHasDarkBackground(t.Dark)
+
 	// ANSI prompt/banner vars
 	themePromptName = t.ANSIPromptName
 	themePromptArrow = t.ANSIPromptArrow
@@ -364,6 +370,7 @@ func ApplyTheme(t Theme) {
 	pickerBox = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(t.SurfaceBorder)).
+		Background(lipgloss.Color(t.SurfaceDark)).
 		Padding(0, 1)
 	pickerSectionHeader = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.TextDim)).
@@ -430,4 +437,15 @@ func ApplyTheme(t Theme) {
 		Background(lipgloss.Color(t.Brand))
 	menuHintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSubtle))
 	filterStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)).Bold(true)
+
+	inputBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(t.SurfaceBorder)).
+		Background(lipgloss.Color(t.SurfaceDark)).
+		Padding(0, 1)
+
+	statusMetricsStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSubtle))
+	statusBarStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextNormal)).Background(lipgloss.Color(t.SurfaceDark))
+	statusBarModeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)).Background(lipgloss.Color(t.SurfaceDark)).Bold(true)
+	statusBarDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextDim)).Background(lipgloss.Color(t.SurfaceDark))
 }

@@ -271,9 +271,13 @@ func NewTerminal() *Terminal {
 		rl, _ = readline.New("> ")
 	}
 
+	gStyle := "dark"
+	if !ThemeIsDark {
+		gStyle = "light"
+	}
 	// Create glamour renderer for markdown
 	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle(gStyle),
 		glamour.WithWordWrap(100),
 	)
 	if err != nil {
