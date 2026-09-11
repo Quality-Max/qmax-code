@@ -1,6 +1,11 @@
 package tui
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 func TestThemeNames_Order(t *testing.T) {
 	want := []string{"historic", "ocean", "neon", "ember", "aurora", "paper", "sky", "sparkling", "radiance", "goldenhour"}
@@ -111,4 +116,108 @@ func TestApplyTheme_AllBuiltinThemes(t *testing.T) {
 	}
 	// Leave in a consistent state.
 	ApplyTheme(ThemeByName("historic"))
+}
+
+func TestApplyTheme_SetsPolarity(t *testing.T) {
+	for _, name := range ThemeNames() {
+		theme := ThemeByName(name)
+		ApplyTheme(theme)
+		if ThemeIsDark != theme.Dark {
+			t.Errorf("ApplyTheme(%q): ThemeIsDark = %v, want %v", name, ThemeIsDark, theme.Dark)
+		}
+	}
+	ApplyTheme(ThemeByName("historic"))
+}
+
+// TestApplyTheme_BackgroundsFollowTheme guards the invisible-text bug: after
+// ApplyTheme, surfaces that promise a solid background must actually carry
+// the theme's SurfaceDark color, so menus stay readable when the terminal
+// background polarity mismatches the selected theme.
+func TestApplyTheme_BackgroundsFollowTheme(t *testing.T) {
+	for _, name := range ThemeNames() {
+		theme := ThemeByName(name)
+		ApplyTheme(theme)
+		surface := lipgloss.Color(theme.SurfaceDark)
+		cases := []struct {
+			label string
+			got   lipgloss.TerminalColor
+		}{
+			{"pickerBox", pickerBox.GetBackground()},
+			{"inputBoxStyle", inputBoxStyle.GetBackground()},
+			{"statusBarStyle", statusBarStyle.GetBackground()},
+			{"statusMetricsStyle", statusMetricsStyle.GetBackground()},
+		}
+		for _, c := range cases {
+			if c.got != surface {
+				t.Errorf("ApplyTheme(%q): %s background = %v, want %v", name, c.label, c.got, surface)
+			}
+		}
+		if got := pickerRowSelected.GetBackground(); got != lipgloss.Color(theme.SurfaceSelect) {
+			t.Errorf("ApplyTheme(%q): pickerRowSelected background = %v, want %v", name, got, theme.SurfaceSelect)
+		}
+	}
+	ApplyTheme(ThemeByName("historic"))
+}
+
+// TestThemePalette_SelectionContrastsSurface guards the picker selection
+// highlight: SurfaceSelect must be visibly distinct from SurfaceDark now
+// that pickerBox paints its own background behind every row.
+func TestThemePalette_SelectionContrastsSurface(t *testing.T) {
+	for _, name := range ThemeNames() {
+		theme := ThemeByName(name)
+		bg, err1 := strconv.Atoi(theme.SurfaceDark)
+		sel, err2 := strconv.Atoi(theme.SurfaceSelect)
+		if err1 != nil || err2 != nil {
+			t.Fatalf("Theme %q: non-numeric surface colors (%q, %q)", name, theme.SurfaceDark, theme.SurfaceSelect)
+		}
+		if d := absInt(bg - sel); d < 4 {
+			t.Errorf("Theme %q: SurfaceSelect %d is only %d steps from SurfaceDark %d; selection highlight would be invisible", name, sel, d, bg)
+		}
+	}
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+func TestSetMarkdownStyle_SwapsPolarity(t *testing.T) {
+	term := &Terminal{}
+	term.setMarkdownStyle(false)
+	if term.renderer == nil || term.markdownDark {
+		t.Fatal("setMarkdownStyle(false) did not build a light renderer")
+	}
+	light, lightOK := term.renderMarkdown("# hi")
+	term.setMarkdownStyle(true)
+	if term.renderer == nil || !term.markdownDark {
+		t.Fatal("setMarkdownStyle(true) did not build a dark renderer")
+	}
+	dark, darkOK := term.renderMarkdown("# hi")
+	if lightOK && darkOK && light == dark {
+		t.Error("dark and light renderers produced identical output; style was not swapped")
+	}
+}
+
+func TestApplyTheme_RefreshesLiveTerminalRenderer(t *testing.T) {
+	term := &Terminal{}
+	registerLiveTerminal(term)
+	defer func() {
+		liveTerminalsMu.Lock()
+		liveTerminals = nil
+		liveTerminalsMu.Unlock()
+	}()
+
+	ApplyTheme(ThemeByName("paper")) // light theme
+	if term.renderer == nil {
+		t.Fatal("ApplyTheme did not build a renderer for the registered terminal")
+	}
+	if term.markdownDark {
+		t.Error("ApplyTheme(paper) left the renderer on dark style; want light")
+	}
+	ApplyTheme(ThemeByName("historic")) // dark theme, also restores globals
+	if !term.markdownDark {
+		t.Error("ApplyTheme(historic) left the renderer on light style; want dark")
+	}
 }

@@ -452,7 +452,7 @@ var (
 			BorderForeground(lipgloss.Color("238")).
 			Padding(0, 1)
 
-	statusMetricsStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	statusMetricsStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Background(lipgloss.Color("236"))
 	statusBarStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(lipgloss.Color("236"))
 	statusBarModeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Background(lipgloss.Color("236")).Bold(true)
 	statusBarDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Background(lipgloss.Color("236"))

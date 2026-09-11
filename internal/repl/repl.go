@@ -2271,7 +2271,7 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 		}
 		cfg.Theme = strings.ToLower(value)
 		tui.ApplyTheme(tui.ThemeByName(cfg.Theme))
-		term.PrintSystem(fmt.Sprintf("Theme set to: %s (takes full effect on restart)", cfg.Theme))
+		term.PrintSystem(fmt.Sprintf("Theme set to: %s", cfg.Theme))
 
 	case "anthropic-key", "anthropic_key":
 		// Save Anthropic API key to OS keychain

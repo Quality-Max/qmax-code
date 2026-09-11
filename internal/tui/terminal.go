@@ -163,6 +163,8 @@ func (s *spinner) Stop() {
 type Terminal struct {
 	rl            *readline.Instance
 	renderer      *glamour.TermRenderer
+	rendMu        sync.Mutex      // guards renderer swaps during live theme changes
+	markdownDark  bool            // polarity the current renderer was built for
 	streaming     bool            // true when we're in the middle of streaming text
 	streamBuf     strings.Builder // buffers streamed text for post-render
 	currentPrompt string          // track prompt for readline recreation
@@ -271,25 +273,72 @@ func NewTerminal() *Terminal {
 		rl, _ = readline.New("> ")
 	}
 
-	gStyle := "dark"
-	if !ThemeIsDark {
-		gStyle = "light"
+	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", ColorBold, themePromptName, ColorReset, themePromptArrow, ColorReset)
+	t := &Terminal{
+		rl:            rl,
+		currentPrompt: prompt,
 	}
-	// Create glamour renderer for markdown
+	t.setMarkdownStyle(ThemeIsDark)
+	registerLiveTerminal(t)
+	return t
+}
+
+// setMarkdownStyle rebuilds the glamour renderer for the given background
+// polarity. It keeps the previous renderer when construction fails so a
+// failed swap never disables markdown rendering.
+func (t *Terminal) setMarkdownStyle(dark bool) {
+	gStyle := "light"
+	if dark {
+		gStyle = "dark"
+	}
 	renderer, err := glamour.NewTermRenderer(
 		glamour.WithStandardStyle(gStyle),
 		glamour.WithWordWrap(100),
 	)
 	if err != nil {
-		// Fallback: no markdown rendering
-		renderer = nil
+		return
 	}
+	t.rendMu.Lock()
+	t.renderer = renderer
+	t.markdownDark = dark
+	t.rendMu.Unlock()
+}
 
-	prompt := fmt.Sprintf("%s%sqmax%s %s>%s ", ColorBold, themePromptName, ColorReset, themePromptArrow, ColorReset)
-	return &Terminal{
-		rl:            rl,
-		renderer:      renderer,
-		currentPrompt: prompt,
+// renderMarkdown renders through the current renderer. The renderer pointer
+// is read under lock so a live theme switch cannot swap it mid-render.
+func (t *Terminal) renderMarkdown(text string) (string, bool) {
+	t.rendMu.Lock()
+	r := t.renderer
+	t.rendMu.Unlock()
+	if r == nil {
+		return "", false
+	}
+	rendered, err := r.Render(text)
+	if err != nil {
+		return "", false
+	}
+	return rendered, true
+}
+
+// Live terminals are tracked so ApplyTheme can rebuild their markdown
+// renderers when the theme polarity changes mid-session (e.g. /theme).
+var (
+	liveTerminalsMu sync.Mutex
+	liveTerminals   []*Terminal
+)
+
+func registerLiveTerminal(t *Terminal) {
+	liveTerminalsMu.Lock()
+	liveTerminals = append(liveTerminals, t)
+	liveTerminalsMu.Unlock()
+}
+
+func refreshLiveTerminalRenderers(dark bool) {
+	liveTerminalsMu.Lock()
+	terms := append([]*Terminal(nil), liveTerminals...)
+	liveTerminalsMu.Unlock()
+	for _, t := range terms {
+		t.setMarkdownStyle(dark)
 	}
 }
 
@@ -482,12 +531,7 @@ func (t *Terminal) FinishMarkdown(fullText string) {
 	}
 	t.streaming = false
 
-	var rendered string
-	var renderErr error
-	if t.renderer != nil {
-		rendered, renderErr = t.renderer.Render(fullText)
-	}
-	renderedOK := t.renderer != nil && renderErr == nil
+	rendered, renderedOK := t.renderMarkdown(fullText)
 
 	if p := t.activeTurnProgram(); p != nil {
 		raw := t.streamBuf.String()
@@ -530,12 +574,9 @@ func (t *Terminal) FinishMarkdown(fullText string) {
 // Used in non-streaming mode.
 func (t *Terminal) PrintAssistant(text string) {
 	t.toolStreak = false
-	if t.renderer != nil {
-		rendered, err := t.renderer.Render(text)
-		if err == nil {
-			t.emit(rendered)
-			return
-		}
+	if rendered, ok := t.renderMarkdown(text); ok {
+		t.emit(rendered)
+		return
 	}
 	t.emit(text + "\n")
 }
