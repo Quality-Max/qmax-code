@@ -58,7 +58,7 @@ var allThemes = map[string]Theme{
 		TextDim:         "242",
 		TextSubtle:      "240",
 		SurfaceDark:     "236",
-		SurfaceSelect:   "237",
+		SurfaceSelect:   "241", // raised selection bg — must contrast SurfaceDark(236) now that the picker box paints its own background
 		SurfaceBorder:   "238",
 		SurfaceSep:      "237",
 		IconCodex:       "107",
@@ -82,7 +82,7 @@ var allThemes = map[string]Theme{
 		TextDim:         "242",
 		TextSubtle:      "240",
 		SurfaceDark:     "236",
-		SurfaceSelect:   "237",
+		SurfaceSelect:   "241", // raised selection bg — must contrast SurfaceDark(236) now that the picker box paints its own background
 		SurfaceBorder:   "238",
 		SurfaceSep:      "237",
 		IconCodex:       "120",
@@ -106,7 +106,7 @@ var allThemes = map[string]Theme{
 		TextDim:         "242",
 		TextSubtle:      "240",
 		SurfaceDark:     "235",
-		SurfaceSelect:   "236",
+		SurfaceSelect:   "240", // raised selection bg — must contrast SurfaceDark(235)
 		SurfaceBorder:   "237",
 		SurfaceSep:      "235",
 		IconCodex:       "135",
@@ -130,7 +130,7 @@ var allThemes = map[string]Theme{
 		TextDim:         "242",
 		TextSubtle:      "240",
 		SurfaceDark:     "236",
-		SurfaceSelect:   "237",
+		SurfaceSelect:   "241", // raised selection bg — must contrast SurfaceDark(236) now that the picker box paints its own background
 		SurfaceBorder:   "238",
 		SurfaceSep:      "237",
 		IconCodex:       "214",
@@ -154,7 +154,7 @@ var allThemes = map[string]Theme{
 		TextDim:         "242",
 		TextSubtle:      "240",
 		SurfaceDark:     "236",
-		SurfaceSelect:   "237",
+		SurfaceSelect:   "241", // raised selection bg — must contrast SurfaceDark(236) now that the picker box paints its own background
 		SurfaceBorder:   "238",
 		SurfaceSep:      "237",
 		IconCodex:       "71",
@@ -251,7 +251,7 @@ var allThemes = map[string]Theme{
 		TextDim:         "243", // medium gray — section headers
 		TextSubtle:      "247", // lighter gray — hints/footer
 		SurfaceDark:     "224", // blush pink — status bar bg
-		SurfaceSelect:   "225", // pale rose — selected row bg
+		SurfaceSelect:   "217", // salmon — selected row bg, contrasts SurfaceDark(224)
 		SurfaceBorder:   "218", // soft pink border
 		SurfaceSep:      "254", // near-white divider
 		IconCodex:       "125", // deep magenta
@@ -275,7 +275,7 @@ var allThemes = map[string]Theme{
 		TextDim:         "243", // medium gray — section headers
 		TextSubtle:      "247", // lighter gray — hints/footer
 		SurfaceDark:     "229", // pale gold — status bar bg
-		SurfaceSelect:   "223", // honey-gold — selected row bg
+		SurfaceSelect:   "220", // gold — selected row bg, contrasts SurfaceDark(229)
 		SurfaceBorder:   "222", // warm gold border
 		SurfaceSep:      "230", // very pale yellow divider
 		IconCodex:       "136", // warm gold
@@ -339,11 +339,17 @@ var (
 	themeBannerColor = ColorCyan
 	themeCatColor    = ColorYellow
 	themeStatusColor = ColorGreen
+
+	// ThemeIsDark exposes the active theme's background polarity.
+	ThemeIsDark = true
 )
 
 // ApplyTheme rebuilds all lipgloss styles and ANSI prompt vars from t.
 // Must be called before NewTerminal() and ShowModelPicker().
 func ApplyTheme(t Theme) {
+	ThemeIsDark = t.Dark
+	lipgloss.SetHasDarkBackground(t.Dark)
+
 	// ANSI prompt/banner vars
 	themePromptName = t.ANSIPromptName
 	themePromptArrow = t.ANSIPromptArrow
@@ -364,6 +370,7 @@ func ApplyTheme(t Theme) {
 	pickerBox = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(t.SurfaceBorder)).
+		Background(lipgloss.Color(t.SurfaceDark)).
 		Padding(0, 1)
 	pickerSectionHeader = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.TextDim)).
@@ -430,4 +437,19 @@ func ApplyTheme(t Theme) {
 		Background(lipgloss.Color(t.Brand))
 	menuHintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSubtle))
 	filterStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)).Bold(true)
+
+	inputBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(t.SurfaceBorder)).
+		Background(lipgloss.Color(t.SurfaceDark)).
+		Padding(0, 1)
+
+	statusMetricsStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSubtle)).Background(lipgloss.Color(t.SurfaceDark))
+	statusBarStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextNormal)).Background(lipgloss.Color(t.SurfaceDark))
+	statusBarModeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)).Background(lipgloss.Color(t.SurfaceDark)).Bold(true)
+	statusBarDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextDim)).Background(lipgloss.Color(t.SurfaceDark))
+
+	// Rebuild live markdown renderers so /theme takes effect immediately
+	// instead of only after a restart.
+	refreshLiveTerminalRenderers(t.Dark)
 }
