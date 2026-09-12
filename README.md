@@ -15,11 +15,13 @@
 
 # qmax-code
 
+[Documentation](https://docs.qualitymax.io/) · [CLI quickstart](https://docs.qualitymax.io/quickstart-cli/) · [Latest release](https://github.com/Quality-Max/qmax-code/releases/latest)
+
 [![Latest release](https://img.shields.io/github/v/release/Quality-Max/qmax-code?label=release&color=217a45)](https://github.com/Quality-Max/qmax-code/releases/latest)
 [![GitHub downloads](https://img.shields.io/github/downloads/Quality-Max/qmax-code/total?label=downloads)](https://github.com/Quality-Max/qmax-code/releases)
 [![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-2ea44f.svg)](LICENSE)
 [![Future License: Apache 2.0](https://img.shields.io/badge/future%20license-Apache%202.0-blue.svg)](LICENSE)
-[![Made with Go](https://img.shields.io/badge/made%20with-Go%201.24+-00ADD8.svg)](https://go.dev/)
+[![Made with Go](https://img.shields.io/badge/made%20with-Go%201.25.13+-00ADD8.svg)](https://go.dev/)
 [![Announcement](https://img.shields.io/badge/announcement-2026--05--01-7c6cf0.svg)](https://qualitymax.io/blog/qmax-code-open-source)
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/qualitymax)
@@ -95,7 +97,7 @@ and run a lot” or “think hard.”
 - **Work on local repositories:** read, create, and edit files; search code; run
   allowlisted commands and tests. Standalone mode provides this lane without a
   QualityMax login.
-- **Extend coding agents:** install 27 QA skills into Claude Code, Codex, and
+- **Extend coding agents:** install QA skills into Claude Code, Codex, and
   OpenCode, including accessibility, performance, security, dependency,
   usability, flaky-selector, and release-gate workflows.
 
@@ -103,84 +105,11 @@ Some advanced surfaces—k6, QTML, framework export/trigger operations, and
 background-job health—remain experimental and are only exposed when
 `QMAX_EXPERIMENTAL=1`.
 
-## What is new
+## Latest changes
 
-### v1.30
-
-- **Settings picker:** `/settings` (or bare `/set`) — flip toggles, cycle
-  themes and Cerebras options, edit project/budget inline; `s` saves, Esc
-  discards.
-- **Slash-menu hijack fixed:** typing `/update` used to run `/set` (its
-  description is "Update config"); an exactly-typed command now always wins.
-- **`/set` hardened:** strict number parsing, `/set project 0` clears, hidden
-  prompts for API keys, and secrets never enter the recallable history.
-
-### v1.29
-
-- **No more silent opencode failures:** `/orch` retries a flaky model-list
-  query once and tells you when a provider's models could not be fetched,
-  instead of them quietly disappearing from the picker.
-- **Real causes on failed turns:** a provider refusal (e.g. a model outside
-  your subscription plan) surfaces its message and a pointer to opencode's log
-  instead of a bare "exit status 1".
-- **Crash-proof turns:** an internal opencode crash mid-turn is retried
-  automatically once; the final error carries a secret-redacted stderr tail
-  when both attempts die.
-
-### v1.28
-
-- **Public Codex runner:** the terminal-neutral `codexrunner` Go package gives
-  other Go programs explicit runner, continuity, checkpoint, cancellation,
-  event, executor, and presentation boundaries.
-- **Exact Codex continuity:** qmax-code transports request input through stdin,
-  captures the emitted thread ID, and resumes that specific thread. `/clear`
-  starts a fresh native CLI conversation across Codex, Claude Code, and
-  OpenCode.
-
-### v1.27
-
-- **Selectable providers:** `/providers` is an arrow-key picker (Enter
-  enables and saves). `/orch` Enter always confirms, including when the
-  effort bar is focused, and can opt in OpenCode providers (Z.AI GLM, Groq,
-  OpenRouter) when none are enabled yet.
-- **Why Go:** this README, `AGENTS.md`, and `CLAUDE.md` now explain the
-  product choice: one-file install, cross-platform releases, instant
-  startup — not a smarter model.
-
-### v1.22
-
-- **Cloud-routed MCP tool calls (v1.22.1):** `serve --mcp` now routes
-  authenticated QualityMax tool calls through the cloud MCP endpoint instead of
-  calling the REST API directly. Calls made through the local MCP server were
-  previously invisible to the platform — they set no trace context, so they
-  produced no session history — and they returned UI-shaped REST payloads
-  carrying every script's full source. Browser login now mints an
-  MCP-compatible token, so the routing works immediately after sign-in.
-- **Standalone local-only mode (v1.22.0):** start with `--local` (or persist
-  `local_only=true`) to skip QualityMax onboarding and expose only workspace
-  file, command, and planning tools. MCP children inherit the mode, and
-  execution-time checks reject direct calls to hidden QualityMax tools.
-
-### v1.21
-
-- **Exposure Receipts:** every session that makes an outbound LLM or QualityMax
-  API request writes a signed local egress manifest that can be inspected and
-  verified offline.
-- **OpenCode backend:** opt in to Z.AI Coding Plan, Groq, or OpenRouter and pick
-  their models from `/orch`; keys stay in the OS keychain.
-- **Expanded orchestration:** one picker now covers the direct Anthropic API,
-  Claude Code, Codex, Cerebras, OpenCode, and Ollama, with backend-specific
-  model and reasoning/effort choices.
-- **Cerebras and Gemma 4:** native function calling across the qmax tool set,
-  multimodal input for Gemma 4, optional reasoning effort, and live speed
-  metrics.
-- **27 managed QA skills:** the catalog is refreshed into Claude Code, Codex,
-  OpenCode, and Antigravity and can be inspected or reinstalled with `/skills`.
-- **Improved terminal sessions:** a stable input panel, prompt queue, session
-  status and cost metrics, compact/verbose output toggle, ten themes, saved
-  sessions, and optional cloud sync.
-
-See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
+See the [latest release](https://github.com/Quality-Max/qmax-code/releases/latest)
+for the current version and release notes. The maintained source and release
+history are the authoritative place for changes between versions.
 
 ## Install
 
@@ -265,7 +194,7 @@ qmax-code login
 ```
 
 The browser flow is the default. You can instead use an API key from
-[QualityMax Settings](https://app.qualitymax.io/settings):
+[QualityMax Settings](https://app.qualitymax.io/#/settings):
 
 ```bash
 qmax-code login --api-key qm-YOUR-API-KEY
@@ -349,7 +278,7 @@ repository analysis always require connected mode.
 
 ## QA skills
 
-qmax-code ships 27 agent skills:
+qmax-code ships the following agent skills:
 
 - **QA workflows:** migration to Playwright, release quality gates,
   pre-change SAST, and failure triage.
@@ -527,7 +456,7 @@ Unset either variable to disable reporting.
 | `internal/api/` | QualityMax client, auth, provider registry, models, and persistent config |
 | `internal/mcp/server.go` | Embedded stdio MCP server for CLI backends |
 | `internal/setup/orch.go` | MCP registration and QA-skill installation |
-| `internal/skills/` | Backend-neutral 27-skill catalog and materialization |
+| `internal/skills/` | Backend-neutral QA-skill catalog and materialization |
 | `internal/session/` | Local/cloud sessions and prompt queue |
 | `internal/tui/` | Terminal rendering, input, themes, media, and model pickers |
 | `internal/httpx/` and `receipt.go` | Guarded outbound HTTP and Exposure Receipt integration |
