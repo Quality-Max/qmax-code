@@ -259,6 +259,9 @@ func TestThemePicker_PolarityTransitionsRequestFullRepaint(t *testing.T) {
 	if got := m.themes[m.cursor]; got != "paper" {
 		t.Fatalf("up selected %q, want paper", got)
 	}
+	if cmd != nil {
+		t.Fatal("same-polarity up move requested a full-screen repaint; want none")
+	}
 	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m = updated.(themePickerModel)
 	if got := m.themes[m.cursor]; got != "aurora" {
