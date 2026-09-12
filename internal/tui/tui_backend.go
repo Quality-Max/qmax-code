@@ -754,19 +754,34 @@ func (m themePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "esc", "q":
 			m.cancelled = true
+			previewed := allThemes[m.themes[m.cursor]]
 			ApplyTheme(ThemeByName(m.originalTheme))
+			// Clearing erases the visible screenful in place, so only pay
+			// that cost when the restore actually flips polarity; otherwise
+			// the renderer's line diff is enough.
+			if allThemes[m.originalTheme].Dark != previewed.Dark {
+				return m, tea.Sequence(tea.ClearScreen, tea.Quit)
+			}
 			return m, tea.Quit
 
 		case "up", "k":
 			if m.cursor > 0 {
+				prev := allThemes[m.themes[m.cursor]]
 				m.cursor--
 				ApplyTheme(ThemeByName(m.themes[m.cursor]))
+				if allThemes[m.themes[m.cursor]].Dark != prev.Dark {
+					return m, tea.ClearScreen
+				}
 			}
 
 		case "down", "j":
 			if m.cursor < len(m.themes)-1 {
+				prev := allThemes[m.themes[m.cursor]]
 				m.cursor++
 				ApplyTheme(ThemeByName(m.themes[m.cursor]))
+				if allThemes[m.themes[m.cursor]].Dark != prev.Dark {
+					return m, tea.ClearScreen
+				}
 			}
 
 		case "enter", " ":

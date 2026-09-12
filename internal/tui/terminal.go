@@ -285,8 +285,15 @@ func NewTerminal() *Terminal {
 
 // setMarkdownStyle rebuilds the glamour renderer for the given background
 // polarity. It keeps the previous renderer when construction fails so a
-// failed swap never disables markdown rendering.
+// failed swap never disables markdown rendering, and skips the rebuild when
+// the polarity is unchanged.
 func (t *Terminal) setMarkdownStyle(dark bool) {
+	t.rendMu.Lock()
+	unchanged := t.renderer != nil && dark == t.markdownDark
+	t.rendMu.Unlock()
+	if unchanged {
+		return
+	}
 	gStyle := "light"
 	if dark {
 		gStyle = "dark"

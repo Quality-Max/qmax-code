@@ -344,11 +344,29 @@ var (
 	ThemeIsDark = true
 )
 
+// terminalDark captures the terminal's actual background polarity once at
+// package init, before any ApplyTheme call overrides lipgloss's detection
+// with the selected theme's polarity. Foreground-only picker chrome keys off
+// this so opposite-polarity previews (e.g. a light theme on a dark terminal)
+// stay readable on the live terminal.
+var terminalDark = lipgloss.HasDarkBackground()
+
 // ApplyTheme rebuilds all lipgloss styles and ANSI prompt vars from t.
 // Must be called before NewTerminal() and ShowModelPicker().
 func ApplyTheme(t Theme) {
 	ThemeIsDark = t.Dark
 	lipgloss.SetHasDarkBackground(t.Dark)
+
+	// Neutral foreground-only chrome follows the terminal's real polarity,
+	// not the theme's: these styles carry no background, so a theme/terminal
+	// polarity mismatch would render its own neutrals invisible (near-black
+	// labels on a dark terminal while previewing a light theme, and vice
+	// versa). The values are identical to same-polarity themes, so matched
+	// setups render exactly as before.
+	labelFg, dimFg, subtleFg, sepFg := lipgloss.Color("252"), lipgloss.Color("242"), lipgloss.Color("240"), lipgloss.Color("237")
+	if !terminalDark {
+		labelFg, dimFg, subtleFg, sepFg = lipgloss.Color("236"), lipgloss.Color("243"), lipgloss.Color("247"), lipgloss.Color("252")
+	}
 
 	// ANSI prompt/banner vars
 	themePromptName = t.ANSIPromptName
@@ -370,10 +388,9 @@ func ApplyTheme(t Theme) {
 	pickerBox = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(t.SurfaceBorder)).
-		Background(lipgloss.Color(t.SurfaceDark)).
 		Padding(0, 1)
 	pickerSectionHeader = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(t.TextDim)).
+		Foreground(dimFg).
 		PaddingTop(1)
 	pickerRowSelected = lipgloss.NewStyle().
 		Background(lipgloss.Color(t.SurfaceSelect)).
@@ -382,7 +399,7 @@ func ApplyTheme(t Theme) {
 	pickerIcon = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Brand))
 	pickerIconCodex = lipgloss.NewStyle().Foreground(lipgloss.Color(t.IconCodex))
 	pickerIconAPI = lipgloss.NewStyle().Foreground(lipgloss.Color(t.IconAPI))
-	pickerLabel = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextNormal))
+	pickerLabel = lipgloss.NewStyle().Foreground(labelFg)
 	pickerLabelSel = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextBright)).Bold(true)
 	pickerBadgeNew = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("0")).
@@ -391,19 +408,19 @@ func ApplyTheme(t Theme) {
 		PaddingLeft(1).PaddingRight(1)
 	pickerBadgeCurrent = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Success)).Bold(true)
 	pickerBadgeStar = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent))
-	pickerBadgeExt = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextDim))
-	pickerShortcut = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSubtle))
-	pickerDivider = lipgloss.NewStyle().Foreground(lipgloss.Color(t.SurfaceSep))
+	pickerBadgeExt = lipgloss.NewStyle().Foreground(dimFg)
+	pickerShortcut = lipgloss.NewStyle().Foreground(subtleFg)
+	pickerDivider = lipgloss.NewStyle().Foreground(sepFg)
 	effortLabelActive = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("0")).
 		Background(lipgloss.Color(t.Brand)).
 		Bold(true).
 		PaddingLeft(2).PaddingRight(2)
 	effortLabelInactive = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(t.TextDim)).
+		Foreground(dimFg).
 		PaddingLeft(2).PaddingRight(2)
 	pickerFooter = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(t.TextSubtle)).
+		Foreground(subtleFg).
 		PaddingTop(1)
 	pickerStatusBar = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.TextNormal)).
@@ -431,17 +448,16 @@ func ApplyTheme(t Theme) {
 	menuItemStyle = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.MenuItem)).
 		PaddingLeft(1)
-	menuDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextDim))
+	menuDescStyle = lipgloss.NewStyle().Foreground(dimFg)
 	menuDescSelSty = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("0")).
 		Background(lipgloss.Color(t.Brand))
-	menuHintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSubtle))
+	menuHintStyle = lipgloss.NewStyle().Foreground(subtleFg)
 	filterStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)).Bold(true)
 
 	inputBoxStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(t.SurfaceBorder)).
-		Background(lipgloss.Color(t.SurfaceDark)).
 		Padding(0, 1)
 
 	statusMetricsStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSubtle)).Background(lipgloss.Color(t.SurfaceDark))
