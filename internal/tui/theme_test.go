@@ -245,6 +245,20 @@ func TestThemePicker_PolarityTransitionsRequestFullRepaint(t *testing.T) {
 		t.Fatal("dark-to-light preview did not request a full-screen repaint")
 	}
 
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(themePickerModel)
+	if got := m.themes[m.cursor]; got != "sky" {
+		t.Fatalf("same-polarity down selected %q, want sky", got)
+	}
+	if cmd != nil {
+		t.Fatal("same-polarity move requested a full-screen repaint; clearing erases the visible transcript and must be gated on polarity flips")
+	}
+
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(themePickerModel)
+	if got := m.themes[m.cursor]; got != "paper" {
+		t.Fatalf("up selected %q, want paper", got)
+	}
 	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m = updated.(themePickerModel)
 	if got := m.themes[m.cursor]; got != "aurora" {
@@ -253,5 +267,75 @@ func TestThemePicker_PolarityTransitionsRequestFullRepaint(t *testing.T) {
 	if cmd == nil || reflect.TypeOf(cmd()) != reflect.TypeOf(tea.ClearScreen()) {
 		t.Fatal("light-to-dark preview did not request a full-screen repaint")
 	}
+
+	m = newThemePickerModel("historic")
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(themePickerModel)
+	if !m.cancelled {
+		t.Fatal("esc did not cancel")
+	}
+	if cmd == nil {
+		t.Fatal("esc produced no command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("cancel without a polarity change must quit without a screen clear")
+	}
 	ApplyTheme(ThemeByName("historic"))
+}
+
+// TestApplyTheme_PickerChromeFollowsTerminalPolarity guards the invisible-
+// chrome regression: foreground-only picker styles must key off the
+// terminal's real polarity, so previewing (or running) an opposite-polarity
+// theme keeps labels readable on the live terminal background.
+func TestApplyTheme_PickerChromeFollowsTerminalPolarity(t *testing.T) {
+	orig := terminalDark
+	defer func() {
+		terminalDark = orig
+		ApplyTheme(ThemeByName("historic"))
+	}()
+
+	terminalDark = true
+	ApplyTheme(ThemeByName("paper")) // light theme previewed on a dark terminal
+	if got := pickerLabel.GetForeground(); got != lipgloss.Color("252") {
+		t.Errorf("pickerLabel on dark terminal = %v, want light label 252", got)
+	}
+	if got := pickerFooter.GetForeground(); got != lipgloss.Color("240") {
+		t.Errorf("pickerFooter on dark terminal = %v, want subtle 240", got)
+	}
+	if got := pickerDivider.GetForeground(); got != lipgloss.Color("237") {
+		t.Errorf("pickerDivider on dark terminal = %v, want 237", got)
+	}
+
+	terminalDark = false
+	ApplyTheme(ThemeByName("historic")) // dark theme on a light terminal
+	if got := pickerLabel.GetForeground(); got != lipgloss.Color("236") {
+		t.Errorf("pickerLabel on light terminal = %v, want dark label 236", got)
+	}
+	if got := pickerFooter.GetForeground(); got != lipgloss.Color("247") {
+		t.Errorf("pickerFooter on light terminal = %v, want subtle 247", got)
+	}
+}
+
+// TestSetMarkdownStyle_SkipsRedundantRebuild ensures a same-polarity
+// ApplyTheme does not churn the glamour renderer.
+func TestSetMarkdownStyle_SkipsRedundantRebuild(t *testing.T) {
+	term := &Terminal{}
+	term.setMarkdownStyle(true)
+	if term.renderer == nil {
+		t.Fatal("initial build did not produce a renderer")
+	}
+	first := term.renderer
+
+	term.setMarkdownStyle(true)
+	if term.renderer != first {
+		t.Error("same-polarity call rebuilt the renderer")
+	}
+
+	term.setMarkdownStyle(false)
+	if term.renderer == first {
+		t.Error("polarity flip did not rebuild the renderer")
+	}
+	if term.markdownDark {
+		t.Error("markdownDark not updated after flip")
+	}
 }
