@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -207,6 +208,139 @@ func TestRunnerSanitizesProcessFailures(t *testing.T) {
 		}
 		assertPromptAbsent(t, prompt, executor.command(t, 0).args, err)
 	})
+
+	for _, classified := range []error{ErrModelUnavailable, ErrAuthentication} {
+		t.Run(classified.Error(), func(t *testing.T) {
+			executor := &scriptedExecutor{
+				streams:    []string{eventStream(t, map[string]any{"type": "thread.started", "thread_id": firstThreadID})},
+				waitErrors: []error{classified},
+			}
+			_, err := New(Options{Executor: executor}).Run(context.Background(), Turn{Prompt: prompt})
+			if !errors.Is(err, classified) {
+				t.Fatalf("classified failure = %v, want %v", err, classified)
+			}
+			assertPromptAbsent(t, prompt, executor.command(t, 0).args, err)
+		})
+	}
+}
+
+func TestBoundedBufferCapsPrivateDiagnostics(t *testing.T) {
+	buffer := &boundedBuffer{remaining: 4}
+	n, err := buffer.Write([]byte("123456"))
+	if err != nil || n != 6 {
+		t.Fatalf("Write() = (%d, %v), want (6, nil)", n, err)
+	}
+	if got := buffer.String(); got != "1234" {
+		t.Fatalf("buffer = %q, want %q", got, "1234")
+	}
+}
+
+func TestClassifyCodexDiagnostic(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want error
+	}{
+		{"model", "ERROR: model_not_found", ErrModelUnavailable},
+		{"auth", "Unauthorized: please log in", ErrAuthentication},
+		{"unknown", "subprocess exited", nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := classifyCodexDiagnostic(test.raw); !errors.Is(got, test.want) {
+				t.Fatalf("classifyCodexDiagnostic() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestRunnerHandlesCanonicalTurnFailed(t *testing.T) {
+	providerDetail := generatedSensitiveValue(t)
+	tests := []struct {
+		name    string
+		message string
+		want    error
+	}{
+		{"model unavailable", "The model is not supported for this account: " + providerDetail, ErrModelUnavailable},
+		{"authentication", "Unauthorized; please log in: " + providerDetail, ErrAuthentication},
+		{"unclassified", "request rejected: " + providerDetail, ErrProcess},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			executor := &scriptedExecutor{streams: []string{eventStream(t,
+				map[string]any{"type": "thread.started", "thread_id": firstThreadID},
+				map[string]any{"type": "turn.failed", "error": map[string]any{"message": test.message}},
+			)}}
+			var events []Event
+			result, err := New(Options{Executor: executor}).Run(context.Background(), Turn{Hooks: Hooks{
+				Events: EventSinkFunc(func(_ context.Context, event Event) error {
+					events = append(events, event)
+					return nil
+				}),
+			}})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("Run() error = %v, want %v", err, test.want)
+			}
+			if result.ThreadID != firstThreadID {
+				t.Fatal("turn.failed lost the validated checkpoint")
+			}
+			if strings.Contains(err.Error(), providerDetail) {
+				t.Fatal("provider failure detail escaped into the public error")
+			}
+			if len(events) != 2 || events[1].Kind != EventProviderError {
+				t.Fatalf("events = %#v, want thread start followed by provider error", events)
+			}
+		})
+	}
+}
+
+func TestCodexJSONLContractFixtures(t *testing.T) {
+	tests := []struct {
+		name      string
+		fixture   string
+		waitErr   error
+		wantErr   error
+		wantText  string
+		wantLimit bool
+		wantUsage Usage
+	}{
+		{
+			name:      "completed",
+			fixture:   "testdata/codex-0.144-completed.jsonl",
+			wantText:  "fixture response",
+			wantUsage: Usage{InputTokens: 7, OutputTokens: 3},
+		},
+		{
+			name:    "failed",
+			fixture: "testdata/codex-0.144-failed.jsonl",
+			wantErr: ErrModelUnavailable,
+		},
+		{
+			name:      "plan limit with non-zero exit",
+			fixture:   "testdata/codex-0.144-plan-limit.jsonl",
+			waitErr:   errors.New("exit status 1"),
+			wantLimit: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stream, err := os.ReadFile(test.fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			executor := &scriptedExecutor{
+				streams:    []string{string(stream)},
+				waitErrors: []error{test.waitErr},
+			}
+			result, err := New(Options{Executor: executor}).Run(context.Background(), Turn{})
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("Run() error = %v, want %v", err, test.wantErr)
+			}
+			if result.ThreadID != firstThreadID || result.Response != test.wantText || result.PlanLimit != test.wantLimit || result.Usage != test.wantUsage {
+				t.Fatalf("Run() result = %#v, want thread=%q text=%q limit=%v usage=%#v", result, firstThreadID, test.wantText, test.wantLimit, test.wantUsage)
+			}
+		})
+	}
 }
 
 func TestRunnerRequiresAThreadCheckpoint(t *testing.T) {
@@ -326,6 +460,47 @@ func TestRunnerSanitizesPlanLimitPresentation(t *testing.T) {
 	}
 	if strings.Contains(result.Response, providerMessage) {
 		t.Fatal("provider payload crossed the result boundary")
+	}
+}
+
+func TestRunnerHandlesCanonicalTurnFailedPlanLimit(t *testing.T) {
+	providerMessage := generatedSensitiveValue(t) + " quota exceeded"
+	executor := &scriptedExecutor{
+		streams: []string{eventStream(t,
+			map[string]any{"type": "thread.started", "thread_id": firstThreadID},
+			map[string]any{"type": "turn.failed", "error": map[string]any{"message": providerMessage}},
+		)},
+		waitErrors: []error{errors.New("exit status 1")},
+	}
+	var events []Event
+	var presentations []Presentation
+	result, err := New(Options{Executor: executor}).Run(context.Background(), Turn{Hooks: Hooks{
+		Events: EventSinkFunc(func(_ context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		}),
+		Presenter: PresenterFunc(func(_ context.Context, presentation Presentation) error {
+			presentations = append(presentations, presentation)
+			return nil
+		}),
+	}})
+	if err != nil || !result.PlanLimit {
+		t.Fatalf("canonical plan-limit result = (%#v, %v), want classified success", result, err)
+	}
+	wantEvents := []EventKind{EventThreadStarted, EventProviderError, EventPlanLimit}
+	if len(events) != len(wantEvents) {
+		t.Fatalf("events = %#v, want %v", events, wantEvents)
+	}
+	for index, want := range wantEvents {
+		if events[index].Kind != want {
+			t.Fatalf("event %d = %v, want %v", index, events[index].Kind, want)
+		}
+	}
+	if len(presentations) != 1 || presentations[0] != (Presentation{Kind: PresentationPlanLimit}) {
+		t.Fatal("canonical plan limit crossed the sanitized presentation boundary")
+	}
+	if strings.Contains(result.Response, providerMessage) {
+		t.Fatal("canonical provider payload crossed the result boundary")
 	}
 }
 

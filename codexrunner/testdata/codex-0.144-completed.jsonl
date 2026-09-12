@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-1234567890ab"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"fixture response"}}
+{"type":"turn.completed","usage":{"input_tokens":7,"cached_input_tokens":2,"output_tokens":3}}
