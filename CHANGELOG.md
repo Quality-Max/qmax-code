@@ -4,6 +4,35 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.35.1] - 2026-09-12
+
+### Fixed
+- Light↔dark theme switching no longer leaves gray/black "cutout" blocks:
+  picker and input boxes no longer paint opaque backgrounds, which nested
+  styled spans punched holes through via ANSI resets.
+- Theme picker chrome (labels, headers, footers, dividers, hints) now follows
+  the terminal's actual background polarity instead of the previewed theme's,
+  so previewing a light theme on a dark terminal — or vice versa — stays
+  readable instead of rendering near-invisible labels.
+- `/theme` navigation no longer erases the visible transcript on every arrow
+  key. Full-screen clears happen only when the preview actually flips
+  polarity, and Escape clears only when the restore does.
+- The markdown renderer is no longer rebuilt when the theme polarity is
+  unchanged.
+
+## [1.35.0] - 2026-09-11
+
+### Changed
+- Markdown rendering follows the selected theme's polarity instead of
+  unreliable terminal auto-detection, and theme changes rebuild the renderer
+  live without a restart.
+- Picker selection contrast and status bar backgrounds raised across all ten
+  themes.
+
+### Fixed
+- TUI menus and input boxes stay readable when a light theme runs on a
+  mismatched terminal background.
+
 ## [1.34.0] - 2026-09-08
 
 ### Added
