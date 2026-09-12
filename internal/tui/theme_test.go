@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"reflect"
 	"strconv"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -129,25 +131,34 @@ func TestApplyTheme_SetsPolarity(t *testing.T) {
 	ApplyTheme(ThemeByName("historic"))
 }
 
-// TestApplyTheme_BackgroundsFollowTheme guards the invisible-text bug: after
-// ApplyTheme, surfaces that promise a solid background must actually carry
-// the theme's SurfaceDark color, so menus stay readable when the terminal
-// background polarity mismatches the selected theme.
-func TestApplyTheme_BackgroundsFollowTheme(t *testing.T) {
+// TestApplyTheme_BackgroundOwnership guards against ANSI cutouts. Structural
+// containers stay transparent because nested styled spans emit reset sequences
+// that interrupt inherited parent backgrounds. Leaf surfaces may be solid.
+func TestApplyTheme_BackgroundOwnership(t *testing.T) {
 	for _, name := range ThemeNames() {
 		theme := ThemeByName(name)
 		ApplyTheme(theme)
 		surface := lipgloss.Color(theme.SurfaceDark)
-		cases := []struct {
+		transparent := []struct {
 			label string
 			got   lipgloss.TerminalColor
 		}{
 			{"pickerBox", pickerBox.GetBackground()},
 			{"inputBoxStyle", inputBoxStyle.GetBackground()},
+		}
+		for _, c := range transparent {
+			if _, ok := c.got.(lipgloss.NoColor); !ok {
+				t.Errorf("ApplyTheme(%q): %s background = %v, want transparent", name, c.label, c.got)
+			}
+		}
+		solid := []struct {
+			label string
+			got   lipgloss.TerminalColor
+		}{
 			{"statusBarStyle", statusBarStyle.GetBackground()},
 			{"statusMetricsStyle", statusMetricsStyle.GetBackground()},
 		}
-		for _, c := range cases {
+		for _, c := range solid {
 			if c.got != surface {
 				t.Errorf("ApplyTheme(%q): %s background = %v, want %v", name, c.label, c.got, surface)
 			}
@@ -161,7 +172,7 @@ func TestApplyTheme_BackgroundsFollowTheme(t *testing.T) {
 
 // TestThemePalette_SelectionContrastsSurface guards the picker selection
 // highlight: SurfaceSelect must be visibly distinct from SurfaceDark now
-// that pickerBox paints its own background behind every row.
+// selected rows still need a visible state transition on either polarity.
 func TestThemePalette_SelectionContrastsSurface(t *testing.T) {
 	for _, name := range ThemeNames() {
 		theme := ThemeByName(name)
@@ -220,4 +231,27 @@ func TestApplyTheme_RefreshesLiveTerminalRenderer(t *testing.T) {
 	if !term.markdownDark {
 		t.Error("ApplyTheme(historic) left the renderer on light style; want dark")
 	}
+}
+
+func TestThemePicker_PolarityTransitionsRequestFullRepaint(t *testing.T) {
+	m := newThemePickerModel("aurora") // last dark theme; next is light
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(themePickerModel)
+	if got := m.themes[m.cursor]; got != "paper" {
+		t.Fatalf("down transition selected %q, want paper", got)
+	}
+	if cmd == nil || reflect.TypeOf(cmd()) != reflect.TypeOf(tea.ClearScreen()) {
+		t.Fatal("dark-to-light preview did not request a full-screen repaint")
+	}
+
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(themePickerModel)
+	if got := m.themes[m.cursor]; got != "aurora" {
+		t.Fatalf("up transition selected %q, want aurora", got)
+	}
+	if cmd == nil || reflect.TypeOf(cmd()) != reflect.TypeOf(tea.ClearScreen()) {
+		t.Fatal("light-to-dark preview did not request a full-screen repaint")
+	}
+	ApplyTheme(ThemeByName("historic"))
 }

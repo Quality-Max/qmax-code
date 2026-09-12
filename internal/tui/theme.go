@@ -370,7 +370,6 @@ func ApplyTheme(t Theme) {
 	pickerBox = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(t.SurfaceBorder)).
-		Background(lipgloss.Color(t.SurfaceDark)).
 		Padding(0, 1)
 	pickerSectionHeader = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.TextDim)).
@@ -441,7 +440,6 @@ func ApplyTheme(t Theme) {
 	inputBoxStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(t.SurfaceBorder)).
-		Background(lipgloss.Color(t.SurfaceDark)).
 		Padding(0, 1)
 
 	statusMetricsStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSubtle)).Background(lipgloss.Color(t.SurfaceDark))

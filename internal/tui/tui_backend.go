@@ -755,18 +755,20 @@ func (m themePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "esc", "q":
 			m.cancelled = true
 			ApplyTheme(ThemeByName(m.originalTheme))
-			return m, tea.Quit
+			return m, tea.Sequence(tea.ClearScreen, tea.Quit)
 
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
 				ApplyTheme(ThemeByName(m.themes[m.cursor]))
+				return m, tea.ClearScreen
 			}
 
 		case "down", "j":
 			if m.cursor < len(m.themes)-1 {
 				m.cursor++
 				ApplyTheme(ThemeByName(m.themes[m.cursor]))
+				return m, tea.ClearScreen
 			}
 
 		case "enter", " ":
