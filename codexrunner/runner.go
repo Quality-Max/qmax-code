@@ -35,6 +35,12 @@ var (
 	ErrStart = errors.New("codex runner: process start failed")
 	// ErrProcess means Codex exited unsuccessfully.
 	ErrProcess = errors.New("codex runner: process failed")
+	// ErrModelUnavailable means Codex rejected the selected model. Raw CLI
+	// diagnostics are never returned because they may contain provider data.
+	ErrModelUnavailable = errors.New("codex runner: selected model unavailable")
+	// ErrAuthentication means Codex reported that its local login is missing,
+	// expired, or unauthorized.
+	ErrAuthentication = errors.New("codex runner: authentication required")
 	// ErrEventSink means a structural event consumer rejected an event.
 	ErrEventSink = errors.New("codex runner: event sink failed")
 	// ErrCheckpointSink means a checkpoint consumer rejected a checkpoint.
@@ -331,7 +337,19 @@ func (r *Runner) Run(ctx Cancellation, turn Turn) (Result, error) {
 	if streamErr != nil {
 		return result, streamErr
 	}
+	// A plan-limit event is already a complete, user-facing outcome. Codex
+	// exits non-zero after turn.failed, so do not replace that diagnosis with a
+	// generic process error.
+	if result.PlanLimit {
+		return result, nil
+	}
 	if waitErr != nil {
+		if errors.Is(waitErr, ErrModelUnavailable) {
+			return result, ErrModelUnavailable
+		}
+		if errors.Is(waitErr, ErrAuthentication) {
+			return result, ErrAuthentication
+		}
 		return result, ErrProcess
 	}
 	if result.ThreadID == "" {
@@ -396,6 +414,17 @@ func (r *Runner) handleEvent(ctx context.Context, turn Turn, event wireEvent, re
 	case "turn.completed":
 		result.Usage = event.tokenUsage()
 		return emitEvent(ctx, turn.Hooks.Events, Event{Kind: EventTurnCompleted, Usage: result.Usage})
+	case "turn.failed":
+		if err := emitEvent(ctx, turn.Hooks.Events, Event{Kind: EventProviderError}); err != nil {
+			return err
+		}
+		if event.isPlanLimit() {
+			return presentPlanLimit(ctx, turn, result)
+		}
+		if classified := classifyCodexDiagnostic(event.failureText()); classified != nil {
+			return classified
+		}
+		return ErrProcess
 	default:
 		if !event.isError() {
 			return nil
@@ -404,19 +433,26 @@ func (r *Runner) handleEvent(ctx context.Context, turn Turn, event wireEvent, re
 			return err
 		}
 		if !event.isPlanLimit() || result.PlanLimit {
+			if classified := classifyCodexDiagnostic(event.failureText()); classified != nil {
+				return classified
+			}
 			return nil
 		}
-		result.PlanLimit = true
-		if err := emitEvent(ctx, turn.Hooks.Events, Event{Kind: EventPlanLimit}); err != nil {
-			return err
-		}
-		if turn.Hooks.Presenter != nil {
-			if err := turn.Hooks.Presenter.Present(ctx, Presentation{Kind: PresentationPlanLimit}); err != nil {
-				return ErrPresenter
-			}
-		}
-		return nil
+		return presentPlanLimit(ctx, turn, result)
 	}
+}
+
+func presentPlanLimit(ctx context.Context, turn Turn, result *Result) error {
+	result.PlanLimit = true
+	if err := emitEvent(ctx, turn.Hooks.Events, Event{Kind: EventPlanLimit}); err != nil {
+		return err
+	}
+	if turn.Hooks.Presenter != nil {
+		if err := turn.Hooks.Presenter.Present(ctx, Presentation{Kind: PresentationPlanLimit}); err != nil {
+			return ErrPresenter
+		}
+	}
+	return nil
 }
 
 // locateRollout resolves the rollout for a validated thread ID. A locator that
@@ -484,23 +520,27 @@ func (event wireEvent) isError() bool {
 	return strings.Contains(strings.ToLower(event.Type), "error") || len(event.Error) > 0
 }
 
-func (event wireEvent) isPlanLimit() bool {
+func (event wireEvent) failureText() string {
 	message := event.Message
-	if len(event.Error) > 0 {
-		var text string
-		if json.Unmarshal(event.Error, &text) == nil {
-			message += " " + text
-		} else {
-			var detail struct {
-				Message string `json:"message"`
-				Code    string `json:"code"`
-			}
-			if json.Unmarshal(event.Error, &detail) == nil {
-				message += " " + detail.Message + " " + detail.Code
-			}
-		}
+	if len(event.Error) == 0 {
+		return message
 	}
-	message = strings.ToLower(message)
+	var text string
+	if json.Unmarshal(event.Error, &text) == nil {
+		return message + " " + text
+	}
+	var detail struct {
+		Message string `json:"message"`
+		Code    string `json:"code"`
+	}
+	if json.Unmarshal(event.Error, &detail) == nil {
+		return message + " " + detail.Message + " " + detail.Code
+	}
+	return message
+}
+
+func (event wireEvent) isPlanLimit() bool {
+	message := strings.ToLower(event.failureText())
 	for _, marker := range []string{"plan limit", "usage limit", "rate limit", "quota", "too many requests"} {
 		if strings.Contains(message, marker) {
 			return true
@@ -526,7 +566,8 @@ func validThreadID(id string) bool {
 }
 
 // OSExecutor starts the local Codex executable directly, without a shell.
-// Stderr is discarded because provider diagnostics may contain sensitive data.
+// Stderr is retained only in a small private buffer and reduced to safe error
+// categories; raw provider diagnostics never cross the process boundary.
 type OSExecutor struct{}
 
 // Start implements ToolExecutor.
@@ -534,7 +575,8 @@ func (OSExecutor) Start(ctx context.Context, command Command) (ToolProcess, erro
 	cmd := exec.CommandContext(ctx, command.Executable, command.Args...)
 	cmd.Dir = command.WorkingDirectory
 	cmd.Stdin = command.Stdin
-	cmd.Stderr = io.Discard
+	stderr := &boundedBuffer{remaining: 64 << 10}
+	cmd.Stderr = stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -542,13 +584,58 @@ func (OSExecutor) Start(ctx context.Context, command Command) (ToolProcess, erro
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return &osProcess{cmd: cmd, stdout: stdout}, nil
+	return &osProcess{cmd: cmd, stdout: stdout, stderr: stderr}, nil
 }
 
 type osProcess struct {
 	cmd    *exec.Cmd
 	stdout io.Reader
+	stderr *boundedBuffer
 }
 
 func (process *osProcess) Stdout() io.Reader { return process.stdout }
-func (process *osProcess) Wait() error       { return process.cmd.Wait() }
+func (process *osProcess) Wait() error {
+	err := process.cmd.Wait()
+	if err == nil {
+		return nil
+	}
+	if classified := classifyCodexDiagnostic(process.stderr.String()); classified != nil {
+		return classified
+	}
+	return ErrProcess
+}
+
+func classifyCodexDiagnostic(raw string) error {
+	message := strings.ToLower(raw)
+	for _, marker := range []string{"model is not supported", "model not supported", "unknown model", "model_not_found", "does not have access to model"} {
+		if strings.Contains(message, marker) {
+			return ErrModelUnavailable
+		}
+	}
+	for _, marker := range []string{"authentication required", "not logged in", "please log in", "unauthorized", "invalid api key", "status code 401"} {
+		if strings.Contains(message, marker) {
+			return ErrAuthentication
+		}
+	}
+	return nil
+}
+
+// boundedBuffer prevents an untrusted CLI from growing memory without bound.
+// Its contents are private to OSExecutor and are only searched for fixed,
+// non-sensitive classification markers.
+type boundedBuffer struct {
+	data      strings.Builder
+	remaining int
+}
+
+func (buffer *boundedBuffer) Write(p []byte) (int, error) {
+	original := len(p)
+	if len(p) > buffer.remaining {
+		p = p[:buffer.remaining]
+	}
+	_, _ = buffer.data.Write(p)
+	buffer.remaining -= len(p)
+	return original, nil
+}
+
+func (buffer *boundedBuffer) String() string { return buffer.data.String() }
