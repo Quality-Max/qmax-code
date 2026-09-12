@@ -131,9 +131,9 @@ func TestApplyTheme_SetsPolarity(t *testing.T) {
 	ApplyTheme(ThemeByName("historic"))
 }
 
-// TestApplyTheme_BackgroundOwnership guards against ANSI cutouts. Structural
-// containers stay transparent because nested styled spans emit reset sequences
-// that interrupt inherited parent backgrounds. Leaf surfaces may be solid.
+// TestApplyTheme_BackgroundOwnership guards against ANSI cutouts. Picker
+// structure stays transparent because nested styled spans emit reset sequences
+// that interrupt inherited parent backgrounds.
 func TestApplyTheme_BackgroundOwnership(t *testing.T) {
 	for _, name := range ThemeNames() {
 		theme := ThemeByName(name)
@@ -145,6 +145,11 @@ func TestApplyTheme_BackgroundOwnership(t *testing.T) {
 		}{
 			{"pickerBox", pickerBox.GetBackground()},
 			{"inputBoxStyle", inputBoxStyle.GetBackground()},
+			{"pickerRowSelected", pickerRowSelected.GetBackground()},
+			{"pickerStatusBar", pickerStatusBar.GetBackground()},
+			{"pickerStatusIcon", pickerStatusIcon.GetBackground()},
+			{"pickerStatusIconCodex", pickerStatusIconCodex.GetBackground()},
+			{"pickerStatusEffort", pickerStatusEffort.GetBackground()},
 		}
 		for _, c := range transparent {
 			if _, ok := c.got.(lipgloss.NoColor); !ok {
@@ -162,9 +167,6 @@ func TestApplyTheme_BackgroundOwnership(t *testing.T) {
 			if c.got != surface {
 				t.Errorf("ApplyTheme(%q): %s background = %v, want %v", name, c.label, c.got, surface)
 			}
-		}
-		if got := pickerRowSelected.GetBackground(); got != lipgloss.Color(theme.SurfaceSelect) {
-			t.Errorf("ApplyTheme(%q): pickerRowSelected background = %v, want %v", name, got, theme.SurfaceSelect)
 		}
 	}
 	ApplyTheme(ThemeByName("historic"))
@@ -286,37 +288,24 @@ func TestThemePicker_PolarityTransitionsRequestFullRepaint(t *testing.T) {
 	ApplyTheme(ThemeByName("historic"))
 }
 
-// TestApplyTheme_PickerChromeFollowsTerminalPolarity guards the invisible-
-// chrome regression: foreground-only picker styles must key off the
-// terminal's real polarity, so previewing (or running) an opposite-polarity
-// theme keeps labels readable on the live terminal background.
-func TestApplyTheme_PickerChromeFollowsTerminalPolarity(t *testing.T) {
-	orig := terminalDark
-	defer func() {
-		terminalDark = orig
-		ApplyTheme(ThemeByName("historic"))
-	}()
-
-	terminalDark = true
-	ApplyTheme(ThemeByName("paper")) // light theme previewed on a dark terminal
-	if got := pickerLabel.GetForeground(); got != lipgloss.Color("252") {
-		t.Errorf("pickerLabel on dark terminal = %v, want light label 252", got)
+// TestApplyTheme_PickerChromeUsesTerminalDefaults guards live appearance
+// changes. Explicit neutral colors freeze a light/dark assumption at startup;
+// terminal defaults remain readable when the host changes underneath qmax.
+func TestApplyTheme_PickerChromeUsesTerminalDefaults(t *testing.T) {
+	for _, name := range ThemeNames() {
+		ApplyTheme(ThemeByName(name))
+		for label, got := range map[string]lipgloss.TerminalColor{
+			"pickerLabel":    pickerLabel.GetForeground(),
+			"pickerLabelSel": pickerLabelSel.GetForeground(),
+			"pickerFooter":   pickerFooter.GetForeground(),
+			"pickerDivider":  pickerDivider.GetForeground(),
+		} {
+			if _, ok := got.(lipgloss.NoColor); !ok {
+				t.Errorf("ApplyTheme(%q): %s foreground = %v, want terminal default", name, label, got)
+			}
+		}
 	}
-	if got := pickerFooter.GetForeground(); got != lipgloss.Color("240") {
-		t.Errorf("pickerFooter on dark terminal = %v, want subtle 240", got)
-	}
-	if got := pickerDivider.GetForeground(); got != lipgloss.Color("237") {
-		t.Errorf("pickerDivider on dark terminal = %v, want 237", got)
-	}
-
-	terminalDark = false
-	ApplyTheme(ThemeByName("historic")) // dark theme on a light terminal
-	if got := pickerLabel.GetForeground(); got != lipgloss.Color("236") {
-		t.Errorf("pickerLabel on light terminal = %v, want dark label 236", got)
-	}
-	if got := pickerFooter.GetForeground(); got != lipgloss.Color("247") {
-		t.Errorf("pickerFooter on light terminal = %v, want subtle 247", got)
-	}
+	ApplyTheme(ThemeByName("historic"))
 }
 
 // TestSetMarkdownStyle_SkipsRedundantRebuild ensures a same-polarity

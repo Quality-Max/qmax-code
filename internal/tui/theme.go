@@ -344,29 +344,10 @@ var (
 	ThemeIsDark = true
 )
 
-// terminalDark captures the terminal's actual background polarity once at
-// package init, before any ApplyTheme call overrides lipgloss's detection
-// with the selected theme's polarity. Foreground-only picker chrome keys off
-// this so opposite-polarity previews (e.g. a light theme on a dark terminal)
-// stay readable on the live terminal.
-var terminalDark = lipgloss.HasDarkBackground()
-
 // ApplyTheme rebuilds all lipgloss styles and ANSI prompt vars from t.
 // Must be called before NewTerminal() and ShowModelPicker().
 func ApplyTheme(t Theme) {
 	ThemeIsDark = t.Dark
-	lipgloss.SetHasDarkBackground(t.Dark)
-
-	// Neutral foreground-only chrome follows the terminal's real polarity,
-	// not the theme's: these styles carry no background, so a theme/terminal
-	// polarity mismatch would render its own neutrals invisible (near-black
-	// labels on a dark terminal while previewing a light theme, and vice
-	// versa). The values are identical to same-polarity themes, so matched
-	// setups render exactly as before.
-	labelFg, dimFg, subtleFg, sepFg := lipgloss.Color("252"), lipgloss.Color("242"), lipgloss.Color("240"), lipgloss.Color("237")
-	if !terminalDark {
-		labelFg, dimFg, subtleFg, sepFg = lipgloss.Color("236"), lipgloss.Color("243"), lipgloss.Color("247"), lipgloss.Color("252")
-	}
 
 	// ANSI prompt/banner vars
 	themePromptName = t.ANSIPromptName
@@ -390,17 +371,20 @@ func ApplyTheme(t Theme) {
 		BorderForeground(lipgloss.Color(t.SurfaceBorder)).
 		Padding(0, 1)
 	pickerSectionHeader = lipgloss.NewStyle().
-		Foreground(dimFg).
+		Faint(true).
 		PaddingTop(1)
 	pickerRowSelected = lipgloss.NewStyle().
-		Background(lipgloss.Color(t.SurfaceSelect)).
 		Bold(true)
 	pickerRowNormal = lipgloss.NewStyle()
 	pickerIcon = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Brand))
 	pickerIconCodex = lipgloss.NewStyle().Foreground(lipgloss.Color(t.IconCodex))
 	pickerIconAPI = lipgloss.NewStyle().Foreground(lipgloss.Color(t.IconAPI))
-	pickerLabel = lipgloss.NewStyle().Foreground(labelFg)
-	pickerLabelSel = lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextBright)).Bold(true)
+	// Structural picker text deliberately uses the terminal's default
+	// foreground and background. Unlike a cached light/dark guess, the
+	// defaults continue to work when the terminal changes appearance while
+	// qmax is running, and nested ANSI spans cannot punch background holes.
+	pickerLabel = lipgloss.NewStyle()
+	pickerLabelSel = lipgloss.NewStyle().Bold(true)
 	pickerBadgeNew = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("0")).
 		Background(lipgloss.Color(t.Accent)).
@@ -408,35 +392,30 @@ func ApplyTheme(t Theme) {
 		PaddingLeft(1).PaddingRight(1)
 	pickerBadgeCurrent = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Success)).Bold(true)
 	pickerBadgeStar = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent))
-	pickerBadgeExt = lipgloss.NewStyle().Foreground(dimFg)
-	pickerShortcut = lipgloss.NewStyle().Foreground(subtleFg)
-	pickerDivider = lipgloss.NewStyle().Foreground(sepFg)
+	pickerBadgeExt = lipgloss.NewStyle().Faint(true)
+	pickerShortcut = lipgloss.NewStyle().Faint(true)
+	pickerDivider = lipgloss.NewStyle().Faint(true)
 	effortLabelActive = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("0")).
 		Background(lipgloss.Color(t.Brand)).
 		Bold(true).
 		PaddingLeft(2).PaddingRight(2)
 	effortLabelInactive = lipgloss.NewStyle().
-		Foreground(dimFg).
+		Faint(true).
 		PaddingLeft(2).PaddingRight(2)
 	pickerFooter = lipgloss.NewStyle().
-		Foreground(subtleFg).
+		Faint(true).
 		PaddingTop(1)
 	pickerStatusBar = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(t.TextNormal)).
-		Background(lipgloss.Color(t.SurfaceDark)).
 		PaddingLeft(1).PaddingRight(1)
 	pickerStatusIcon = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.Brand)).
-		Background(lipgloss.Color(t.SurfaceDark)).
 		Bold(true)
 	pickerStatusIconCodex = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.IconCodex)).
-		Background(lipgloss.Color(t.SurfaceDark)).
 		Bold(true)
 	pickerStatusEffort = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.Accent)).
-		Background(lipgloss.Color(t.SurfaceDark)).
 		Bold(true)
 
 	// input.go styles
@@ -448,11 +427,11 @@ func ApplyTheme(t Theme) {
 	menuItemStyle = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.MenuItem)).
 		PaddingLeft(1)
-	menuDescStyle = lipgloss.NewStyle().Foreground(dimFg)
+	menuDescStyle = lipgloss.NewStyle().Faint(true)
 	menuDescSelSty = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("0")).
 		Background(lipgloss.Color(t.Brand))
-	menuHintStyle = lipgloss.NewStyle().Foreground(subtleFg)
+	menuHintStyle = lipgloss.NewStyle().Faint(true)
 	filterStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(t.Accent)).Bold(true)
 
 	inputBoxStyle = lipgloss.NewStyle().
