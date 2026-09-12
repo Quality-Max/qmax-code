@@ -383,6 +383,11 @@ func ApplyTheme(t Theme) {
 	// foreground and background. Unlike a cached light/dark guess, the
 	// defaults continue to work when the terminal changes appearance while
 	// qmax is running, and nested ANSI spans cannot punch background holes.
+	// Accepted limitation: theme-colored accents below (Brand, Accent,
+	// IconCodex, Success) still come from the previewed theme, so previewing
+	// an opposite-polarity theme can render accents with reduced contrast.
+	// Structural text stays readable in every combination, which is the
+	// guarantee this style set owes the picker.
 	pickerLabel = lipgloss.NewStyle()
 	pickerLabelSel = lipgloss.NewStyle().Bold(true)
 	pickerBadgeNew = lipgloss.NewStyle().

@@ -43,8 +43,13 @@ jobs:
       - name: Install Codex CLI
         run: npm install --global "@openai/codex@${{ matrix.codex-version }}"
 
-      - name: Verify supported command contract
+      - name: Verify supported command flags (help text only)
         shell: bash
+        # NOTE: this leg proves flag stability only. Event-schema drift in a
+        # future Codex release cannot be caught here because `codex exec`
+        # requires authentication; the JSONL fixtures replayed below pin the
+        # schema at capture time (0.144.5). An authenticated smoke test would
+        # be needed to close that gap.
         run: |
           set -euo pipefail
           codex --version
@@ -55,5 +60,5 @@ jobs:
           grep -F -- '--json' resume-help.txt
           grep -F -- '--model' resume-help.txt
 
-      - name: Verify JSONL parser contract
+      - name: Replay captured JSONL schema fixtures
         run: go test ./codexrunner -count=1
