@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/qualitymax/qmax-code/codexrunner"
 	"github.com/qualitymax/qmax-code/internal/api"
 )
 
@@ -81,5 +84,46 @@ printf '%s\n' "{\"type\":\"thread.started\",\"thread_id\":\"$thread_id\"}"
 		if got := a.continuity.Checkpoint(); got.Model != "gpt-6-astra" || got.ThreadID != firstAdapterThreadID {
 			t.Fatalf("turn %d did not preserve the exact model and thread", i)
 		}
+	}
+}
+
+func TestCodexAgentSurfacedClassifiedFailuresWithHints(t *testing.T) {
+	_ = withTempHome(t)
+	tests := []struct {
+		name    string
+		message string
+		wantErr error
+		wantHit string
+	}{
+		{
+			name:    "model failure classifies and hints",
+			message: "model is not supported for this account",
+			wantErr: codexrunner.ErrModelUnavailable,
+			wantHit: "pick another model",
+		},
+		{
+			name:    "auth failure classifies and hints",
+			message: "authentication required: please log in",
+			wantErr: codexrunner.ErrAuthentication,
+			wantHit: "codex login",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			script := fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' '{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-1234567890ab"}'
+printf '%%s\n' '{"type":"turn.started"}'
+printf '%%s\n' "{\"type\":\"turn.failed\",\"error\":{\"message\":\"%s\"}}"
+`, test.message)
+			codexBin := writeFakeCLI(t, "codex-classified", script)
+			a := NewCodexAgent(codexBin, "", "high", false, &api.SessionContext{})
+			_, err := a.Run("probe", nil)
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("Run() error = %v, want %v", err, test.wantErr)
+			}
+			if hint := codexTurnHint(err); !strings.Contains(hint, test.wantHit) {
+				t.Fatalf("codexTurnHint() = %q, want substring %q", hint, test.wantHit)
+			}
+		})
 	}
 }

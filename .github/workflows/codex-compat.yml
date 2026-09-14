@@ -1,0 +1,64 @@
+name: Codex CLI compatibility
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "codexrunner/**"
+      - ".github/workflows/codex-compat.yml"
+  push:
+    branches: [main]
+    paths:
+      - "codexrunner/**"
+      - ".github/workflows/codex-compat.yml"
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Codex ${{ matrix.codex-version }} contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        codex-version: ["0.144.5", "latest"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Codex CLI
+        run: npm install --global "@openai/codex@${{ matrix.codex-version }}"
+
+      - name: Verify supported command flags (help text only)
+        shell: bash
+        # NOTE: this leg proves flag stability only. Event-schema drift in a
+        # future Codex release cannot be caught here because `codex exec`
+        # requires authentication; the JSONL fixtures replayed below pin the
+        # schema at capture time (0.144.5). An authenticated smoke test would
+        # be needed to close that gap.
+        run: |
+          set -euo pipefail
+          codex --version
+          codex exec --help > exec-help.txt
+          codex exec resume --help > resume-help.txt
+          grep -F -- '--json' exec-help.txt
+          grep -F -- '--model' exec-help.txt
+          grep -F -- '--json' resume-help.txt
+          grep -F -- '--model' resume-help.txt
+
+      - name: Replay captured JSONL schema fixtures
+        run: go test ./codexrunner -count=1

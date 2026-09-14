@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -199,12 +200,29 @@ func (a *CodexAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		return result.Response, nil
 	}
 	if err != nil {
+		if hint := codexTurnHint(err); hint != "" && term != nil {
+			term.PrintError(hint)
+		}
 		return result.Response, fmt.Errorf("codex turn: %w", err)
 	}
 	if term != nil {
 		term.FinishMarkdown(result.Response)
 	}
 	return result.Response, nil
+}
+
+// codexTurnHint maps classified Codex failures to an actionable hint, or ""
+// when the failure is unclassified. Kept side-effect free so it stays testable
+// without a terminal.
+func codexTurnHint(err error) string {
+	switch {
+	case errors.Is(err, codexrunner.ErrAuthentication):
+		return "Codex login missing or expired - run: codex login"
+	case errors.Is(err, codexrunner.ErrModelUnavailable):
+		return "Selected Codex model unavailable - pick another model from the model picker"
+	default:
+		return ""
+	}
 }
 
 func (a *CodexAgent) getContinuity() *codexrunner.Continuity {
