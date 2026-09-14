@@ -4,6 +4,31 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.35.2] - 2026-09-14
+
+### Fixed
+- Theme switching artifacts are now fixed durably: picker structural text
+  (labels, selected rows, status bar, footers, dividers) uses the
+  terminal's default foreground and background instead of explicit neutral
+  colors frozen at startup. Previews stay readable when the terminal
+  changes appearance while qmax is running, and nested styled spans can no
+  longer punch background holes. Theme-colored accents keep theme identity;
+  the reduced-contrast tradeoff when previewing an opposite-polarity theme
+  is documented.
+- Codex CLI 0.144 compatibility: `turn.failed` events are handled instead
+  of surfacing as generic process failures. A plan-limit outcome is
+  preserved even though Codex exits non-zero after `turn.failed`. Model
+  and authentication failures classify to distinct errors with actionable
+  hints (`codex login`, model picker).
+- Codex process stderr is retained in a bounded 64 KiB buffer and reduced
+  to fixed error categories; raw provider diagnostics never cross the
+  process boundary.
+
+### Added
+- `codex-compat` CI workflow pinning the Codex CLI flag contract on 0.144.5
+  and `latest`, with deterministic JSONL fixture replay (success, failure,
+  plan-limit) captured from a real 0.144.5 stream.
+
 ## [1.35.1] - 2026-09-12
 
 ### Fixed
