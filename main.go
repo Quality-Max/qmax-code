@@ -267,6 +267,7 @@ func main() {
 	// A leftover `qmax` CLI on PATH must not skip this: the chooser
 	// (browser login / signup / API key / standalone) is how this
 	// binary gets configured, independent of the legacy CLI.
+	keyOfferedDuringSetup := false
 	if shouldRunInteractiveSetup(localOnly, apiClient != nil) {
 		// Headless one-shot companion to the QUA-580 guard above: onboarding
 		// is interactive (browser login or key paste), so a piped stdin would
@@ -305,8 +306,11 @@ func main() {
 				}
 			} else {
 				auth = setupAuth
-				apiClient = api.NewAPIClient(auth)
+				apiClient = api.NewAPIClient(setupAuth)
 				appConfig.DefaultProject = setupProjectID
+				// Onboarding's Step 3 already offered the Anthropic key
+				// (paste or skip); the startup prompt must not ask twice.
+				keyOfferedDuringSetup = true
 				if anthropicKey == "" {
 					anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 				}
@@ -427,26 +431,50 @@ func main() {
 		}
 	}
 
-	// If connected but missing Anthropic key, prompt for it (skipped in CLI
-	// backend modes and headless runs — the prompt would eat piped stdin).
+	// If connected but missing an Anthropic key, offer one — never demand it.
+	// The old flow re-prompted and then hard-exited with no skip, which
+	// dead-ended users of the CLI/Cerebras/Ollama backends after a perfectly
+	// good QualityMax login. Skipping is valid: the REPL starts and any AI
+	// turn explains how to configure inference. Prompting is skipped in CLI
+	// backend modes (they bring their own auth), headless runs (the prompt
+	// would eat piped stdin), local-only runs with Ollama configured (they
+	// have inference), and when onboarding already offered the key this run.
 	ollamaConfigured := appConfig.OllamaURL != "" && appConfig.OllamaModel != ""
-	if cliBackend == "" && anthropicKey == "" && !(localOnly && ollamaConfigured) && stdinTTY {
-		fmt.Println()
-		fmt.Println("  Anthropic API key needed (this powers the AI).")
-		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
-		fmt.Println()
-		key := setup.ReadSecret("  Paste your Anthropic key: ")
-		if key != "" {
-			anthropicKey = key
-			os.Setenv("ANTHROPIC_API_KEY", key)
-			if err := api.SaveAnthropicKey(key); err == nil {
-				fmt.Println("  Saved to OS keychain.")
+	if shouldOfferAnthropicKey(cliBackend, anthropicKey, localOnly, ollamaConfigured, stdinTTY, keyOfferedDuringSetup) {
+		choice := setup.PromptChoice("  No Anthropic API key found. The direct-API backend needs one to think.", []string{
+			"Paste Anthropic API key",
+			"Skip — use another backend or configure it later",
+		})
+		if choice == 0 {
+			fmt.Println()
+			fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
+			fmt.Println()
+			key := setup.ReadSecret("  Paste your Anthropic key: ")
+			if key != "" {
+				anthropicKey = key
+				os.Setenv("ANTHROPIC_API_KEY", key)
+				if err := api.SaveAnthropicKey(key); err == nil {
+					fmt.Println("  Saved to OS keychain.")
+				}
+			}
+		}
+		if anthropicKey == "" {
+			fmt.Println()
+			fmt.Println("  Continuing without an Anthropic key.")
+			fmt.Println("  AI turns will guide you to configure inference: /keys (paste a key),")
+			fmt.Println("  /orch (Claude Code, Codex, Antigravity, opencode), /cerebras, or /ollama.")
+			if localOnly {
+				fmt.Println("  Standalone local mode can also use Ollama:")
+				fmt.Println("    qmax-code config set ollama_url http://127.0.0.1:11434")
+				fmt.Println("    qmax-code config set ollama_model <model>")
 			}
 		}
 	}
-
-	if cliBackend == "" && anthropicKey == "" && !(localOnly && ollamaConfigured) {
-		fmt.Fprintln(os.Stderr, "\nError: Anthropic API key required.")
+	// Headless one-shot runs have no interactive way to offer or skip the
+	// key, and without any inference the run could only fail mid-turn with
+	// a raw 401 — fail fast with the backend alternatives instead.
+	if shouldExitWithoutInference(cliBackend, anthropicKey, localOnly, ollamaConfigured, stdinTTY) {
+		fmt.Fprintln(os.Stderr, "\nError: no inference backend configured (an Anthropic API key is one option).")
 		fmt.Fprintln(os.Stderr, "  export ANTHROPIC_API_KEY=sk-ant-...")
 		fmt.Fprintln(os.Stderr, "  Or use a CLI backend (no API key needed):")
 		fmt.Fprintln(os.Stderr, "    qmax-code config set backend cc      # Claude Code login")
@@ -700,6 +728,26 @@ func resolveLocalOnly(flagEnabled, persisted, envEnabled bool) bool {
 
 func shouldRunInteractiveSetup(localOnly bool, hasAPIClient bool) bool {
 	return !localOnly && !hasAPIClient
+}
+
+// shouldOfferAnthropicKey reports whether startup should offer the Anthropic
+// key. The offer is skippable by design (QUA regression: the old flow had no
+// skip and then hard-exited): no offer in CLI backend modes (own auth), none
+// headless (would eat piped stdin), none for local-only runs with Ollama
+// configured (inference exists), and none when onboarding already offered it
+// this process.
+func shouldOfferAnthropicKey(cliBackend, anthropicKey string, localOnly, ollamaConfigured, stdinTTY, alreadyOffered bool) bool {
+	return cliBackend == "" && anthropicKey == "" &&
+		!(localOnly && ollamaConfigured) && stdinTTY && !alreadyOffered
+}
+
+// shouldExitWithoutInference reports whether startup must fail fast: a
+// headless run with no inference backend has no interactive way to offer or
+// skip the key, and its first AI turn could only fail with a raw 401.
+// Interactive runs never exit here anymore — they enter the REPL, where AI
+// turns and /keys, /orch, /cerebras, /ollama configure inference.
+func shouldExitWithoutInference(cliBackend, anthropicKey string, localOnly, ollamaConfigured, stdinTTY bool) bool {
+	return cliBackend == "" && anthropicKey == "" && !(localOnly && ollamaConfigured) && !stdinTTY
 }
 
 // headlessSetupFallback reports whether interactive onboarding must be

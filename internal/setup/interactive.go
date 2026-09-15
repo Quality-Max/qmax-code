@@ -34,6 +34,10 @@ var (
 	// promptAPIKey is kept as a seam for the recovery-flow tests. Production
 	// always uses ReadSecret, so API keys remain read without echoing them.
 	promptAPIKey = ReadSecret
+
+	// saveAnthropicKey is a seam for tests: production always writes to the
+	// OS keychain via api.SaveAnthropicKey, which tests must not touch.
+	saveAnthropicKey = api.SaveAnthropicKey
 )
 
 // LoginInteractive prompts the user to paste their API key.
@@ -339,34 +343,20 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 		fmt.Println("  generating tests, or set it in ~/.qmax-code/config.json.")
 	}
 
-	// Step 3: Anthropic key check
+	// Step 3: Anthropic key check — offered, never demanded. Skipping is a
+	// valid outcome: the REPL still starts, and any AI turn explains how to
+	// configure inference (/keys, /orch, /cerebras, /ollama). This used to
+	// be a bare paste prompt followed by a hard exit in main with no way to
+	// skip (QUA: onboarding dead-end for users of other backends).
 	cfg := api.LoadQMaxCodeConfig()
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
 	if anthropicKey == "" {
 		anthropicKey = cfg.AnthropicKey
 	}
-	if anthropicKey == "" {
-		fmt.Println()
-		tui.AnimateMax(tui.MoodThinking, "One more thing...")
-		fmt.Println()
-		fmt.Println("  I need an Anthropic API key to think (that's my brain!).")
-		fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
-		fmt.Println()
-		key := ReadSecret("  Paste your Anthropic key (sk-ant-...): ")
-		if key != "" {
-			os.Setenv("ANTHROPIC_API_KEY", key)
-			// Save to OS keychain
-			if err := api.SaveAnthropicKey(key); err != nil {
-				// Fallback: warn but continue
-				fmt.Printf("\n  Note: Could not save to keychain (%s)\n", err)
-				fmt.Println("  Key is set for this session. Set ANTHROPIC_API_KEY in your shell profile to persist.")
-			} else {
-				fmt.Println()
-				fmt.Println("  Key saved securely to OS keychain")
-			}
-		}
-	} else {
+	if anthropicKey != "" {
 		os.Setenv("ANTHROPIC_API_KEY", anthropicKey)
+	} else {
+		promptAnthropicKey()
 	}
 
 	// All set!
@@ -380,6 +370,42 @@ func RunInteractive() (*api.AuthConfig, int, error) {
 	fmt.Println()
 
 	return auth, projectID, nil
+}
+
+// promptAnthropicKey offers — never demands — the Anthropic key during
+// onboarding. Users of the CLI backends (cc, codex, agy, opencode), Cerebras,
+// or Ollama never need one, so skipping must be a first-class choice, not a
+// dead end. Returns the pasted key, or "" when skipped or left empty.
+func promptAnthropicKey() string {
+	fmt.Println()
+	tui.AnimateMax(tui.MoodThinking, "One more thing...")
+	fmt.Println()
+	fmt.Println("  I use an Anthropic API key to think (that's my brain!) — but the")
+	fmt.Println("  Claude Code, Codex, Antigravity, opencode, Cerebras, and Ollama")
+	fmt.Println("  backends all work without one. You can switch anytime inside the app.")
+	choice := PromptChoice("  Add an Anthropic key now?", []string{
+		"Paste Anthropic key",
+		"Skip — I'll use another backend or configure it later",
+	})
+	if choice != 0 {
+		return ""
+	}
+	fmt.Println("  Get one at: https://console.anthropic.com/settings/keys")
+	fmt.Println()
+	key := promptAPIKey("  Paste your Anthropic key (sk-ant-...): ")
+	if key == "" {
+		return ""
+	}
+	os.Setenv("ANTHROPIC_API_KEY", key)
+	if err := saveAnthropicKey(key); err != nil {
+		// Fallback: warn but continue
+		fmt.Printf("\n  Note: Could not save to keychain (%s)\n", err)
+		fmt.Println("  Key is set for this session. Set ANTHROPIC_API_KEY in your shell profile to persist.")
+	} else {
+		fmt.Println()
+		fmt.Println("  Key saved securely to OS keychain")
+	}
+	return key
 }
 
 // recoverFromEmptyKey handles an empty API-key paste: usually "I don't

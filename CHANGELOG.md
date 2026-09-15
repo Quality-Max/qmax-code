@@ -4,6 +4,17 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Fixed
+- The Anthropic API key is offered, never demanded. Previously, after a
+  successful QualityMax login the startup flow asked for an Anthropic key and
+  then hard-exited with no way to skip, dead-ending users of the Claude Code,
+  Codex, Antigravity, opencode, Cerebras, and Ollama backends. Now both the
+  first-run wizard and startup show a paste-or-skip choice (asked once, not
+  twice), skipping enters the REPL, and an AI turn without any inference
+  backend prints guidance (`/keys`, `/orch`, `/cerebras`, `/ollama`) instead
+  of failing with a raw 401. Headless one-shot runs without any inference
+  still fail fast with the backend alternatives listed.
+
 ## [1.35.2] - 2026-09-14
 
 ### Fixed

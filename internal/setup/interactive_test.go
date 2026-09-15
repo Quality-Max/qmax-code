@@ -405,3 +405,78 @@ func TestRecoverFromEmptyKeyRetryBranchAcceptsValidKey(t *testing.T) {
 		t.Fatalf("auth metadata = %+v", auth)
 	}
 }
+
+func TestPromptAnthropicKeySkipBranch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	// Keychain writes must never happen when the user skips.
+	origSave := saveAnthropicKey
+	saveAnthropicKey = func(string) error {
+		t.Error("skip branch must not write the keychain")
+		return nil
+	}
+	defer func() { saveAnthropicKey = origSave }()
+
+	// Piped stdin → PromptChoice numeric fallback; "2" selects the skip
+	// option ("Skip — I'll use another backend or configure it later").
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("2\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	if got := promptAnthropicKey(); got != "" {
+		t.Fatalf("promptAnthropicKey() = %q, want empty on skip", got)
+	}
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		t.Fatal("skip branch must not set ANTHROPIC_API_KEY")
+	}
+}
+
+func TestPromptAnthropicKeyPasteBranchSetsEnvAndSaves(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	// Intercept the OS-keychain write so the test never touches the real
+	// keychain, and the hidden paste so the key is deterministic.
+	origSave := saveAnthropicKey
+	var savedKey string
+	saveAnthropicKey = func(k string) error { savedKey = k; return nil }
+	defer func() { saveAnthropicKey = origSave }()
+
+	origPrompt := promptAPIKey
+	promptAPIKey = func(string) string { return "sk-ant-paste-branch" }
+	defer func() { promptAPIKey = origPrompt }()
+
+	// "1" selects "Paste Anthropic key" via the numeric fallback.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	w.Close()
+
+	origStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = origStdin }()
+
+	if got := promptAnthropicKey(); got != "sk-ant-paste-branch" {
+		t.Fatalf("promptAnthropicKey() = %q, want pasted key", got)
+	}
+	if savedKey != "sk-ant-paste-branch" {
+		t.Fatalf("keychain save = %q, want pasted key", savedKey)
+	}
+	if os.Getenv("ANTHROPIC_API_KEY") != "sk-ant-paste-branch" {
+		t.Fatal("paste branch must export ANTHROPIC_API_KEY for this process")
+	}
+}
