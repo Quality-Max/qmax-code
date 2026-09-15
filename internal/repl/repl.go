@@ -1272,6 +1272,15 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		// path as before.
 		runWithCLI := cliAgent != nil && len(turnImages) == 0
 
+		// A direct-API turn with no key configured can only fail mid-request
+		// with a raw 401. Refuse it up front, with the exact commands that
+		// fix it — the key is offered at startup, never demanded.
+		if !runWithCLI && !embeddedInferenceAvailable(ag) {
+			term.PrintError("No inference backend configured — nothing can run this turn.")
+			term.PrintSystem("Add an Anthropic key with /keys, or switch backends: /orch (Claude Code, Codex, Antigravity, opencode), /cerebras, /ollama.")
+			continue
+		}
+
 		// Ensure a cloud session exists for this conversation (no-op after first call).
 		startCloudSession()
 
@@ -2457,6 +2466,25 @@ func anthropicBackendAvailable(ag *agent.Agent, term *tui.Terminal) bool {
 	term.PrintError("Anthropic API is not configured.")
 	term.PrintSystem("Set an Anthropic key with /keys, or keep/select another inference backend.")
 	return false
+}
+
+// embeddedInferenceAvailable reports whether any non-CLI backend can run a
+// turn right now: an Anthropic key (agent config or env), an active Ollama
+// mode, or Cerebras. CLI backends are evaluated separately via cliAgent —
+// the REPL may run with no embedded inference at all while a CLI backend is
+// selected, and equally with none of either after the user skips the
+// startup key offer (skipping must stay a supported state, not a crash).
+func embeddedInferenceAvailable(ag *agent.Agent) bool {
+	if ag == nil {
+		return false
+	}
+	if ag.Cerebras != nil {
+		return true
+	}
+	if ag.Ollama != nil && ag.Mode != agent.OllamaModeOff {
+		return true
+	}
+	return ag.Cfg.AnthropicKey != "" || os.Getenv("ANTHROPIC_API_KEY") != ""
 }
 
 // buildOpenCodeModelEntries resolves the picker rows for the opencode backend:

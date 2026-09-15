@@ -105,6 +105,68 @@ func TestHeadlessSetupFallback(t *testing.T) {
 	}
 }
 
+// TestShouldOfferAnthropicKey is the regression test for the "no ability to
+// skip the Anthropic key" bug: the offer must stay skippable, must not
+// re-ask after onboarding already asked, and must stay out of CLI backend
+// modes, headless runs, and local-only runs with Ollama configured.
+func TestShouldOfferAnthropicKey(t *testing.T) {
+	tests := []struct {
+		name             string
+		cliBackend       string
+		anthropicKey     string
+		localOnly        bool
+		ollamaConfigured bool
+		stdinTTY         bool
+		alreadyOffered   bool
+		want             bool
+	}{
+		{name: "interactive api backend without key offers", stdinTTY: true, want: true},
+		{name: "key present never offers", anthropicKey: "sk-ant-x", stdinTTY: true, want: false},
+		{name: "cli backend never offers", cliBackend: "cc", stdinTTY: true, want: false},
+		{name: "headless never offers", want: false},
+		{name: "local ollama never offers", localOnly: true, ollamaConfigured: true, stdinTTY: true, want: false},
+		{name: "local without ollama still offers", localOnly: true, stdinTTY: true, want: true},
+		{name: "onboarding already offered skips re-ask", stdinTTY: true, alreadyOffered: true, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldOfferAnthropicKey(tt.cliBackend, tt.anthropicKey, tt.localOnly, tt.ollamaConfigured, tt.stdinTTY, tt.alreadyOffered); got != tt.want {
+				t.Fatalf("shouldOfferAnthropicKey(%q, %q, %v, %v, %v, %v) = %v, want %v",
+					tt.cliBackend, tt.anthropicKey, tt.localOnly, tt.ollamaConfigured, tt.stdinTTY, tt.alreadyOffered, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestShouldExitWithoutInference pins the post-fix contract: an interactive
+// run that skipped the Anthropic key enters the REPL instead of exiting;
+// only headless runs without any inference still fail fast.
+func TestShouldExitWithoutInference(t *testing.T) {
+	tests := []struct {
+		name             string
+		cliBackend       string
+		anthropicKey     string
+		localOnly        bool
+		ollamaConfigured bool
+		stdinTTY         bool
+		want             bool
+	}{
+		{name: "interactive skip no longer exits", stdinTTY: true, want: false},
+		{name: "headless one-shot still exits", want: true},
+		{name: "headless with key does not exit", anthropicKey: "sk-ant-x", want: false},
+		{name: "cli backend never exits", cliBackend: "codex", want: false},
+		{name: "local ollama never exits", localOnly: true, ollamaConfigured: true, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldExitWithoutInference(tt.cliBackend, tt.anthropicKey, tt.localOnly, tt.ollamaConfigured, tt.stdinTTY); got != tt.want {
+				t.Fatalf("shouldExitWithoutInference(%q, %q, %v, %v, %v) = %v, want %v",
+					tt.cliBackend, tt.anthropicKey, tt.localOnly, tt.ollamaConfigured, tt.stdinTTY, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldUseStreamingBuiltIn(t *testing.T) {
 	tests := []struct {
 		name string
