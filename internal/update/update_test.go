@@ -164,7 +164,7 @@ func TestExtractBinaryZip(t *testing.T) {
 	bin := bytes.Repeat([]byte("y"), 4096)
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	fw, err := zw.Create("qmax-code-windows-amd64.exe")
+	fw, err := zw.Create(fmt.Sprintf("qmax-code-windows-%s.exe", runtime.GOARCH))
 	if err != nil {
 		t.Fatal(err)
 	}
