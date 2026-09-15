@@ -4,6 +4,8 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.35.3] - 2026-09-15
+
 ### Fixed
 - The Anthropic API key is offered, never demanded. Previously, after a
   successful QualityMax login the startup flow asked for an Anthropic key and
