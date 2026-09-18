@@ -6,7 +6,6 @@ import (
 	"github.com/qualitymax/qmax-code/internal/api"
 )
 
-
 func TestValidateOllamaURL(t *testing.T) {
 	tests := []struct {
 		name    string

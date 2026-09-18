@@ -101,6 +101,17 @@ type Config struct {
 	// ~/.codex/config.toml). False = use a per-session temp config only.
 	OrchGlobalInstall bool `json:"orch_global_install,omitempty"`
 
+	// VisionSidecar controls when image attachments on CLI-backend turns are
+	// read by the Gemma 4 vision sidecar (Cerebras) and injected into the
+	// CLI prompt as text descriptions, instead of diverting the whole turn
+	// to the embedded multimodal backend:
+	//   "" / "auto"   → sidecar only when the active CLI model is known to be
+	//                   text-only (e.g. Z.AI GLM coding-plan models)
+	//   "always"      → sidecar for every CLI backend turn with images
+	//   "off"         → never; images follow the pre-sidecar behavior
+	// Requires a Cerebras API key; without one every mode degrades to "off".
+	VisionSidecar string `json:"vision_sidecar,omitempty"`
+
 	// Theme selects the terminal color scheme.
 	// Available: historic, ocean, neon, ember, aurora (dark) or paper, sky, sparkling, radiance, goldenhour (light). Empty defaults to "historic".
 	Theme string `json:"theme,omitempty"`
@@ -243,4 +254,35 @@ func DefaultConfig() *Config {
 		AutoSave:       true,
 		MaxTokenBudget: 200000,
 	}
+}
+
+// Vision sidecar modes.
+const (
+	VisionSidecarAuto   = "auto"
+	VisionSidecarAlways = "always"
+	VisionSidecarOff    = "off"
+)
+
+// VisionSidecarMode returns the normalized sidecar mode: an unset value
+// defaults to "auto".
+func (c *Config) VisionSidecarMode() string {
+	if c == nil {
+		return VisionSidecarAuto
+	}
+	switch strings.ToLower(strings.TrimSpace(c.VisionSidecar)) {
+	case VisionSidecarAlways, VisionSidecarOff:
+		return strings.ToLower(strings.TrimSpace(c.VisionSidecar))
+	default:
+		return VisionSidecarAuto
+	}
+}
+
+// ValidVisionSidecarMode reports whether s is a storable vision_sidecar value
+// ("" is valid — it means auto).
+func ValidVisionSidecarMode(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", VisionSidecarAuto, VisionSidecarAlways, VisionSidecarOff:
+		return true
+	}
+	return false
 }
