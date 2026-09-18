@@ -84,8 +84,11 @@ func sidecarDescribePrompt(userPrompt string, fileNames []string) string {
 	promptContext := strings.TrimSpace(userPrompt)
 	if promptContext == "" {
 		promptContext = "Analyze these images."
-	} else if len(promptContext) > 1000 {
-		promptContext = promptContext[:997] + "..."
+	} else {
+		runes := []rune(promptContext)
+		if len(runes) > 1000 {
+			promptContext = string(runes[:997]) + "..."
+		}
 	}
 	var b strings.Builder
 	b.WriteString("Describe the attached image(s) for the requesting agent.\n")
@@ -105,6 +108,9 @@ func DescribeImagesWithGemma(ctx context.Context, cfg *api.Config, imgs []tui.Im
 	}
 	if len(imgs) == 0 {
 		return "", fmt.Errorf("no images to describe")
+	}
+	if len(imgs) > 10 {
+		return "", fmt.Errorf("too many images (%d); vision sidecar supports up to 10", len(imgs))
 	}
 
 	base := cfg.CerebrasBaseURL
