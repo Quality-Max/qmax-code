@@ -87,9 +87,16 @@ func TestDescribeImagesWithGemma(t *testing.T) {
 
 		resp := oaiChatResponse{
 			Choices: []struct {
-				Message oaiMessage `json:"message"`
+				Message struct {
+					Content   string        `json:"content"`
+					ToolCalls []oaiToolCall `json:"tool_calls"`
+				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
 			}{
-				{Message: oaiMessage{Content: "simulated description"}},
+				{Message: struct {
+					Content   string        `json:"content"`
+					ToolCalls []oaiToolCall `json:"tool_calls"`
+				}{Content: "simulated description"}},
 			},
 		}
 		json.NewEncoder(w).Encode(resp)
