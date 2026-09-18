@@ -81,13 +81,16 @@ Rules:
 - No preamble, no closing remarks — start directly with [1].`
 
 func sidecarDescribePrompt(userPrompt string, fileNames []string) string {
-	if strings.TrimSpace(userPrompt) == "" {
-		userPrompt = "Analyze these images."
+	promptContext := strings.TrimSpace(userPrompt)
+	if promptContext == "" {
+		promptContext = "Analyze these images."
+	} else if len(promptContext) > 1000 {
+		promptContext = promptContext[:997] + "..."
 	}
 	var b strings.Builder
 	b.WriteString("Describe the attached image(s) for the requesting agent.\n")
 	fmt.Fprintf(&b, "Attachment filenames, in order: %s.\n", strings.Join(fileNames, ", "))
-	fmt.Fprintf(&b, "The agent's task, for context (answer the description need it raises, do not perform the task): %s\n", strings.TrimSpace(userPrompt))
+	fmt.Fprintf(&b, "The agent's task, for context (answer the description need it raises, do not perform the task): %s\n", promptContext)
 	return b.String()
 }
 
@@ -162,6 +165,10 @@ func BuildSidecarAugmentedPrompt(userPrompt string, imgs []tui.ImageAttachment, 
 	if desc == "" {
 		return "", fmt.Errorf("empty image description")
 	}
+	
+	// Sanitize output to prevent indirect prompt injection breaking out of the tags.
+	desc = strings.ReplaceAll(desc, "</image-descriptions>", `<\/image-descriptions>`)
+	
 	names := make([]string, len(imgs))
 	for i, img := range imgs {
 		names[i] = img.FileName
