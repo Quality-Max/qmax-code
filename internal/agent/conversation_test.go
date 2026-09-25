@@ -135,7 +135,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-123
 	}
 	restored := &Agent{}
 	restored.RestoreConversation(saved.Messages, saved.Conversation)
-	changed := NewCodexAgent(bin, "gpt-5.4", "medium", false, &api.SessionContext{})
+	changed := NewCodexAgent(bin, "gpt-5.5", "medium", false, &api.SessionContext{})
 	if _, err := restored.RunCLI(changed, "finish", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-123
 	if !strings.Contains(string(prompt), "other provider decision") || strings.Contains(string(prompt), "original requirement") {
 		t.Fatal("switch-back did not transfer only missing context")
 	}
-	if changed.getContinuity().Checkpoint().Model != "gpt-5.4" {
+	if changed.getContinuity().Checkpoint().Model != "gpt-5.5" {
 		t.Fatal("model change was ignored")
 	}
 	other := &conversationSpy{}
