@@ -77,7 +77,7 @@ func (u *TokenUsage) TotalTokens() int {
 // rates (https://platform.claude.com/docs/en/about-claude/pricing). The 1M
 // context window bills at these same standard rates, so a flat rate per model
 // is correct. Pricing: Fable 5 input=$10/MTok output=$50/MTok,
-// Opus 4.6/4.7/4.8 input=$5/MTok output=$25/MTok, Sonnet 4.6 input=$3/MTok
+// Opus 4.6/4.7/4.8/5.5 input=$5/MTok output=$25/MTok, Sonnet 4.6 input=$3/MTok
 // output=$15/MTok, Sonnet 5 intro $2/$10 through Aug 31 2026 then $3/$15,
 // Haiku 4.5 input=$1/MTok output=$5/MTok.
 func (u *TokenUsage) EstimatedCost(model string) float64 {
