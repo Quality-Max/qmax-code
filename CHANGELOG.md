@@ -4,6 +4,25 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-09-25
+
+### Added
+- Anthropic API: `claude-opus-5-5` is now selectable, and the `opus`
+  shorthand resolves to it. Prior Opus 4.8 (with its `[1m]` 1M-context
+  variant) and Opus 4.7 remain selectable by full ID. Cost estimation
+  reuses the existing Opus $5/$25 branch.
+- Codex backend: added `gpt-6-sol` and `gpt-6-luna` alongside
+  `gpt-6-astra`, surfaced in the model picker.
+- Antigravity backend: Claude `claude-opus-4-6` ("Opus 4.6") and
+  `claude-sonnet-4-6` ("Sonnet 4.6") are now offered in the picker
+  alongside the Gemini options.
+
+### Removed
+- Codex backend: retired `gpt-5.6-luna`, `gpt-5.4`, `gpt-5.4-mini`, and
+  `gpt-5.3-codex-spark` from the runner allowlist and picker. Sessions
+  that had one of these persisted will fall back to Codex's default on
+  next resolve.
+
 ## [1.35.3] - 2026-09-15
 
 ### Fixed
