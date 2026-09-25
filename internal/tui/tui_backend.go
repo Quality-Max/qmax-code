@@ -164,6 +164,8 @@ var agyModels = []pickerEntry{
 	{backend: "agy", modelID: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash", subLabel: "high", external: true, isNew: true},
 	{backend: "agy", modelID: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash", subLabel: "medium", external: true},
 	{backend: "agy", modelID: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro", subLabel: "high", external: true},
+	{backend: "agy", modelID: "claude-opus-4-6", label: "Opus 4.6", external: true, isNew: true},
+	{backend: "agy", modelID: "claude-sonnet-4-6", label: "Sonnet 4.6", external: true, isNew: true},
 }
 
 var apiModels = []pickerEntry{
