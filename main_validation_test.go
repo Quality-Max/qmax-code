@@ -21,6 +21,7 @@ func TestIsValidModelName(t *testing.T) {
 		{"haiku", true},
 		{"AUTO", true}, // case-insensitive
 		// Real model IDs from api.Model* constants.
+		{"claude-opus-5-5", true},
 		{"claude-opus-4-8", true},
 		{"claude-opus-4-7", true},
 		{"claude-sonnet-5", true},

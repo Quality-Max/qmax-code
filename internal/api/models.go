@@ -19,7 +19,7 @@ func ResolveClaudeModel(m string) string {
 	case "sonnet":
 		return ModelSonnet5
 	case "opus":
-		return ModelOpus
+		return ModelOpus55
 	case "haiku":
 		return ModelHaiku
 	default:
@@ -32,7 +32,7 @@ func ResolveClaudeModel(m string) string {
 // instead of being forwarded to the Anthropic API or Claude Code.
 func IsValidClaudeModelName(m string) bool {
 	switch ResolveClaudeModel(m) {
-	case "auto", ModelFable51, ModelFable, ModelSonnet5, ModelSonnet, ModelOpus, ModelOpus1M, ModelOpus47, ModelHaiku:
+	case "auto", ModelFable51, ModelFable, ModelSonnet5, ModelSonnet, ModelOpus55, ModelOpus, ModelOpus1M, ModelOpus47, ModelHaiku:
 		return true
 	default:
 		return false
@@ -40,7 +40,7 @@ func IsValidClaudeModelName(m string) bool {
 }
 
 func ValidClaudeModelsHelp() string {
-	return "auto, fable, sonnet, opus, haiku, " + ModelFable51 + ", " + ModelFable + ", " + ModelSonnet5 + ", " + ModelSonnet + ", " + ModelOpus + ", " + ModelOpus1M + ", " + ModelOpus47 + ", " + ModelHaiku
+	return "auto, fable, sonnet, opus, haiku, " + ModelFable51 + ", " + ModelFable + ", " + ModelSonnet5 + ", " + ModelSonnet + ", " + ModelOpus55 + ", " + ModelOpus + ", " + ModelOpus1M + ", " + ModelOpus47 + ", " + ModelHaiku
 }
 
 // ContextWindow returns the assumed context-window size in tokens for a model

@@ -152,13 +152,11 @@ var ccModels = []pickerEntry{
 var codexModels = []pickerEntry{
 	{backend: "codex", modelID: "", label: "Codex default", subLabel: "uses Codex config", external: true, isFav: true, shortcut: '6'},
 	{backend: "codex", modelID: "gpt-6-astra", label: "GPT 6 Astra", external: true, isNew: true},
+	{backend: "codex", modelID: "gpt-6-sol", label: "GPT 6 Sol", external: true, isNew: true},
+	{backend: "codex", modelID: "gpt-6-luna", label: "GPT 6 Luna", external: true, isNew: true},
 	{backend: "codex", modelID: "gpt-5.6-sol", label: "GPT 5.6 Sol", external: true},
 	{backend: "codex", modelID: "gpt-5.6-terra", label: "GPT 5.6 Terra", external: true},
-	{backend: "codex", modelID: "gpt-5.6-luna", label: "GPT 5.6 Luna", external: true},
 	{backend: "codex", modelID: "gpt-5.5", label: "GPT 5.5", external: true},
-	{backend: "codex", modelID: "gpt-5.4", label: "GPT 5.4", external: true},
-	{backend: "codex", modelID: "gpt-5.4-mini", label: "GPT 5.4 Mini", external: true},
-	{backend: "codex", modelID: "gpt-5.3-codex-spark", label: "GPT 5.3 Codex Spark", external: true},
 }
 
 var agyModels = []pickerEntry{
@@ -166,6 +164,8 @@ var agyModels = []pickerEntry{
 	{backend: "agy", modelID: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash", subLabel: "high", external: true, isNew: true},
 	{backend: "agy", modelID: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash", subLabel: "medium", external: true},
 	{backend: "agy", modelID: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro", subLabel: "high", external: true},
+	{backend: "agy", modelID: "claude-opus-4-6", label: "Opus 4.6", external: true, isNew: true},
+	{backend: "agy", modelID: "claude-sonnet-4-6", label: "Sonnet 4.6", external: true, isNew: true},
 }
 
 var apiModels = []pickerEntry{
