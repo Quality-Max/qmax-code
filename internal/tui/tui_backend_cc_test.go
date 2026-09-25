@@ -7,7 +7,7 @@ import (
 	"github.com/qualitymax/qmax-code/internal/api"
 )
 
-func TestPickerIncludesClaudeCodeFableAndSonnet5(t *testing.T) {
+func TestPickerIncludesClaudeCodeFableSonnet5AndOpus55(t *testing.T) {
 	m := newModelPickerModel("cc", "", "high", "", "", true, true, false, false, false, nil)
 
 	seen := map[string]pickerEntry{}
@@ -35,16 +35,30 @@ func TestPickerIncludesClaudeCodeFableAndSonnet5(t *testing.T) {
 	if sonnet.label != "Sonnet 5" {
 		t.Errorf("Sonnet label = %q, want Sonnet 5", sonnet.label)
 	}
-	if !sonnet.isFav {
-		t.Error("Sonnet 5 should be the default Claude Code picker row")
+	if sonnet.isFav {
+		t.Error("Sonnet 5 should no longer be the default Claude Code picker row")
+	}
+
+	opus55, ok := seen[api.ModelOpus55]
+	if !ok {
+		t.Fatalf("Claude Code picker missing %s", api.ModelOpus55)
+	}
+	if opus55.label != "Opus 5.5" {
+		t.Errorf("Opus 5.5 label = %q, want Opus 5.5", opus55.label)
+	}
+	if !opus55.isFav {
+		t.Error("Opus 5.5 should be the default Claude Code picker row")
+	}
+	if !opus55.isNew {
+		t.Error("Opus 5.5 should carry the NEW badge")
 	}
 }
 
-func TestPickerClaudeCodeDefaultCursorOnSonnet5(t *testing.T) {
+func TestPickerClaudeCodeDefaultCursorOnOpus55(t *testing.T) {
 	m := newModelPickerModel("cc", "", "high", "", "", true, true, false, false, false, nil)
 	cur := m.allEntries[m.cursor]
-	if cur.backend != "cc" || cur.modelID != api.ModelSonnet5 {
-		t.Errorf("cursor on %s/%s, want cc/%s", cur.backend, cur.modelID, api.ModelSonnet5)
+	if cur.backend != "cc" || cur.modelID != api.ModelOpus55 {
+		t.Errorf("cursor on %s/%s, want cc/%s", cur.backend, cur.modelID, api.ModelOpus55)
 	}
 }
 
