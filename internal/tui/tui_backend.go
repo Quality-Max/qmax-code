@@ -141,10 +141,11 @@ type pickerEntry struct {
 var ccModels = []pickerEntry{
 	{backend: "cc", modelID: api.ModelFable51, label: "Fable 5.1", subLabel: "1M ctx · long agents", isNew: true, shortcut: '1'},
 	{backend: "cc", modelID: api.ModelFable, label: "Fable 5", subLabel: "1M ctx · long agents"},
-	{backend: "cc", modelID: api.ModelSonnet5, label: "Sonnet 5", subLabel: "1M ctx", isNew: true, isFav: true, shortcut: '2'},
-	{backend: "cc", modelID: api.ModelOpus1M, label: "Opus 4.8", subLabel: "1M ctx", shortcut: '3'},
-	{backend: "cc", modelID: api.ModelOpus, label: "Opus 4.8", shortcut: '4'},
-	{backend: "cc", modelID: api.ModelOpus47, label: "Opus 4.7", subLabel: "1M ctx", shortcut: '5'},
+	{backend: "cc", modelID: api.ModelSonnet5, label: "Sonnet 5", subLabel: "1M ctx", isNew: true, shortcut: '2'},
+	{backend: "cc", modelID: api.ModelOpus55, label: "Opus 5.5", isNew: true, isFav: true, shortcut: '3'},
+	{backend: "cc", modelID: api.ModelOpus1M, label: "Opus 4.8", subLabel: "1M ctx", shortcut: '4'},
+	{backend: "cc", modelID: api.ModelOpus, label: "Opus 4.8", shortcut: '5'},
+	{backend: "cc", modelID: api.ModelOpus47, label: "Opus 4.7", subLabel: "1M ctx"},
 	{backend: "cc", modelID: api.ModelSonnet, label: "Sonnet 4.6"},
 	{backend: "cc", modelID: api.ModelHaiku, label: "Haiku 4.5"},
 }
@@ -172,6 +173,7 @@ var apiModels = []pickerEntry{
 	{backend: "", modelID: api.ModelFable51, label: "Fable 5.1", subLabel: "1M ctx", isNew: true},
 	{backend: "", modelID: "auto", label: "auto", subLabel: "haiku→sonnet routing", isFav: true},
 	{backend: "", modelID: api.ModelSonnet, label: "Sonnet 4.6"},
+	{backend: "", modelID: api.ModelOpus55, label: "Opus 5.5", isNew: true},
 	{backend: "", modelID: api.ModelOpus, label: "Opus 4.8"},
 	{backend: "", modelID: api.ModelHaiku, label: "Haiku 4.5"},
 }
