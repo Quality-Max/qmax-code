@@ -127,3 +127,11 @@ func TestPickerIncludesFable51AndOpus55ForDirectAPI(t *testing.T) {
 		t.Error("Opus 5.5 should carry the NEW badge")
 	}
 }
+
+func TestPickerDirectAPICursorOnOpus55(t *testing.T) {
+	m := newModelPickerModel("", api.ModelOpus55, "high", "", "", false, false, false, false, false, nil)
+	cur := m.allEntries[m.cursor]
+	if cur.backend != "" || cur.modelID != api.ModelOpus55 {
+		t.Errorf("cursor on %s/%s, want direct-api/%s", cur.backend, cur.modelID, api.ModelOpus55)
+	}
+}
