@@ -211,6 +211,31 @@ func TestCCAgentSetOutputVerboseTogglesField(t *testing.T) {
 	}
 }
 
+func TestNarrationDirectiveIncludesModeLabel(t *testing.T) {
+	for _, mode := range []string{"off", "brief", "full"} {
+		got := narrationDirective(mode)
+		want := "TOOL NARRATION: " + strings.ToUpper(mode)
+		if !strings.Contains(got, want) {
+			t.Fatalf("narrationDirective(%q) missing %q; got %q", mode, want, got)
+		}
+	}
+	// Unrecognized value falls back to BRIEF.
+	if !strings.Contains(narrationDirective("bogus"), "TOOL NARRATION: BRIEF") {
+		t.Fatal("narrationDirective(bogus) should fall back to BRIEF")
+	}
+}
+
+func TestCCAgentPromptIncludesNarrationDirective(t *testing.T) {
+	a := NewCCAgent("bin", "", "high", "standard", false, "full", &api.SessionContext{})
+	if a.narrateToolCalls != "full" {
+		t.Fatalf("narrateToolCalls stored as %q, want full", a.narrateToolCalls)
+	}
+	b := NewCCAgent("bin", "", "high", "standard", false, "", &api.SessionContext{})
+	if b.narrateToolCalls != "brief" {
+		t.Fatalf("empty narrate should normalize to brief, got %q", b.narrateToolCalls)
+	}
+}
+
 func TestCCSessionIDValidation(t *testing.T) {
 	valid := []string{
 		"550e8400-e29b-41d4-a716-446655440000",
@@ -248,7 +273,7 @@ func TestCCAgentRunRejectsInvalidResumeIDBeforeExec(t *testing.T) {
 		t.Fatalf("write mcp config: %v", err)
 	}
 
-	a := NewCCAgent(claudeBin, "", "high", "standard", false, &api.SessionContext{})
+	a := NewCCAgent(claudeBin, "", "high", "standard", false, "", &api.SessionContext{})
 	a.mu.Lock()
 	a.mcpConfigPath = mcpConfigPath
 	a.ccSessionID = "$(touch pwned)"

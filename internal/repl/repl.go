@@ -742,17 +742,17 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			// Spin up the new agent with selected model + effort.
 			switch result.Backend {
 			case "cc":
-				cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				term.PrintSystem(fmt.Sprintf("Backend: Claude Code  model: %s  effort: %s", result.ModelID, result.Effort))
 			case "codex":
-				ca := agent.NewCodexAgent(agent.FindCodex(), result.ModelID, result.Effort, cfg.OutputVerbose, ag.Cfg.Context)
+				ca := agent.NewCodexAgent(agent.FindCodex(), result.ModelID, result.Effort, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				if err := ca.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: Codex MCP config: %v", err))
 				}
 				cliAgent = ca
 				term.PrintSystem(fmt.Sprintf("Backend: Codex  model: %s  policy: Codex config  prompt effort: %s", codexModelLabel(result.ModelID), result.Effort))
 			case "agy":
-				aa := agent.NewAgyAgent(agent.FindAgy(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				aa := agent.NewAgyAgent(agent.FindAgy(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				if err := aa.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: Antigravity MCP config: %v", err))
 				}
@@ -934,7 +934,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					}
 					setup.InstallSkillsReport("cc", term)
 				}
-				cliAgent = agent.NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				cliAgent = agent.NewCCAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				cfg.Backend = "cc"
 				_ = cfg.Save()
 				term.PrintSystem(fmt.Sprintf("Backend → Claude Code (%s) · %s mode", bin, cfg.OrchPermissionMode))
@@ -959,7 +959,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					}
 					setup.InstallSkillsReport("codex", term)
 				}
-				ca := agent.NewCodexAgent(bin, cfg.CodexModel, cfg.Effort, cfg.OutputVerbose, ag.Cfg.Context)
+				ca := agent.NewCodexAgent(bin, cfg.CodexModel, cfg.Effort, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				if err := ca.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
 				}
@@ -970,7 +970,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 
 			case "agy":
 				bin := agent.FindAgy()
-				aa := agent.NewAgyAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, ag.Cfg.Context)
+				aa := agent.NewAgyAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				if err := aa.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
 				}

@@ -34,6 +34,8 @@ import (
 //	professional      → bool ("true" / "false")
 //	auto_save         → bool
 //	output_verbose    → bool (compact vs previous detailed answer style)
+//	narrate_tool_calls → "off" | "brief" (default) | "full" — how much the CLI
+//	                     agent prefaces each tool call in the transcript
 //	max_token_budget  → integer
 //	plan_window_hours → integer (subscription plan rolling window; 0 = 5h default)
 func handleConfigCommand(args []string) {
@@ -90,6 +92,7 @@ func printConfig() {
 	fmt.Printf("    professional      = %t\n", cfg.Professional)
 	fmt.Printf("    auto_save         = %t\n", cfg.AutoSave)
 	fmt.Printf("    output_verbose    = %t\n", cfg.OutputVerbose)
+	fmt.Printf("    narrate_tool_calls = %q\n", api.NormalizeNarrateToolCalls(cfg.NarrateToolCalls))
 	fmt.Printf("    max_token_budget  = %d\n", cfg.MaxTokenBudget)
 	planWindow := cfg.PlanWindowHours
 	if planWindow == 0 {
@@ -245,6 +248,23 @@ func setConfigField(key, value string) error {
 			return err
 		}
 		cfg.OutputVerbose = b
+
+	case "narrate_tool_calls":
+		if value == "" {
+			cfg.NarrateToolCalls = ""
+			break
+		}
+		v := strings.ToLower(strings.TrimSpace(value))
+		switch v {
+		case "off", "none", "silent":
+			cfg.NarrateToolCalls = "off"
+		case "brief", "default":
+			cfg.NarrateToolCalls = "brief"
+		case "full", "verbose", "detailed":
+			cfg.NarrateToolCalls = "full"
+		default:
+			return fmt.Errorf("narrate_tool_calls must be one of off|brief|full, got %q", value)
+		}
 
 	case "max_token_budget":
 		if value == "" {

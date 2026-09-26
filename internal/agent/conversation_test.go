@@ -106,11 +106,11 @@ cat > "$QMAX_TEST_PROMPT_PATH"
 printf '%s\n' '{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-1234567890ab"}' '{"type":"item.completed","item":{"type":"command_execution","command":"go test ./...","aggregated_output":"all tests passed","exit_code":0}}' '{"type":"item.completed","item":{"type":"agent_message","text":"first result"}}'
 `)
 	a := &Agent{}
-	first := NewCodexAgent(bin, "gpt-6-astra", "high", false, &api.SessionContext{})
+	first := NewCodexAgent(bin, "gpt-6-astra", "high", false, "", &api.SessionContext{})
 	if _, err := a.RunCLI(first, "original requirement", nil); err != nil {
 		t.Fatal(err)
 	}
-	next := NewCodexAgent(bin, "gpt-6-astra", "low", false, &api.SessionContext{})
+	next := NewCodexAgent(bin, "gpt-6-astra", "low", false, "", &api.SessionContext{})
 	if _, err := a.RunCLI(next, "follow up", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-123
 	}
 	restored := &Agent{}
 	restored.RestoreConversation(saved.Messages, saved.Conversation)
-	changed := NewCodexAgent(bin, "gpt-5.5", "medium", false, &api.SessionContext{})
+	changed := NewCodexAgent(bin, "gpt-5.5", "medium", false, "", &api.SessionContext{})
 	if _, err := restored.RunCLI(changed, "finish", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -164,9 +164,9 @@ func TestNativeRestoreAndResetAllBackends(t *testing.T) {
 		cli  CLIAgent
 		id   string
 	}{
-		{"cc", NewCCAgent("unused", "", "high", "standard", false, nil), firstAdapterThreadID},
-		{"codex", NewCodexAgent("unused", "", "high", false, nil), firstAdapterThreadID},
-		{"agy", NewAgyAgent("unused", "", "high", "standard", false, nil), firstAdapterThreadID},
+		{"cc", NewCCAgent("unused", "", "high", "standard", false, "", nil), firstAdapterThreadID},
+		{"codex", NewCodexAgent("unused", "", "high", false, "", nil), firstAdapterThreadID},
+		{"agy", NewAgyAgent("unused", "", "high", "standard", false, "", nil), firstAdapterThreadID},
 		{"opencode", NewOpenCodeAgent("unused", "", "high", "standard", false, nil, nil), "ses_abc123"},
 	}
 	for _, tc := range cases {

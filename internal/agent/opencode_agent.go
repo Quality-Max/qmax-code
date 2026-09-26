@@ -233,9 +233,13 @@ func (a *OpenCodeAgent) runAttempt(ctx context.Context, safeUserMsg, configPath 
 	// On the first turn of a session, prepend the QA system prompt + effort/output
 	// directives. Effort/output preferences are refreshed on every turn, including
 	// native resumes after the user changes settings.
-	message := effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + safeUserMsg
+	narrate := ""
+	if a.cfg != nil {
+		narrate = a.cfg.NarrateToolCalls
+	}
+	message := effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + narrationDirective(api.NormalizeNarrateToolCalls(narrate)) + "\n\n" + safeUserMsg
 	if a.sessionID == "" {
-		message = cliQASystemPrompt(a.sctx, codexQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + safeUserMsg
+		message = cliQASystemPrompt(a.sctx, codexQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + narrationDirective(api.NormalizeNarrateToolCalls(narrate)) + "\n\n" + safeUserMsg
 	}
 	sessionID := a.sessionID
 	a.mu.Unlock()

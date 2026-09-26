@@ -23,7 +23,7 @@ else
 fi
 printf '%s\n' "{\"type\":\"thread.started\",\"thread_id\":\"$thread_id\"}"
 `)
-	a := NewCodexAgent(codexBin, "", "high", false, &api.SessionContext{})
+	a := NewCodexAgent(codexBin, "", "high", false, "", &api.SessionContext{})
 
 	if _, err := a.Run(strings.Repeat(t.Name(), 1), nil); err != nil {
 		t.Fatal("initial adapter turn failed")
@@ -42,7 +42,7 @@ printf '%s\n' "{\"type\":\"thread.started\",\"thread_id\":\"$thread_id\"}"
 }
 
 func TestCodexAgentAddsQAScaffoldOnlyToInitialTurn(t *testing.T) {
-	a := NewCodexAgent("codex", "", "high", false, &api.SessionContext{})
+	a := NewCodexAgent("codex", "", "high", false, "", &api.SessionContext{})
 
 	initial := a.buildPrompt(strings.Repeat(t.Name(), 1), true)
 	if !strings.Contains(initial, codexQASystemPrompt) {
@@ -70,7 +70,7 @@ else
 fi
 printf '%s\n' "{\"type\":\"thread.started\",\"thread_id\":\"$thread_id\"}"
 `)
-	a := NewCodexAgent(codexBin, "gpt-6-astra", "high", false, &api.SessionContext{})
+	a := NewCodexAgent(codexBin, "gpt-6-astra", "high", false, "", &api.SessionContext{})
 	for i := 0; i < 3; i++ {
 		if i == 2 {
 			a.ClearHistory()
@@ -116,7 +116,7 @@ printf '%%s\n' '{"type":"turn.started"}'
 printf '%%s\n' "{\"type\":\"turn.failed\",\"error\":{\"message\":\"%s\"}}"
 `, test.message)
 			codexBin := writeFakeCLI(t, "codex-classified", script)
-			a := NewCodexAgent(codexBin, "", "high", false, &api.SessionContext{})
+			a := NewCodexAgent(codexBin, "", "high", false, "", &api.SessionContext{})
 			_, err := a.Run("probe", nil)
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("Run() error = %v, want %v", err, test.wantErr)
