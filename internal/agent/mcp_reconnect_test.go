@@ -31,7 +31,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"11111111-1111-4111-8111-111
 printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"codex ok"}}'
 `)
 
-	a := NewCodexAgent(codexBin, "", "high", false, &api.SessionContext{
+	a := NewCodexAgent(codexBin, "", "high", false, "", &api.SessionContext{
 		ProjectID: 88,
 		LiveFeed:  true,
 		LocalOnly: true,
@@ -73,7 +73,7 @@ func TestCCRunRestoresDeletedMCPConfigBeforeExec(t *testing.T) {
 printf '%s\n' '{"type":"result","result":"cc ok"}'
 `)
 
-	a := NewCCAgent(claudeBin, "", "high", "standard", false, &api.SessionContext{ProjectID: 42, LocalOnly: true})
+	a := NewCCAgent(claudeBin, "", "high", "standard", false, "", &api.SessionContext{ProjectID: 42, LocalOnly: true})
 	if err := a.WriteMCPConfig(); err != nil {
 		t.Fatalf("initial WriteMCPConfig: %v", err)
 	}
