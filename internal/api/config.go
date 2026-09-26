@@ -109,6 +109,14 @@ type Config struct {
 	// false = compact terminal reports; true = previous detailed report style.
 	OutputVerbose bool `json:"output_verbose,omitempty"`
 
+	// NarrateToolCalls controls how much the CLI agent prefaces each tool call
+	// in the transcript. Applies to all subprocess backends (cc/codex/agy/opencode).
+	//   "off"   = no preface; chained tool-call icons with only end-summary prose
+	//   "brief" = one-line preface quoting the command or snippet (default)
+	//   "full"  = preface + quoted key output line after; snippets always shown
+	// Injected into the turn-1 system prompt via narrationDirective.
+	NarrateToolCalls string `json:"narrate_tool_calls,omitempty"`
+
 	// CloudSync controls whether sessions are synced to the QualityMax cloud.
 	// nil = not asked yet (prompt fires on the next eligible session).
 	// true = opted in, false = opted out.
@@ -239,8 +247,23 @@ func (c *Config) Save() error {
 
 func DefaultConfig() *Config {
 	return &Config{
-		DefaultModel:   "auto",
-		AutoSave:       true,
-		MaxTokenBudget: 200000,
+		DefaultModel:     "auto",
+		AutoSave:         true,
+		MaxTokenBudget:   200000,
+		NarrateToolCalls: "brief",
+	}
+}
+
+// NormalizeNarrateToolCalls returns a valid narrate_tool_calls value ("off",
+// "brief", or "full"), falling back to "brief" when the input is empty or
+// unrecognized. Case-insensitive.
+func NormalizeNarrateToolCalls(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "off", "none", "silent":
+		return "off"
+	case "full", "verbose", "detailed":
+		return "full"
+	default:
+		return "brief"
 	}
 }

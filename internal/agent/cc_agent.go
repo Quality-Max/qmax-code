@@ -73,8 +73,9 @@ type CCAgent struct {
 	claudeBin      string
 	modelID        string // "" = let CC decide; otherwise passed as --model
 	effort         string // "low" | "medium" | "high" — injected into system prompt
-	outputVerbose  bool   // false = compact answer style; true = previous detailed style
-	permissionMode string // "standard" | "unattended" — see Run() for behavior
+	outputVerbose    bool   // false = compact answer style; true = previous detailed style
+	narrateToolCalls string // "off" | "brief" | "full" — see narrationDirective
+	permissionMode   string // "standard" | "unattended" — see Run() for behavior
 	ccSessionID    string // CC's own session ID, for --resume
 	mcpConfigPath  string // temp MCP config written once per qmax session
 	mcpConfigInfo  os.FileInfo
@@ -216,7 +217,7 @@ func FindClaudeCode() string {
 // effort is "low" | "medium" | "high" (empty defaults to "high").
 // permissionMode is "standard" (curated allowlist) or "unattended"
 // (--dangerously-skip-permissions). Both require explicit user consent.
-func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose bool, sctx *api.SessionContext) *CCAgent {
+func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose bool, narrateToolCalls string, sctx *api.SessionContext) *CCAgent {
 	if effort == "" {
 		effort = "high"
 	}
@@ -224,12 +225,13 @@ func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose
 		permissionMode = "standard"
 	}
 	return &CCAgent{
-		claudeBin:      claudeBin,
-		modelID:        modelID,
-		effort:         effort,
-		outputVerbose:  outputVerbose,
-		permissionMode: permissionMode,
-		sctx:           sctx,
+		claudeBin:        claudeBin,
+		modelID:          modelID,
+		effort:           effort,
+		outputVerbose:    outputVerbose,
+		narrateToolCalls: api.NormalizeNarrateToolCalls(narrateToolCalls),
+		permissionMode:   permissionMode,
+		sctx:             sctx,
 	}
 }
 
@@ -418,7 +420,7 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		return "", err
 	}
 
-	systemPrompt := cliQASystemPrompt(a.sctx, ccQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose)
+	systemPrompt := cliQASystemPrompt(a.sctx, ccQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + narrationDirective(a.narrateToolCalls)
 
 	args := []string{
 		"--print",
@@ -739,6 +741,23 @@ func outputStyleDirective(verbose bool) string {
 		return "\n\nOUTPUT MODE: VERBOSE — Use the previous detailed response style. Include material findings, rationale, coverage gaps, and the next highest-impact action. Do not dump raw JSON unless explicitly requested."
 	}
 	return "\n\nOUTPUT MODE: COMPACT — Keep final answers short and high-signal by default. Lead with the result, use at most 3-5 bullets unless critical failures require more, and avoid low-risk enumeration. Still fetch real data, run tests, diagnose failures, and flag high-risk coverage gaps."
+}
+
+// narrationDirective controls how much the agent prefaces each tool call in
+// the transcript. "off" keeps the current terse chained-tool-call behavior;
+// "brief" (default) asks for a one-line preface quoting the command or
+// snippet; "full" additionally asks for a quoted key output line after each
+// non-trivial tool call. Applied on top of OUTPUT MODE so a compact final
+// answer can still coexist with informative in-flight narration.
+func narrationDirective(mode string) string {
+	switch mode {
+	case "off":
+		return "\n\nTOOL NARRATION: OFF — Chain tool calls without prose between them when the plan is obvious. Only narrate when a tool call fails or when direction changes."
+	case "full":
+		return "\n\nTOOL NARRATION: FULL — Before each non-trivial tool call, output one line quoting the exact command (```bash …```) or the snippet about to be written; after the tool returns, quote the specific output line that mattered (test count, PR URL, error). Never chain 3+ silent tool calls."
+	default: // "brief" and any unrecognized value
+		return "\n\nTOOL NARRATION: BRIEF — Before each non-trivial tool call, output one short line quoting the exact command or the snippet about to be written. Skip the preface for trivial reads. Never chain 3+ silent tool calls."
+	}
 }
 
 func (a *CCAgent) SetOutputVerbose(verbose bool) {
