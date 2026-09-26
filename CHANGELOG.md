@@ -4,6 +4,41 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.37.0] - 2026-09-26
+
+### Added
+- `/orch` picker: Opus 5.5 (`claude-opus-5-5`) is now the default (⭐)
+  Claude Code entry on shortcut `3`, marked NEW. Also added to the
+  Direct API section, again marked NEW. Sonnet 5 remains on shortcut
+  `2` but is no longer the default; Opus 4.8 (1M and standard) shift
+  to shortcuts `4`/`5`; Opus 4.7 remains selectable without a
+  shortcut. Picker tests cover the new Direct API row and default
+  cursor placement. (#209)
+- `narrate_tool_calls` config knob controlling how much the CLI agent
+  prefaces each tool call in the transcript. Values `off` / `brief`
+  (default) / `full`; set via `qmax-code config set narrate_tool_calls
+  <value>` (synonyms accepted: `none`/`silent` → `off`,
+  `verbose`/`detailed` → `full`). Injected into the turn-1 system
+  prompt for all four subprocess backends (cc/codex/agy/opencode) via
+  the new `narrationDirective` helper, sibling of the existing
+  `effortDirective` / `outputStyleDirective`. (#210)
+
+### Security
+- `narrationDirective` carries a mandatory redaction clause in every
+  mode (off/brief/full). The subprocess agent is told to replace API
+  keys, bearer/OAuth/session tokens, passwords, private keys,
+  `Authorization:` / `Cookie:` header values, connection strings,
+  `--token=`/`--api-key=`/`--password=`/`--secret=` flag values,
+  `AWS_*` / `GITHUB_TOKEN` / `ANTHROPIC_API_KEY` / other `*_KEY` /
+  `*_TOKEN` / `*_SECRET` env-var values, and webhook signing secrets
+  with `<REDACTED>` before echoing commands, snippets, output lines,
+  or errors into the narration channel. Raw `env` / `printenv` /
+  `railway variables` output and `.env*` contents must not be quoted
+  in narration. Subprocess agents (Codex, Antigravity, opencode) do
+  not inherit qmax-code's own CLAUDE.md secret-handling rules, so the
+  guard is spelled out in the injected system prompt. Guarded by
+  `TestNarrationDirectiveCarriesRedactionClause`. (#211)
+
 ## [1.36.0] - 2026-09-25
 
 ### Added
