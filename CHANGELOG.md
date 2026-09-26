@@ -4,7 +4,7 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
-## [1.37.0] - 2026-09-26
+## [1.37.0] - 2026-09-27
 
 ### Added
 - `/orch` picker: Opus 5.5 (`claude-opus-5-5`) is now the default (⭐)
