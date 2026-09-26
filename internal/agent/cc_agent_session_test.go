@@ -225,6 +225,43 @@ func TestNarrationDirectiveIncludesModeLabel(t *testing.T) {
 	}
 }
 
+// TestNarrationDirectiveCarriesRedactionClause guards the credential-leak
+// mitigation Copilot flagged on #210: every mode (off/brief/full) must tell
+// the subprocess agent to redact secrets before echoing commands, snippets,
+// output lines, or errors into the transcript. If someone loosens the
+// directive without replacing the guard, this test breaks loudly.
+func TestNarrationDirectiveCarriesRedactionClause(t *testing.T) {
+	// Named secret classes the directive must call out by name. Missing any
+	// of these means the mitigation regressed and the release is unsafe.
+	mustName := []string{
+		"REDACTION",
+		"<REDACTED>",
+		"API keys",
+		"bearer",
+		"token",
+		"password",
+		"private key",
+		"Authorization:",
+		"Cookie:",
+		"connection string",
+		"--token=",
+		"--api-key=",
+		"env-var",
+		"webhook signing",
+		"env", // "raw `env` / `printenv` ..."
+		"printenv",
+		".env",
+	}
+	for _, mode := range []string{"off", "brief", "full", "bogus"} {
+		got := narrationDirective(mode)
+		for _, want := range mustName {
+			if !strings.Contains(got, want) {
+				t.Errorf("narrationDirective(%q) missing redaction clause item %q", mode, want)
+			}
+		}
+	}
+}
+
 func TestCCAgentPromptIncludesNarrationDirective(t *testing.T) {
 	a := NewCCAgent("bin", "", "high", "standard", false, "full", &api.SessionContext{})
 	if a.narrateToolCalls != "full" {
