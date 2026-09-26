@@ -95,10 +95,35 @@ func TestPickerOffersEverySupportedCodexModel(t *testing.T) {
 	}
 }
 
-func TestPickerIncludesFable51ForDirectAPI(t *testing.T) {
+func TestPickerIncludesFable51AndOpus55ForDirectAPI(t *testing.T) {
 	m := newModelPickerModel("", api.ModelFable51, "high", "", "", false, false, false, false, false, nil)
-	cur := m.allEntries[m.cursor]
-	if cur.backend != "" || cur.modelID != api.ModelFable51 {
-		t.Fatal("direct API Fable 5.1 selection is missing")
+
+	seen := map[string]pickerEntry{}
+	for _, e := range m.allEntries {
+		if e.backend == "" {
+			seen[e.modelID] = e
+		}
+	}
+
+	fable, ok := seen[api.ModelFable51]
+	if !ok {
+		t.Fatalf("Direct API picker missing %s", api.ModelFable51)
+	}
+	if fable.label != "Fable 5.1" {
+		t.Errorf("Fable label = %q, want Fable 5.1", fable.label)
+	}
+	if !fable.isNew {
+		t.Error("Fable 5.1 should carry the NEW badge")
+	}
+
+	opus55, ok := seen[api.ModelOpus55]
+	if !ok {
+		t.Fatalf("Direct API picker missing %s", api.ModelOpus55)
+	}
+	if opus55.label != "Opus 5.5" {
+		t.Errorf("Opus 5.5 label = %q, want Opus 5.5", opus55.label)
+	}
+	if !opus55.isNew {
+		t.Error("Opus 5.5 should carry the NEW badge")
 	}
 }
