@@ -129,6 +129,7 @@ func printConfig() {
 		cerebrasReasoning = "none (default — Gemma 4 thinking off)"
 	}
 	fmt.Printf("    cerebras_reasoning_effort = %q\n", cerebrasReasoning)
+	fmt.Printf("    vision_sidecar   = %q  (auto = Gemma 4 reads images for known text-only models like Z.AI GLM; always = every CLI backend; off = never; needs a Cerebras key)\n", cfg.VisionSidecarMode())
 	backend := cfg.Backend
 	if backend == "" {
 		backend = "api"
@@ -318,6 +319,16 @@ func setConfigField(key, value string) error {
 			return fmt.Errorf("invalid cerebras_reasoning_effort %q; allowed: none, low, medium, high", value)
 		}
 		cfg.CerebrasReasoningEffort = api.NormalizeCerebrasReasoningEffort(value)
+
+	case "vision_sidecar", "vision-sidecar":
+		if value == "" {
+			cfg.VisionSidecar = "" // unset → auto
+			break
+		}
+		if !api.ValidVisionSidecarMode(value) {
+			return fmt.Errorf("invalid vision_sidecar %q; allowed: auto, always, off", value)
+		}
+		cfg.VisionSidecar = strings.ToLower(strings.TrimSpace(value))
 
 	case "theme":
 		return tui.SaveTheme(cfg, value)
