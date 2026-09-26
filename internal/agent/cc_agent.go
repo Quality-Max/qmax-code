@@ -754,7 +754,7 @@ func narrationDirective(mode string) string {
 	case "off":
 		return "\n\nTOOL NARRATION: OFF — Chain tool calls without prose between them when the plan is obvious. Only narrate when a tool call fails or when direction changes."
 	case "full":
-		return "\n\nTOOL NARRATION: FULL — Before each non-trivial tool call, output one line quoting the exact command (```bash …```) or the snippet about to be written; after the tool returns, quote the specific output line that mattered (test count, PR URL, error). Never chain 3+ silent tool calls."
+		return "\n\nTOOL NARRATION: FULL — Before each non-trivial tool call, output one line quoting a redacted form of the command (```bash …```) or snippet about to be written; after the tool returns, quote a redacted key output line that mattered (test count, PR URL, error). Never include credentials, tokens, cookies, or other secrets in narration. Never chain 3+ silent tool calls."
 	default: // "brief" and any unrecognized value
 		return "\n\nTOOL NARRATION: BRIEF — Before each non-trivial tool call, output one short line quoting the exact command or the snippet about to be written. Skip the preface for trivial reads. Never chain 3+ silent tool calls."
 	}
