@@ -749,14 +749,25 @@ func outputStyleDirective(verbose bool) string {
 // snippet; "full" additionally asks for a quoted key output line after each
 // non-trivial tool call. Applied on top of OUTPUT MODE so a compact final
 // answer can still coexist with informative in-flight narration.
+//
+// Every mode carries the same REDACTION clause: whatever the model chooses
+// to echo (command text, snippet, output line, error) must strip secrets
+// before printing. Subprocess agents (Codex, Antigravity, opencode) do not
+// inherit qmax-code's own CLAUDE.md secret-handling rules, so the guard is
+// spelled out here to prevent narrated transcripts from leaking credentials.
 func narrationDirective(mode string) string {
+	// redaction is repeated in every mode because "off" still narrates on
+	// failure ("only narrate when a tool call fails"), and the failure output
+	// is exactly where secrets tend to appear (401 responses, curl -v dumps,
+	// env-var listings from a broken test).
+	const redaction = " REDACTION (applies to any text you narrate — command, snippet, output, error): before printing, replace secrets with `<REDACTED>`. Treat as secret: API keys, bearer/OAuth/session tokens, passwords, private keys, `Authorization:` and `Cookie:` header values, connection strings (postgres://user:pass@…, redis://…), `--token=`/`--api-key=`/`--password=`/`--secret=` flag values, `AWS_*` / `GITHUB_TOKEN` / `ANTHROPIC_API_KEY` / other `*_KEY` / `*_TOKEN` / `*_SECRET` env-var values, webhook signing secrets, and anything the surrounding text calls a key/token/secret. When in doubt, redact. Never quote raw `env` / `printenv` / `railway variables` output or `.env*` file contents in narration."
 	switch mode {
 	case "off":
-		return "\n\nTOOL NARRATION: OFF — Chain tool calls without prose between them when the plan is obvious. Only narrate when a tool call fails or when direction changes."
+		return "\n\nTOOL NARRATION: OFF — Chain tool calls without prose between them when the plan is obvious. Only narrate when a tool call fails or when direction changes." + redaction
 	case "full":
-		return "\n\nTOOL NARRATION: FULL — Before each non-trivial tool call, output one line quoting a redacted form of the command (```bash …```) or snippet about to be written; after the tool returns, quote a redacted key output line that mattered (test count, PR URL, error). Never include credentials, tokens, cookies, or other secrets in narration. Never chain 3+ silent tool calls."
+		return "\n\nTOOL NARRATION: FULL — Before each non-trivial tool call, output one line quoting the command (```bash …```) or snippet about to be written; after the tool returns, quote the key output line that mattered (test count, PR URL, error). Never chain 3+ silent tool calls." + redaction
 	default: // "brief" and any unrecognized value
-		return "\n\nTOOL NARRATION: BRIEF — Before each non-trivial tool call, output one short line quoting the exact command or the snippet about to be written. Skip the preface for trivial reads. Never chain 3+ silent tool calls."
+		return "\n\nTOOL NARRATION: BRIEF — Before each non-trivial tool call, output one short line quoting the command or the snippet about to be written. Skip the preface for trivial reads. Never chain 3+ silent tool calls." + redaction
 	}
 }
 
