@@ -1309,6 +1309,18 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		} else {
 			cancelCurrent = ag.CancelCurrent
 		}
+		// The vision sidecar runs before the CLI subprocess exists, so
+		// cliAgent.Cancel can't reach it; Esc must cancel it explicitly.
+		sidecarCtx, sidecarCancel := context.WithCancel(context.Background())
+		if useVisionSidecar {
+			cancelTurn := cancelCurrent
+			cancelCurrent = func() {
+				sidecarCancel()
+				cancelTurn()
+				// Covers the embedded fallback below; a no-op when idle.
+				ag.CancelCurrent()
+			}
+		}
 		// CC mode: delegate entirely to Claude Code subprocess. This does not
 		// require a QM Anthropic API key, but `claude --print` usage draws from
 		// the user's Agent SDK credit starting 2026-06-15.
@@ -1386,13 +1398,34 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 						names[i] = img.FileName
 					}
 					term.PrintSystem(fmt.Sprintf("Reading %d image(s) with the Gemma 4 vision sidecar (%s)…", len(images), strings.Join(names, ", ")))
-					desc, derr := agent.DescribeImagesWithGemma(context.Background(), ag.AppConfig, images, cleanInput)
-					if derr != nil {
-						term.PrintError(fmt.Sprintf("Vision sidecar failed (%v) — running the turn without image content.", derr))
-					} else if augmented, aerr := agent.BuildSidecarAugmentedPrompt(cleanInput, images, desc); aerr != nil {
-						term.PrintError(fmt.Sprintf("Vision sidecar: %v — running the turn without image content.", aerr))
-					} else {
+					desc, derr := agent.DescribeImagesWithGemma(sidecarCtx, ag.AppConfig, images, cleanInput)
+					if sidecarCtx.Err() != nil {
+						term.PrintSystem("Vision sidecar cancelled — turn skipped.")
+						return
+					}
+					augmented := ""
+					if derr == nil {
+						augmented, derr = agent.BuildSidecarAugmentedPrompt(cleanInput, images, desc)
+					}
+					switch {
+					case derr == nil:
 						cliPrompt = augmented
+					case len(turnImages) > 0 && embeddedInferenceAvailable(ag):
+						// /screenshot and image /paste always reached the embedded
+						// multimodal backend before the sidecar existed; don't
+						// drop the image just because the sidecar failed.
+						term.PrintError(fmt.Sprintf("Vision sidecar failed (%v) — falling back to the built-in multimodal backend.", derr))
+						runWithCLI = false
+						if cleanInput == "" {
+							cleanInput = "Analyze these images."
+						}
+						llmResult, err = ag.RunStreamingWithImages(cleanInput, images, term)
+						return
+					case len(turnImages) > 0:
+						err = fmt.Errorf("vision sidecar failed (%v) and no multimodal backend is configured — image not sent; add an Anthropic key with /keys", derr)
+						return
+					default:
+						term.PrintError(fmt.Sprintf("Vision sidecar failed (%v) — running the turn without image content.", derr))
 					}
 				} else if len(images) > 0 {
 					term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
@@ -1433,6 +1466,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				llmResult, err = ag.RunStreaming(input, term)
 			}
 		})
+		sidecarCancel()
 		lastTurnDur = time.Since(turnStarted)
 		if err == nil {
 			lastTask = cleanInput

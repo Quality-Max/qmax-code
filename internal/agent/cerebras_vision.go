@@ -97,6 +97,19 @@ func sidecarDescribePrompt(userPrompt string, fileNames []string) string {
 	return b.String()
 }
 
+// usableSidecarImages returns the attachments that carry image data. Both
+// DescribeImagesWithGemma and BuildSidecarAugmentedPrompt filter through it
+// so the header names exactly the images Gemma saw.
+func usableSidecarImages(imgs []tui.ImageAttachment) []tui.ImageAttachment {
+	out := make([]tui.ImageAttachment, 0, len(imgs))
+	for _, img := range imgs {
+		if img.MediaType != "" && img.Data != "" {
+			out = append(out, img)
+		}
+	}
+	return out
+}
+
 // DescribeImagesWithGemma makes one Cerebras call with gemma-4-31b (always
 // the multimodal model, even when the user's active Cerebras model is a
 // text-only one) and returns a per-image text description. All usable
@@ -127,12 +140,10 @@ func DescribeImagesWithGemma(ctx context.Context, cfg *api.Config, imgs []tui.Im
 	ctx, cancel := context.WithTimeout(ctx, visionSidecarTimeout)
 	defer cancel()
 
-	parts := make([]oaiContentPart, 0, len(imgs)+1)
-	names := make([]string, 0, len(imgs))
-	for _, img := range imgs {
-		if img.MediaType == "" || img.Data == "" {
-			continue
-		}
+	usable := usableSidecarImages(imgs)
+	parts := make([]oaiContentPart, 0, len(usable)+1)
+	names := make([]string, 0, len(usable))
+	for _, img := range usable {
 		parts = append(parts, oaiContentPart{
 			Type:     "image_url",
 			ImageURL: &oaiImageURL{URL: "data:" + img.MediaType + ";base64," + img.Data},
@@ -164,6 +175,9 @@ func DescribeImagesWithGemma(ctx context.Context, cfg *api.Config, imgs []tui.Im
 // turn's user prompt under explicit delimiters, so the text-only model knows
 // exactly where the image content came from and what it covers.
 func BuildSidecarAugmentedPrompt(userPrompt string, imgs []tui.ImageAttachment, description string) (string, error) {
+	// Name only the images Gemma was actually sent, so its [n] numbering
+	// lines up with the header.
+	imgs = usableSidecarImages(imgs)
 	if len(imgs) == 0 {
 		return "", fmt.Errorf("no images to augment the prompt with")
 	}
@@ -171,10 +185,13 @@ func BuildSidecarAugmentedPrompt(userPrompt string, imgs []tui.ImageAttachment, 
 	if desc == "" {
 		return "", fmt.Errorf("empty image description")
 	}
-	
-	// Sanitize output to prevent indirect prompt injection breaking out of the tags.
-	desc = strings.ReplaceAll(desc, "</image-descriptions>", `<\/image-descriptions>`)
-	
+
+	// Sanitize output to prevent indirect prompt injection breaking out of the
+	// tags. Escape every '<' rather than matching the closing tag: Gemma echoes
+	// on-screen text verbatim, so case and whitespace variants
+	// (</IMAGE-DESCRIPTIONS>, </image-descriptions >) must be neutralized too.
+	desc = strings.ReplaceAll(desc, "<", "&lt;")
+
 	names := make([]string, len(imgs))
 	for i, img := range imgs {
 		names[i] = img.FileName
