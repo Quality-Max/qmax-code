@@ -1270,7 +1270,14 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		// multimodal backend even when a CLI backend is selected. Keep that
 		// behaviour; dragged image paths still follow the CLI's unsupported-note
 		// path as before.
-		runWithCLI := cliAgent != nil && len(turnImages) == 0
+		// Vision sidecar: when the active CLI model cannot see images (Z.AI
+		// GLM via opencode in auto mode, any backend in always mode) and a
+		// Cerebras key exists, Gemma 4 reads the attachments and the
+		// description rides along in the CLI prompt — the capable text
+		// model keeps the turn instead of losing it to the embedded
+		// multimodal backend.
+		useVisionSidecar := cliAgent != nil && len(images) > 0 && agent.ShouldUseVisionSidecar(ag.AppConfig, currentBackend(ag))
+		runWithCLI := (cliAgent != nil && len(turnImages) == 0) || useVisionSidecar
 
 		// A direct-API turn with no key configured can only fail mid-request
 		// with a raw 401. Refuse it up front, with the exact commands that
@@ -1301,6 +1308,18 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			cancelCurrent = cliAgent.Cancel
 		} else {
 			cancelCurrent = ag.CancelCurrent
+		}
+		// The vision sidecar runs before the CLI subprocess exists, so
+		// cliAgent.Cancel can't reach it; Esc must cancel it explicitly.
+		sidecarCtx, sidecarCancel := context.WithCancel(context.Background())
+		if useVisionSidecar {
+			cancelTurn := cancelCurrent
+			cancelCurrent = func() {
+				sidecarCancel()
+				cancelTurn()
+				// Covers the embedded fallback below; a no-op when idle.
+				ag.CancelCurrent()
+			}
 		}
 		// CC mode: delegate entirely to Claude Code subprocess. This does not
 		// require a QM Anthropic API key, but `claude --print` usage draws from
@@ -1372,11 +1391,47 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 
 		turnInput := tui.RunTurnViewport(term, term.Prompt(), inputStatus(), cancelCurrent, func() {
 			if runWithCLI {
-				if len(images) > 0 {
+				cliPrompt := cleanInput
+				if useVisionSidecar {
+					names := make([]string, len(images))
+					for i, img := range images {
+						names[i] = img.FileName
+					}
+					term.PrintSystem(fmt.Sprintf("Reading %d image(s) with the Gemma 4 vision sidecar (%s)…", len(images), strings.Join(names, ", ")))
+					desc, derr := agent.DescribeImagesWithGemma(sidecarCtx, ag.AppConfig, images, cleanInput)
+					if sidecarCtx.Err() != nil {
+						term.PrintSystem("Vision sidecar cancelled — turn skipped.")
+						return
+					}
+					augmented := ""
+					if derr == nil {
+						augmented, derr = agent.BuildSidecarAugmentedPrompt(cleanInput, images, desc)
+					}
+					switch {
+					case derr == nil:
+						cliPrompt = augmented
+					case len(turnImages) > 0 && embeddedInferenceAvailable(ag):
+						// /screenshot and image /paste always reached the embedded
+						// multimodal backend before the sidecar existed; don't
+						// drop the image just because the sidecar failed.
+						term.PrintError(fmt.Sprintf("Vision sidecar failed (%v) — falling back to the built-in multimodal backend.", derr))
+						runWithCLI = false
+						if cleanInput == "" {
+							cleanInput = "Analyze these images."
+						}
+						llmResult, err = ag.RunStreamingWithImages(cleanInput, images, term)
+						return
+					case len(turnImages) > 0:
+						err = fmt.Errorf("vision sidecar failed (%v) and no multimodal backend is configured — image not sent; add an Anthropic key with /keys", derr)
+						return
+					default:
+						term.PrintError(fmt.Sprintf("Vision sidecar failed (%v) — running the turn without image content.", derr))
+					}
+				} else if len(images) > 0 {
 					term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
 				}
 				term.StartThinking()
-				llmResult, err = ag.RunCLI(cliAgent, cleanInput, term)
+				llmResult, err = ag.RunCLI(cliAgent, cliPrompt, term)
 				term.StopThinking()
 
 				turnIn, turnOut := 0, 0
@@ -1411,6 +1466,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				llmResult, err = ag.RunStreaming(input, term)
 			}
 		})
+		sidecarCancel()
 		lastTurnDur = time.Since(turnStarted)
 		if err == nil {
 			lastTask = cleanInput
@@ -1949,7 +2005,7 @@ const (
 	settingAppliedNoSave                      // applied; persistence handled elsewhere (keychain/auth.json/runtime)
 )
 
-const setUsageKeys = "Keys: model, project, local_only, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, anthropic_key, ollama, backend, cerebras_model, cerebras_reasoning_effort, theme"
+const setUsageKeys = "Keys: model, project, local_only, professional, autosave, cloud_sync, live_feed, output_verbose, budget, apikey, anthropic_key, ollama, backend, cerebras_model, cerebras_reasoning_effort, vision_sidecar, theme"
 
 // handleSetCommand implements /set. Bare `/set` opens the interactive
 // settings picker (the keyboard-friendly form of this command); `/set <key>`
@@ -2282,6 +2338,15 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 		tui.ApplyTheme(tui.ThemeByName(cfg.Theme))
 		term.PrintSystem(fmt.Sprintf("Theme set to: %s", cfg.Theme))
 
+	case "vision_sidecar", "vision-sidecar":
+		if !api.ValidVisionSidecarMode(value) {
+			term.PrintError(fmt.Sprintf("Value must be auto, always, or off; %q is invalid.", value))
+			return settingInvalid
+		}
+		cfg.VisionSidecar = strings.ToLower(strings.TrimSpace(value))
+		term.PrintSystem(fmt.Sprintf("Vision sidecar set to: %s (auto = only for known text-only models like Z.AI GLM; always = every CLI backend; off = never).", cfg.VisionSidecarMode()))
+		term.PrintSystem("Images on CLI-backend turns are read by Gemma 4 on Cerebras and injected as text; requires a Cerebras API key.")
+
 	case "anthropic-key", "anthropic_key":
 		// Save Anthropic API key to OS keychain
 		os.Setenv("ANTHROPIC_API_KEY", value)
@@ -2372,6 +2437,9 @@ func buildSettingsRows(cfg *api.Config) []tui.SettingsRow {
 				}
 				return v
 			}},
+		{Key: "vision_sidecar", Label: "Gemma vision sidecar", Kind: tui.SettingsCycle,
+			Value: cfg.VisionSidecarMode(), Options: []string{api.VisionSidecarAuto, api.VisionSidecarAlways, api.VisionSidecarOff},
+			Hint: "reads images for text-only models (needs Cerebras key)"},
 	}
 }
 

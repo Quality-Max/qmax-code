@@ -49,6 +49,11 @@ type Provider struct {
 type ProviderModel struct {
 	ID   string // model id opencode uses after the "provider/" prefix
 	Name string // display name in the opencode config models map
+	// Vision reports whether the model accepts image input through this
+	// provider's endpoint. The Z.AI coding-plan endpoint is text-only, so
+	// every GLM model is Vision=false; the Gemma 4 vision sidecar (agent
+	// package) reads images for these models instead.
+	Vision bool
 }
 
 // builtinProviders is the static catalogue of opt-in providers. Cerebras is
@@ -63,6 +68,8 @@ var builtinProviders = []Provider{
 		Custom:      true,
 		BaseURL:     "https://open.bigmodel.cn/api/coding/paas/v4",
 		Models: []ProviderModel{
+			{ID: "glm-5.3", Name: "GLM 5.3"},
+			{ID: "glm-5.2", Name: "GLM 5.2"},
 			{ID: "glm-4.6", Name: "GLM 4.6"},
 			{ID: "glm-4.5", Name: "GLM 4.5"},
 			{ID: "glm-4.5-air", Name: "GLM 4.5 Air"},
@@ -90,6 +97,24 @@ func BuiltinProviders() []Provider {
 	out := make([]Provider, len(builtinProviders))
 	copy(out, builtinProviders)
 	return out
+}
+
+// ProviderModelLacksVision reports whether the given opencode model is known
+// to be text-only. The second return (known) distinguishes "known text-only"
+// from "unknown catalogue": custom providers (Z.AI coding plan) have a seeded
+// model list we can answer authoritatively — every GLM model there is
+// text-only, including ids not in the seed list, because the coding-plan
+// endpoint itself accepts no image input. Known providers (Groq, OpenRouter)
+// resolve their catalogue live via models.dev, so we cannot answer for a
+// specific model id and report known=false; callers decide policy for the
+// unknown case (the vision sidecar's auto mode stays out of it).
+func ProviderModelLacksVision(providerID, modelID string) (lacksVision, known bool) {
+	switch providerID {
+	case "zai-coding-plan":
+		return true, true
+	default:
+		return false, false
+	}
 }
 
 // ProviderByID looks up a builtin provider definition.

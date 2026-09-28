@@ -3,10 +3,10 @@ package update
 import (
 	"archive/tar"
 	"archive/zip"
-	"compress/gzip"
 	"bytes"
-	"fmt"
+	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -73,7 +73,7 @@ func TestMaybeCheckRespectsCacheAndSkip(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"tag_name": "v9.9.9",
 			"assets": []map[string]string{{
-				"name":               assetName(runtime.GOOS, runtime.GOARCH),
+				"name":                 assetName(runtime.GOOS, runtime.GOARCH),
 				"browser_download_url": "http://example.invalid/asset",
 			}},
 		})

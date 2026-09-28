@@ -104,6 +104,7 @@ func orderChanges(ops []DiffLine) []DiffLine {
 	}
 	return out
 }
+
 // lcsDiff diffs two slices via a standard LCS table with op reconstruction.
 func lcsDiff(a, b []string) []DiffLine {
 	n, m := len(a), len(b)
