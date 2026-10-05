@@ -4,6 +4,15 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Added
+- `/handoff` keeps explicit, user-recorded rejected approaches and supporting
+  evidence visible across backend switches, history compaction, and session
+  restarts. Use `/handoff reject <approach> | <evidence>` to add a note and
+  `/handoff forget <number>` to remove one. The redacted checkpoint is bounded
+  to 12 KiB and accompanies every CLI and built-in provider turn without an
+  extra model call. It instructs the destination to explain any justified
+  retry; it does not enforce model behavior or infer decisions from failures.
+
 ## [1.37.0] - 2026-09-27
 
 ### Added

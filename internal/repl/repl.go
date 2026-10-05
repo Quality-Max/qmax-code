@@ -379,6 +379,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		case input == "/context":
 			printContext(ag.Cfg.Context, term)
 			continue
+		case input == "/handoff" || strings.HasPrefix(input, "/handoff "):
+			if handleHandoffCommand(input, ag, term) {
+				autoSave()
+			}
+			continue
 		case input == "/connect":
 			handleConnect(ag, term)
 			continue
@@ -1743,6 +1748,11 @@ Commands:
   /status           Connection, session, model, and usage info
   /project <id>     Set the active QualityMax project
   /context          Show current session context
+  /handoff          Show user-recorded rejected approaches and evidence
+  /handoff reject <approach> | <evidence>
+                    Record an approach to avoid across backend switches
+  /handoff forget <number>
+                    Remove an outdated rejection (numbers from /handoff)
   /cost             Show token usage and estimated cost
   /plan             Show coding-plan usage window (5h limit, resets in)
 
@@ -2312,6 +2322,12 @@ var secretSetRe = regexp.MustCompile(`(?i)^/set[\s\p{Zs}]+(apikey|anthropic[-_]k
 func redactSecretInput(input string) string {
 	if m := secretSetRe.FindStringSubmatch(input); m != nil {
 		return "/set " + m[1] + " <redacted>"
+	}
+	// Evidence can contain pasted tool output. Keep only the inspection command
+	// in recall history; the checkpoint holds the sanitized note.
+	fields := strings.Fields(input)
+	if len(fields) >= 2 && fields[0] == "/handoff" && fields[1] == "reject" {
+		return "/handoff"
 	}
 	return input
 }

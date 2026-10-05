@@ -269,6 +269,7 @@ var handoffBodyCaps = []int{maxInlineHandoffBytes, 8192, 4096, 2048, 1024, 512, 
 const handoffTruncationMarker = "…[truncated — the full text is retained separately]"
 
 func (a *Agent) prepareHandoff(messages []api.Message, prompt string) (string, error) {
+	notes := a.HandoffContext()
 	handoff, err := conversationPrompt(messages, prompt)
 	if err != nil {
 		return "", err
@@ -277,16 +278,16 @@ func (a *Agent) prepareHandoff(messages []api.Message, prompt string) (string, e
 	for _, msg := range a.Conversation.Transcript {
 		totalChars += estimateMessageChars(msg)
 	}
-	if len(handoff) <= maxInlineHandoffBytes && totalChars <= maxInlineHandoffBytes && a.contextArchive == "" {
-		return handoff, nil
+	if len(notes)+len(handoff) <= maxInlineHandoffBytes && totalChars <= maxInlineHandoffBytes && a.contextArchive == "" {
+		return notes + handoff, nil
 	}
 	// The archive is an optimization, not a precondition: a read-only or full
 	// temp directory must not fail the turn.
-	prefix := ""
+	prefix := notes
 	if path, archiveErr := a.writeContextArchive(); archiveErr == nil {
-		prefix = archiveInstruction(path)
-	} else if len(handoff) <= maxInlineHandoffBytes {
-		return handoff, nil
+		prefix += archiveInstruction(path)
+	} else if len(prefix)+len(handoff) <= maxInlineHandoffBytes {
+		return prefix + handoff, nil
 	}
 	budget := maxInlineHandoffBytes - len(prefix)
 	for _, cap := range handoffBodyCaps {
