@@ -1225,7 +1225,7 @@ You MUST call list_projects first to get the slug. Never guess it.
 		}
 	}
 
-	return prompt
+	return prompt + a.HandoffContext()
 }
 
 // buildLocalSystemPrompt is the standalone-mode contract. It deliberately
@@ -1279,7 +1279,7 @@ You can inspect attached images. When an image specifies a UI or flow, use it as
 	}
 
 	prompt += outputStyleDirective(a.Cfg.OutputVerbose)
-	return prompt
+	return prompt + a.HandoffContext()
 }
 
 // stripOrphanedToolUse removes tool_use blocks from assistant messages

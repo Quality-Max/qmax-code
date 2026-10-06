@@ -265,7 +265,16 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 	// Prompt consent and open cloud session at startup (idempotent — safe to call again later).
 	startCloudSession()
 
+	// Checked once per prompt so every switch path (/orch, /cc, /gemma, …) gets
+	// the same reminder without each one having to remember it.
+	lastBackend := backendIdentity(ag, cliAgent)
 	for {
+		if current := backendIdentity(ag, cliAgent); current != lastBackend {
+			lastBackend = current
+			if hint := ag.HandoffSwitchHint(); hint != "" {
+				term.PrintSystem(hint)
+			}
+		}
 		var input string
 		var turnImages []tui.ImageAttachment
 		inputWasPasted := false
@@ -378,6 +387,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			continue
 		case input == "/context":
 			printContext(ag.Cfg.Context, term)
+			continue
+		case strings.HasPrefix(input, "/handoff"):
+			if handleHandoffCommand(input, ag, term) {
+				autoSave()
+			}
 			continue
 		case input == "/connect":
 			handleConnect(ag, term)
@@ -1743,6 +1757,11 @@ Commands:
   /status           Connection, session, model, and usage info
   /project <id>     Set the active QualityMax project
   /context          Show current session context
+  /handoff          Show user-recorded rejected approaches and evidence
+  /handoff reject <approach> | <evidence>
+                    Record an approach to avoid across backend switches
+  /handoff forget <number>
+                    Remove an outdated rejection (numbers from /handoff)
   /cost             Show token usage and estimated cost
   /plan             Show coding-plan usage window (5h limit, resets in)
 
@@ -2307,11 +2326,31 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 // tabs, ...) so none of them can slip past the redaction into history.
 var secretSetRe = regexp.MustCompile(`(?i)^/set[\s\p{Zs}]+(apikey|anthropic[-_]key)[\s\p{Zs}]+\S`)
 
+// backendIdentity names the runtime that owns the next turn. Model changes
+// within a backend resume the same native session, so they are not switches.
+func backendIdentity(ag *agent.Agent, cliAgent agent.CLIAgent) string {
+	switch {
+	case cliAgent != nil:
+		return fmt.Sprintf("%T", cliAgent)
+	case ag.Cerebras != nil:
+		return "cerebras"
+	case ag.Mode != agent.OllamaModeOff:
+		return "ollama"
+	}
+	return "api"
+}
+
 // redactSecretInput rewrites secret-carrying inputs to a redacted form before
 // they enter the recallable history; anything else passes through unchanged.
 func redactSecretInput(input string) string {
 	if m := secretSetRe.FindStringSubmatch(input); m != nil {
 		return "/set " + m[1] + " <redacted>"
+	}
+	// Evidence can contain pasted tool output. Keep only the inspection command
+	// in recall history; the checkpoint holds the sanitized note.
+	fields := strings.Fields(input)
+	if len(fields) >= 2 && fields[0] == "/handoff" && fields[1] == "reject" {
+		return "/handoff"
 	}
 	return input
 }

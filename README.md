@@ -348,6 +348,30 @@ be transferred, and image interpretation depends on the destination's support.
 Only content exposed to qmax-code can be retained; this cannot recover history
 that an older version already discarded.
 
+To keep a ruled-out approach visible when you switch backends, record the
+decision and its evidence explicitly:
+
+```text
+/handoff reject Increase the timeout | TestReconnect still fails at 60s; the connection is never reopened
+/handoff
+/handoff forget 1
+```
+
+`/handoff` lists the current rejected approaches and their user-supplied evidence.
+The checkpoint is part of every built-in provider prompt and is sent to a CLI
+backend whenever it has not seen the current version, remains visible when
+history is compacted, and survives `/save` and `/resume`. Write `\|` for a
+literal pipe inside the approach. After a backend switch that follows
+unrecorded work, qmax-code prints a one-line reminder to record anything that
+was ruled out, mentioning interrupted turns and failed tool calls it can see.
+`/handoff forget <number>` removes an outdated rejection; `/clear` resets it.
+Notes are redacted using the retained-transcript rules and capped at 12 KiB
+in total. Recording notes makes no additional model calls. qmax-code does not
+automatically classify failed commands as rejected approaches or independently
+verify the evidence. The destination is instructed to check the notes before
+acting and explain any justified retry; model compliance is not guaranteed.
+See [handoff notes and the live evaluation procedure](docs/HANDOFF.md).
+
 Saved conversations live in `~/.qmax-code/sessions/`; those carrying a portable
 transcript are kept for 90 days, legacy sessions for 7. `/clear` resets the
 shared conversation and native resume state and starts a new session ID, so the
