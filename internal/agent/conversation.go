@@ -163,7 +163,14 @@ func (a *Agent) RunCLI(cli CLIAgent, prompt string, term *tui.Terminal) (string,
 			reset.ResetConversation()
 		}
 	}
-	handoff, err := a.prepareHandoff(a.Conversation.Transcript[cursor:], prompt)
+	// A native session keeps every prompt it receives, so resend the checkpoint
+	// only when it changed, when entries are being transferred (a switch), or
+	// when the session is new.
+	notes, digest := a.HandoffContext(), a.handoffDigest()
+	if restored && cursor == len(a.Conversation.Transcript) && a.Conversation.Native[key].Handoff == digest {
+		notes = ""
+	}
+	handoff, err := a.prepareHandoff(a.Conversation.Transcript[cursor:], prompt, notes)
 	if err != nil {
 		return "", err
 	}
@@ -183,7 +190,7 @@ func (a *Agent) RunCLI(cli CLIAgent, prompt string, term *tui.Terminal) (string,
 	}
 	if runErr != nil {
 		// Never copy provider errors: they can embed credentials or request bodies.
-		a.AppendHistory(api.Message{Role: "assistant", Content: "[The previous turn was interrupted or failed; completion was not confirmed.]"})
+		a.AppendHistory(api.Message{Role: "assistant", Content: interruptedTurnMarker})
 	}
 	key, state := cliNative(cli)
 	if runErr != nil {
@@ -197,6 +204,7 @@ func (a *Agent) RunCLI(cli CLIAgent, prompt string, term *tui.Terminal) (string,
 		// Safe to advance past everything: prepareHandoff represents every
 		// undelivered message, abbreviating bodies rather than dropping entries.
 		state.Cursor = len(a.Conversation.Transcript)
+		state.Handoff = digest
 		if a.Conversation.Native == nil {
 			a.Conversation.Native = map[string]api.NativeConversation{}
 		}
@@ -268,8 +276,7 @@ var handoffBodyCaps = []int{maxInlineHandoffBytes, 8192, 4096, 2048, 1024, 512, 
 // archiveInstruction tells the backend where to read the full text.
 const handoffTruncationMarker = "…[truncated — the full text is retained separately]"
 
-func (a *Agent) prepareHandoff(messages []api.Message, prompt string) (string, error) {
-	notes := a.HandoffContext()
+func (a *Agent) prepareHandoff(messages []api.Message, prompt, notes string) (string, error) {
 	handoff, err := conversationPrompt(messages, prompt)
 	if err != nil {
 		return "", err

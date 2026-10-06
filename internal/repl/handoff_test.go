@@ -34,6 +34,7 @@ func TestHandoffCommandRejectsMalformedInput(t *testing.T) {
 		"/handoff reject", "/handoff reject timeout", "/handoff reject | failure",
 		"/handoff reject timeout |", "/handoff forget", "/handoff forget one",
 		"/handoff forget 0", "/handoff forget 1", "/handoff unexpected",
+		"/handoffs reject timeout | failure", "/handoff:reject timeout | failure",
 	} {
 		t.Run(input, func(t *testing.T) {
 			ag := &agent.Agent{}
@@ -44,6 +45,41 @@ func TestHandoffCommandRejectsMalformedInput(t *testing.T) {
 				t.Fatal("malformed command changed the session")
 			}
 		})
+	}
+}
+
+func TestHandoffCommandParsing(t *testing.T) {
+	for _, tc := range []struct {
+		input, approach, evidence string
+	}{
+		{"/handoff\treject timeout | still fails", "timeout", "still fails"},
+		{"/handoff reject\ttimeout | still fails", "timeout", "still fails"},
+		{`/handoff reject pipe through grep \| sort | still fails | see log`, "pipe through grep | sort", "still fails | see log"},
+		{`/handoff reject use \ escapes | still fails`, `use \ escapes`, "still fails"},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			ag := &agent.Agent{}
+			if !handleHandoffCommand(tc.input, ag, &tui.Terminal{}) {
+				t.Fatal("valid note was not recorded")
+			}
+			note := ag.Conversation.Handoff.RejectedApproaches[0]
+			if note.Approach != tc.approach || note.Evidence != tc.evidence {
+				t.Fatalf("parsed %q / %q", note.Approach, note.Evidence)
+			}
+		})
+	}
+	if handleHandoffCommand(`/handoff reject only \| escaped`, &agent.Agent{}, &tui.Terminal{}) {
+		t.Fatal("an escaped pipe was treated as the separator")
+	}
+}
+
+func TestBackendIdentityDistinguishesRuntimes(t *testing.T) {
+	ag := &agent.Agent{}
+	api := backendIdentity(ag, nil)
+	cc := backendIdentity(ag, &agent.CCAgent{})
+	codex := backendIdentity(ag, &agent.CodexAgent{})
+	if api == cc || cc == codex || api == codex {
+		t.Fatalf("backend identities collide: %q %q %q", api, cc, codex)
 	}
 }
 

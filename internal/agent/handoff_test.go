@@ -9,6 +9,7 @@ import (
 
 	"github.com/qualitymax/qmax-code/internal/api"
 	"github.com/qualitymax/qmax-code/internal/session"
+	"github.com/qualitymax/qmax-code/internal/tui"
 )
 
 func TestBugFixHandoffKeepsRejectedApproachVisibleAfterCompactionAndRestart(t *testing.T) {
@@ -65,7 +66,7 @@ func TestBugFixHandoffKeepsRejectedApproachVisibleAfterCompactionAndRestart(t *t
 	}
 }
 
-func TestHandoffCheckpointAccompaniesNativeResumeWithNoMissingEntries(t *testing.T) {
+func TestNativeResumeReceivesCheckpointOnlyWhenNeeded(t *testing.T) {
 	home := withTempHome(t)
 	promptPath := filepath.Join(home, "prompt.txt")
 	t.Setenv("QMAX_TEST_PROMPT_PATH", promptPath)
@@ -74,24 +75,109 @@ cat > "$QMAX_TEST_PROMPT_PATH"
 printf '%s\n' '{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-1234567890ab"}' '{"type":"item.completed","item":{"type":"agent_message","text":"continue investigation"}}'
 `)
 	a := &Agent{}
-	if err := a.RejectApproach("Increase the timeout", "60s still fails in TestReconnect"); err != nil {
-		t.Fatal(err)
-	}
-	for _, request := range []string{"investigate", "continue"} {
-		cli := NewCodexAgent(bin, "gpt-6-astra", "high", false, "", &api.SessionContext{})
+	run := func(cli CLIAgent, request string) string {
+		t.Helper()
 		if _, err := a.RunCLI(cli, request, nil); err != nil {
 			t.Fatal(err)
 		}
+		if _, ok := cli.(*conversationSpy); ok {
+			return cli.(*conversationSpy).prompt
+		}
+		prompt, err := os.ReadFile(promptPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(prompt)
 	}
-	prompt, err := os.ReadFile(promptPath)
-	if err != nil {
+	codex := func() CLIAgent {
+		return NewCodexAgent(bin, "gpt-6-astra", "high", false, "", &api.SessionContext{})
+	}
+	if err := a.RejectApproach("Increase the timeout", "60s still fails in TestReconnect"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(prompt), "conversation_history") {
-		t.Fatal("native resume should not replay entries it already saw")
+	if got := run(codex(), "investigate"); !strings.Contains(got, "60s still fails in TestReconnect") {
+		t.Fatal("a new native session must receive the checkpoint")
 	}
-	if !strings.Contains(string(prompt), "60s still fails in TestReconnect") {
-		t.Fatal("native resume omitted the current checkpoint")
+	if got := run(codex(), "continue"); strings.Contains(got, "Handoff checkpoint") || strings.Contains(got, "conversation_history") {
+		t.Fatal("an unchanged checkpoint was repeated into the native session's history")
+	}
+	if err := a.RejectApproach("Retry the dial", "the socket is closed before the retry"); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(codex(), "continue"); !strings.Contains(got, "60s still fails") || !strings.Contains(got, "socket is closed") {
+		t.Fatal("a changed checkpoint must be resent in full")
+	}
+	// Switching away and back transfers missed entries, so the checkpoint
+	// travels with them even though this native session saw it before.
+	if got := run(&conversationSpy{}, "try elsewhere"); !strings.Contains(got, "socket is closed") {
+		t.Fatal("the other backend did not receive the checkpoint")
+	}
+	if got := run(codex(), "back again"); !strings.Contains(got, "socket is closed") {
+		t.Fatal("returning to a backend must resend the checkpoint with the transferred entries")
+	}
+	if a.Conversation.Native["codex"].Handoff != a.handoffDigest() {
+		t.Fatal("the delivered checkpoint was not recorded for restart")
+	}
+}
+
+func TestHandoffSwitchHintSuggestsWithoutRecording(t *testing.T) {
+	recorded := func(content any) api.Message {
+		var transcript TurnTranscript
+		transcript.record("assistant", content)
+		return transcript.take()[0]
+	}
+	codexItem := func(item string) api.Message { return recorded(item) }
+	for _, tc := range []struct {
+		name    string
+		history []api.Message
+		want    string
+	}{
+		{"no work", nil, ""},
+		{"successful work", []api.Message{{Role: "assistant", Content: "done"}}, "checkpoint. If"},
+		{"interrupted turn", []api.Message{{Role: "assistant", Content: interruptedTurnMarker}}, "(1 interrupted turn)"},
+		{"codex exit code", []api.Message{codexItem(`{"type":"command_execution","exit_code":1,"status":"failed"}`)}, "(1 failed tool call)"},
+		{"codex success", []api.Message{codexItem(`{"type":"command_execution","exit_code":0,"status":"completed"}`)}, "checkpoint. If"},
+		{"opencode error", []api.Message{recorded(map[string]string{"type": "tool", "state": "error"})}, "(1 failed tool call)"},
+		{"antigravity error", []api.Message{recorded(map[string]any{"name": "run", "error": map[string]string{"type": "exit"}})}, "(1 failed tool call)"},
+		{"built-in error", []api.Message{
+			{Role: "assistant", Content: []api.ContentBlock{{Type: "tool_use", ID: "1", Name: "run_command"}}},
+			{Role: "user", Content: []api.ContentBlock{{Type: "tool_result", ToolUseID: "1", Content: `{"error": "exit status 1"}`}}},
+			{Role: "assistant", Content: interruptedTurnMarker},
+		}, "(1 interrupted turn, 1 failed tool call)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &Agent{}
+			a.AppendHistory(tc.history...)
+			got := a.HandoffSwitchHint()
+			if tc.want == "" {
+				if got != "" {
+					t.Fatalf("unexpected hint %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) || !strings.Contains(got, "/handoff reject") {
+				t.Fatalf("hint %q does not contain %q", got, tc.want)
+			}
+			if a.Conversation.Handoff != nil {
+				t.Fatal("the hint recorded a rejection without the user")
+			}
+		})
+	}
+}
+
+func TestHandoffSwitchHintCountsClaudeToolErrorsSinceLastCheckpoint(t *testing.T) {
+	cli := &CCAgent{}
+	cli.parseStream(strings.NewReader(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"FAIL TestReconnect","is_error":true}]}}`+"\n"), &tui.Terminal{})
+	a := &Agent{}
+	a.AppendHistory(cli.take()...)
+	if got := a.HandoffSwitchHint(); !strings.Contains(got, "1 failed tool call") {
+		t.Fatalf("Claude Code tool error was not counted: %q", got)
+	}
+	if err := a.RejectApproach("Increase the timeout", "FAIL TestReconnect"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.HandoffSwitchHint(); got != "" {
+		t.Fatalf("work already covered by the checkpoint produced a hint: %q", got)
 	}
 }
 

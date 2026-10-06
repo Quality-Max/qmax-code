@@ -220,7 +220,7 @@ func TestLargeHandoffRetainsSearchableArchiveAcrossSwitches(t *testing.T) {
 		t.Fatal("archive is not owner-only")
 	}
 	// A native resume with no missing messages still refreshes its file reference.
-	prompt, err := a.prepareHandoff(nil, "next")
+	prompt, err := a.prepareHandoff(nil, "next", "")
 	if err != nil || !strings.Contains(prompt, path) || a.contextArchive != path {
 		t.Fatal("native resume lost the stable archive reference")
 	}
@@ -285,7 +285,7 @@ func TestHandoffRepresentsEveryUndeliveredMessage(t *testing.T) {
 	a := &Agent{}
 	t.Cleanup(a.CleanupConversation)
 	a.Conversation.Transcript = []api.Message{{Role: "user", Content: strings.Repeat("x", 60*1024)}}
-	if _, err := a.prepareHandoff(a.Conversation.Transcript, "go"); err != nil {
+	if _, err := a.prepareHandoff(a.Conversation.Transcript, "go", ""); err != nil {
 		t.Fatal(err)
 	}
 	if a.contextArchive == "" {
@@ -297,7 +297,7 @@ func TestHandoffRepresentsEveryUndeliveredMessage(t *testing.T) {
 		messages[i] = api.Message{Role: "user", Content: fmt.Sprintf("decision-marker-%02d %s", i, strings.Repeat("detail ", 400))}
 	}
 	a.Conversation.Transcript = messages
-	handoff, err := a.prepareHandoff(messages, "next")
+	handoff, err := a.prepareHandoff(messages, "next", "")
 	if err != nil {
 		t.Fatal(err)
 	}

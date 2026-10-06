@@ -358,8 +358,12 @@ decision and its evidence explicitly:
 ```
 
 `/handoff` lists the current rejected approaches and their user-supplied evidence.
-The checkpoint accompanies every CLI turn and built-in provider prompt, remains
-visible when history is compacted, and survives `/save` and `/resume`.
+The checkpoint is part of every built-in provider prompt and is sent to a CLI
+backend whenever it has not seen the current version, remains visible when
+history is compacted, and survives `/save` and `/resume`. Write `\|` for a
+literal pipe inside the approach. After a backend switch that follows
+unrecorded work, qmax-code prints a one-line reminder to record anything that
+was ruled out, mentioning interrupted turns and failed tool calls it can see.
 `/handoff forget <number>` removes an outdated rejection; `/clear` resets it.
 Notes are redacted using the retained-transcript rules and capped at 12 KiB
 in total. Recording notes makes no additional model calls. qmax-code does not

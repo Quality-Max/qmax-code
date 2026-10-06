@@ -10,6 +10,11 @@ approach stays visible even when that transcript is long or compacted.
 continue the fix
 ```
 
+The first unescaped `|` separates the approach from the evidence; write `\|`
+for a literal pipe in the approach (`/handoff reject pipe through grep \| sort
+| still fails`). The confirmation echoes the recorded approach, and warns
+when the evidence contains a pipe that may have belonged to the approach.
+
 Use `/handoff` to inspect the numbered list and `/handoff forget 1` to remove
 an outdated rejection. Entry numbers reflect the current list, so inspect it
 again after removing an entry. Both the rejection and its removal appear in
@@ -17,14 +22,29 @@ the transcript. The current checkpoint supersedes older handoff notes.
 `/clear` resets the checkpoint along with the conversation.
 
 The checkpoint is sent before the historical conversation in CLI handoffs
-and included in built-in system prompts. Native CLI resumes receive it even
-when they have already seen all transcript entries. `/save` and `/resume`
+and included in built-in system prompts. A native CLI session stores every
+prompt it receives, so qmax-code records which checkpoint version it last
+delivered and resends it only when the session is new, the checkpoint
+changed, or missed entries are being transferred (switching back to it). A
+failed turn discards the native session, so the next turn resends it. `/save` and `/resume`
 preserve it across restarts; automatic persistence follows the existing
 auto-save setting. Notes use retained-transcript redaction, with a total
 12 KiB budget that includes the checkpoint instructions. Oversized additions
 are rejected without changing existing notes. Recording a note makes no
 additional model request. Input recall stores `/handoff` instead of the raw
 rejection command, so pasted evidence is inspected through the redacted list.
+
+## Switch reminder
+
+When the backend changes (`/orch`, `/cc`, `/codex`, `/gemma`, `/ollama`, …)
+and the transcript has work since the checkpoint last changed, qmax-code
+prints a one-line reminder to record anything that was ruled out. It
+mentions interrupted turns and failed tool calls where the backend exposes
+them: Claude Code `is_error`, Codex non-zero exit codes, OpenCode and
+Antigravity tool errors, and built-in tool errors reported as a JSON error
+object. Built-in `run_command` failures that produce output are not
+distinguishable from successes, so the count is a hint, not a complete
+record. The reminder never records a rejection itself.
 
 A failed command does not automatically rule out an approach: a failure can
 also mean an unavailable dependency, a flaky test, or incomplete work. The

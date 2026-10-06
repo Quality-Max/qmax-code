@@ -28,4 +28,7 @@ type NativeConversation struct {
 	RolloutPath string `json:"rollout_path,omitempty"`
 	Directory   string `json:"directory"`
 	Cursor      int    `json:"cursor"`
+	// Handoff is a digest of the checkpoint this native session last received,
+	// so an unchanged checkpoint is not repeated into its history every turn.
+	Handoff string `json:"handoff,omitempty"`
 }

@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -11,6 +13,11 @@ import (
 )
 
 const maxHandoffNotesBytes = 12 * 1024
+
+const (
+	handoffDecisionPrefix = "[Handoff decision"
+	interruptedTurnMarker = "[The previous turn was interrupted or failed; completion was not confirmed.]"
+)
 
 // RejectApproach records an explicit user decision; command failures alone are
 // insufficient evidence that an approach should never be retried.
@@ -41,7 +48,7 @@ func (a *Agent) RejectApproach(approach, evidence string) error {
 		return fmt.Errorf("handoff notes exceed the 12 KiB budget; shorten the note or forget an older entry")
 	}
 	a.Conversation.Handoff = state
-	a.AppendHistory(api.Message{Role: "user", Content: fmt.Sprintf("[Handoff decision] Rejected approach: %q. Evidence: %q.", note.Approach, note.Evidence)})
+	a.AppendHistory(api.Message{Role: "user", Content: fmt.Sprintf(handoffDecisionPrefix+"] Rejected approach: %q. Evidence: %q.", note.Approach, note.Evidence)})
 	return nil
 }
 
@@ -56,7 +63,7 @@ func (a *Agent) ForgetRejectedApproach(number int) error {
 	remaining := append([]api.RejectedApproach{}, state.RejectedApproaches[:number-1]...)
 	remaining = append(remaining, state.RejectedApproaches[number:]...)
 	a.Conversation.Handoff = &api.HandoffState{RejectedApproaches: remaining}
-	a.AppendHistory(api.Message{Role: "user", Content: fmt.Sprintf("[Handoff decision removed] The user removed the rejection of %q; the current handoff checkpoint supersedes older handoff notes.", removed.Approach)})
+	a.AppendHistory(api.Message{Role: "user", Content: fmt.Sprintf(handoffDecisionPrefix+" removed] The user removed the rejection of %q; the current handoff checkpoint supersedes older handoff notes.", removed.Approach)})
 	return nil
 }
 
@@ -80,4 +87,98 @@ func handoffContext(state *api.HandoffState) string {
 	}
 	b.WriteByte('\n')
 	return b.String()
+}
+
+func (a *Agent) handoffDigest() string {
+	notes := a.HandoffContext()
+	if notes == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(notes))
+	return hex.EncodeToString(sum[:8])
+}
+
+// HandoffSwitchHint suggests recording a ruled-out approach after a backend
+// switch when work happened since the checkpoint last changed. It never records
+// one itself: a failure can also mean a flaky test, an unavailable dependency,
+// or unfinished work, so only the user can decide what is ruled out.
+func (a *Agent) HandoffSwitchHint() string {
+	transcript := a.Conversation.Transcript
+	start := 0
+	for i := len(transcript) - 1; i >= 0; i-- {
+		if text, ok := transcript[i].Content.(string); ok && strings.HasPrefix(text, handoffDecisionPrefix) {
+			start = i + 1
+			break
+		}
+	}
+	worked, interrupted, failed := false, 0, 0
+	for _, msg := range transcript[start:] {
+		blocks, text, isString := normalizeContent(msg.Content)
+		if msg.Role == "assistant" {
+			worked = true
+		}
+		switch {
+		case isString && text == interruptedTurnMarker:
+			interrupted++
+		case isString && msg.Role == "assistant" && recordedToolFailed(text):
+			failed++
+		}
+		for _, block := range blocks {
+			// Built-in tools report structured errors as a JSON error object.
+			if block.Type == "tool_result" && strings.HasPrefix(strings.TrimSpace(block.Content), `{"error"`) {
+				failed++
+			}
+		}
+	}
+	if !worked {
+		return ""
+	}
+	var signals []string
+	if interrupted > 0 {
+		signals = append(signals, plural(interrupted, "interrupted turn"))
+	}
+	if failed > 0 {
+		signals = append(signals, plural(failed, "failed tool call"))
+	}
+	detail := ""
+	if len(signals) > 0 {
+		detail = " (" + strings.Join(signals, ", ") + ")"
+	}
+	return "Backend switched after work not covered by the handoff checkpoint" + detail + ". If an approach was ruled out, record it so this backend sees it: /handoff reject <approach> | <evidence>"
+}
+
+// recordedToolFailed recognizes the failure fields CLI backends expose in
+// retained tool activity. Codex activity is stored as a JSON-encoded string.
+func recordedToolFailed(text string) bool {
+	var value any
+	if json.Unmarshal([]byte(text), &value) != nil {
+		return false
+	}
+	if inner, ok := value.(string); ok && json.Unmarshal([]byte(inner), &value) != nil {
+		return false
+	}
+	fields, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	if fields["is_error"] == true || fields["state"] == "error" || fields["status"] == "failed" {
+		return true
+	}
+	if code, ok := fields["exit_code"].(float64); ok && code != 0 {
+		return true
+	}
+	switch e := fields["error"].(type) {
+	case string:
+		return e != ""
+	case map[string]any:
+		return true
+	}
+	return false
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }

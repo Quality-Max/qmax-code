@@ -265,7 +265,16 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 	// Prompt consent and open cloud session at startup (idempotent — safe to call again later).
 	startCloudSession()
 
+	// Checked once per prompt so every switch path (/orch, /cc, /gemma, …) gets
+	// the same reminder without each one having to remember it.
+	lastBackend := backendIdentity(ag, cliAgent)
 	for {
+		if current := backendIdentity(ag, cliAgent); current != lastBackend {
+			lastBackend = current
+			if hint := ag.HandoffSwitchHint(); hint != "" {
+				term.PrintSystem(hint)
+			}
+		}
 		var input string
 		var turnImages []tui.ImageAttachment
 		inputWasPasted := false
@@ -379,7 +388,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		case input == "/context":
 			printContext(ag.Cfg.Context, term)
 			continue
-		case input == "/handoff" || strings.HasPrefix(input, "/handoff "):
+		case strings.HasPrefix(input, "/handoff"):
 			if handleHandoffCommand(input, ag, term) {
 				autoSave()
 			}
@@ -2316,6 +2325,20 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 // the whitespace variations strings.Fields accepts ("/set  apikey  k",
 // tabs, ...) so none of them can slip past the redaction into history.
 var secretSetRe = regexp.MustCompile(`(?i)^/set[\s\p{Zs}]+(apikey|anthropic[-_]key)[\s\p{Zs}]+\S`)
+
+// backendIdentity names the runtime that owns the next turn. Model changes
+// within a backend resume the same native session, so they are not switches.
+func backendIdentity(ag *agent.Agent, cliAgent agent.CLIAgent) string {
+	switch {
+	case cliAgent != nil:
+		return fmt.Sprintf("%T", cliAgent)
+	case ag.Cerebras != nil:
+		return "cerebras"
+	case ag.Mode != agent.OllamaModeOff:
+		return "ollama"
+	}
+	return "api"
+}
 
 // redactSecretInput rewrites secret-carrying inputs to a redacted form before
 // they enter the recallable history; anything else passes through unchanged.
