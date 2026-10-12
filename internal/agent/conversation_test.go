@@ -375,3 +375,37 @@ func TestOpenCodeNestedStateKeepsTopLevelToolInput(t *testing.T) {
 		t.Fatal("nested tool state lost")
 	}
 }
+
+func TestHandoffOmitsFewestOldestEntriesThatFit(t *testing.T) {
+	a := &Agent{}
+	t.Cleanup(a.CleanupConversation)
+	for i := 0; i < 900; i++ {
+		a.AppendHistory(api.Message{Role: "assistant", Content: fmt.Sprintf("entry %d %s", i, strings.Repeat("x", 300))})
+	}
+	got, err := a.prepareHandoff(a.Conversation.Transcript, "next", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) > maxInlineHandoffBytes || !strings.HasSuffix(got, "next") {
+		t.Fatalf("handoff of %d bytes broke the budget or lost the request", len(got))
+	}
+	// The previous linear search dropped one entry at a time; the result must
+	// keep exactly as many recent entries as that did.
+	condensed := condenseMessages(a.Conversation.Transcript, handoffBodyCaps[len(handoffBodyCaps)-1])
+	prefix := archiveInstruction(a.contextArchive)
+	want := 0
+	for drop := 1; drop < len(condensed); drop++ {
+		notice := fmt.Sprintf("[%d earlier entries are omitted here and available only in the archive file; read it before acting.]\n", drop)
+		body, err := conversationPrompt(condensed[drop:], "next")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(prefix)+len(notice)+len(body) <= maxInlineHandoffBytes {
+			want = drop
+			break
+		}
+	}
+	if want == 0 || !strings.Contains(got, fmt.Sprintf("[%d earlier entries are omitted", want)) {
+		t.Fatalf("expected %d omitted entries", want)
+	}
+}

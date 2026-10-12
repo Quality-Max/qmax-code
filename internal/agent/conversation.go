@@ -309,17 +309,28 @@ func (a *Agent) prepareHandoff(messages []api.Message, prompt, notes string) (st
 	// Pathological length (hundreds of entries): drop the oldest, but say so
 	// explicitly rather than letting the cursor advance over a silent gap.
 	condensed := condenseMessages(messages, handoffBodyCaps[len(handoffBodyCaps)-1])
-	for len(condensed) > 1 {
-		condensed = condensed[1:]
-		omitted := len(messages) - len(condensed)
-		notice := fmt.Sprintf("[%d earlier entries are omitted here and available only in the archive file; read it before acting.]\n", omitted)
-		handoff, err = conversationPrompt(condensed, prompt)
+	withOmitted := func(drop int) (string, error) {
+		notice := fmt.Sprintf("[%d earlier entries are omitted here and available only in the archive file; read it before acting.]\n", drop)
+		handoff, err := conversationPrompt(condensed[drop:], prompt)
+		return notice + handoff, err
+	}
+	// Dropping more entries only shrinks the handoff, so search for the fewest
+	// drops that fit instead of re-encoding the history once per dropped entry.
+	best := ""
+	for lo, hi := 1, len(condensed)-1; lo <= hi; {
+		drop := lo + (hi-lo)/2
+		text, err := withOmitted(drop)
 		if err != nil {
 			return "", err
 		}
-		if len(notice)+len(handoff) <= budget {
-			return prefix + notice + handoff, nil
+		if len(text) <= budget {
+			best, hi = text, drop-1
+		} else {
+			lo = drop + 1
 		}
+	}
+	if best != "" {
+		return prefix + best, nil
 	}
 	return prefix + prompt, nil
 }
