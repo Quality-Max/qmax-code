@@ -1,0 +1,78 @@
+package reconnect
+
+import (
+	"bufio"
+	"net"
+	"sync"
+	"testing"
+)
+
+// server replies "ok" to every line until its connections are dropped.
+type server struct {
+	listener net.Listener
+
+	mu    sync.Mutex
+	conns []net.Conn
+}
+
+func startServer(t *testing.T) *server {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{listener: listener}
+	t.Cleanup(func() {
+		listener.Close()
+		s.dropConnections()
+	})
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			s.mu.Lock()
+			s.conns = append(s.conns, conn)
+			s.mu.Unlock()
+			go func() {
+				scanner := bufio.NewScanner(conn)
+				for scanner.Scan() {
+					if _, err := conn.Write([]byte("ok\n")); err != nil {
+						return
+					}
+				}
+			}()
+		}
+	}()
+	return s
+}
+
+func (s *server) addr() string { return s.listener.Addr().String() }
+
+// dropConnections simulates a server restart: existing connections close,
+// and the listener keeps accepting new ones.
+func (s *server) dropConnections() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, conn := range s.conns {
+		conn.Close()
+	}
+	s.conns = nil
+}
+
+func TestReconnect(t *testing.T) {
+	s := startServer(t)
+	client, err := Dial(s.addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := client.Send("ping"); err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+	s.dropConnections()
+	if err := client.Send("ping"); err != nil {
+		t.Fatalf("send after the server dropped the connection: %v", err)
+	}
+}

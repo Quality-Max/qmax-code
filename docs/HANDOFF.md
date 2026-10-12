@@ -62,7 +62,10 @@ test doubles and cannot establish whether a model follows the checkpoint.
 
 To evaluate that separately, use a reproducible bug with a demonstrated
 unsuccessful approach, such as increasing a timeout when the connection is
-never reopened:
+never reopened. [`eval/handoff`](../eval/handoff/README.md) automates this
+procedure with a fixed fixture, a scripted phase A, hidden scoring tests,
+and a per-run record; `go run ./eval/handoff run` prints the plan and only
+calls backends with `--yes`. The manual steps are:
 
 1. Let backend A try the approach and run the failing test. Keep the test
    output and resulting repository state as the starting point for both runs.

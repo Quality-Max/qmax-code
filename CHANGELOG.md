@@ -19,6 +19,14 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   one-line `/handoff reject` reminder, noting interrupted turns and failed tool
   calls when the backend exposes them. It only suggests; nothing is recorded
   automatically.
+- `eval/handoff` runs the live evaluation of rejected-approach handoffs:
+  checkpoint vs. control arms across backends, a fixed fixture with hidden
+  scoring tests, and per-run records summarized into `summary.md`.
+
+### Fixed
+- Handing off a long history whose oldest entries must be dropped no longer
+  re-encodes the history once per dropped entry; about 800 untransferred
+  entries took ~13s before the backend started and now take under 2s.
 
 ## [1.37.0] - 2026-09-27
 
