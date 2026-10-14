@@ -4,6 +4,22 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.38.0] - 2026-10-14
+
+### Changed
+- qmax-code is now licensed under Apache 2.0, effective immediately for this
+  release. Replaces the previous source-available license, non-compete
+  restriction, and two-year conversion period.
+- README, contributor terms, and public source scope now reflect Apache 2.0.
+  The hosted QualityMax backend remains separate and closed source.
+
+### Added
+- [Apache 2.0 launch announcement](docs/releases/v1.38.0.md).
+- License, copyright notice, and third-party dependency licenses included in
+  every platform release archive.
+- Version-specific announcements included in GitHub release notes and mirrored
+  to the public binary releases repository.
+
 ## [1.37.0] - 2026-09-27
 
 ### Added

@@ -19,14 +19,13 @@
 
 [![Latest release](https://img.shields.io/github/v/release/Quality-Max/qmax-code?label=release&color=217a45)](https://github.com/Quality-Max/qmax-code/releases/latest)
 [![GitHub downloads](https://img.shields.io/github/downloads/Quality-Max/qmax-code/total?label=downloads)](https://github.com/Quality-Max/qmax-code/releases)
-[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-2ea44f.svg)](LICENSE)
-[![Future License: Apache 2.0](https://img.shields.io/badge/future%20license-Apache%202.0-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Made with Go](https://img.shields.io/badge/made%20with-Go%201.25.13+-00ADD8.svg)](https://go.dev/)
-[![Announcement](https://img.shields.io/badge/announcement-2026--05--01-7c6cf0.svg)](https://qualitymax.io/blog/qmax-code-open-source)
+[![Announcement](https://img.shields.io/badge/announcement-Apache%202.0-7c6cf0.svg)](docs/releases/v1.38.0.md)
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/qualitymax)
 
-**AI-powered terminal coding and QA agent.** Named after Max, the real cat who inspired it all.
+**The open-source QA terminal that can switch inference.** Named after Max, the real cat who inspired it all.
 
 qmax-code can work as a standalone local repository agent with no QualityMax
 account, or connect to QualityMax for hosted QA workflows. In connected mode it
@@ -48,11 +47,10 @@ audits inside a coding agent), [qmax-mcp](https://github.com/Quality-Max/qmax-mc
 [qmax-local-agent](https://github.com/Quality-Max/qmax-local-agent) (let the
 cloud reach a private network). Only hosted QualityMax needs an account.
 
-> **License:** Source-available under the
-> [Functional Source License (FSL-1.1-ALv2)](LICENSE), created by
-> [Sentry](https://fsl.software). It is free for non-competing use, including
-> internal use, modification, contribution, education, research, and
-> professional services. Each release converts to Apache 2.0 after two years.
+> **qmax-code is now Apache 2.0.** Starting with v1.38.0, use, modify,
+> fork, and redistribute the CLI under the [Apache License 2.0](LICENSE),
+> including for commercial use. No waiting period or non-compete restriction.
+> [Read the announcement →](docs/releases/v1.38.0.md)
 
 ## Where it sits
 
@@ -488,6 +486,4 @@ personality-free response style.
 
 ---
 
-**Source-available CLI for the QualityMax platform. Licensed under
-[FSL-1.1-ALv2](LICENSE), free for non-competing use and converting to Apache
-2.0 after two years.**
+**Open-source QA terminal. Licensed under [Apache 2.0](LICENSE).**
