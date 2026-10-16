@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qualitymax/qmax-code/codexrunner"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/codexrunner"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // CodexAgent orchestrates an OpenAI Codex CLI subprocess for LLM inference.
@@ -36,15 +36,15 @@ type CodexAgent struct {
 	narrateToolCalls string // "off" | "brief" | "full" — see narrationDirective
 	sctx             *api.SessionContext
 	continuity       *codexrunner.Continuity
-	lastTurnIn     int // token usage of the most recent turn, when codex reports it
-	lastTurnOut    int
-	lastTurnOK     bool
-	lastLimitHit   bool      // true if the plan limit was hit this turn
-	lastLimitReset time.Time // provider-reported reset (usually zero for codex)
-	mu             sync.Mutex
-	turnMu         sync.Mutex // keeps checkpoint selection and execution atomic
-	runMu          sync.Mutex
-	runCancel      context.CancelFunc // non-nil while Run() is active
+	lastTurnIn       int // token usage of the most recent turn, when codex reports it
+	lastTurnOut      int
+	lastTurnOK       bool
+	lastLimitHit     bool      // true if the plan limit was hit this turn
+	lastLimitReset   time.Time // provider-reported reset (usually zero for codex)
+	mu               sync.Mutex
+	turnMu           sync.Mutex // keeps checkpoint selection and execution atomic
+	runMu            sync.Mutex
+	runCancel        context.CancelFunc // non-nil while Run() is active
 }
 
 // FindCodex returns the path to the codex CLI binary, or "" if not installed.

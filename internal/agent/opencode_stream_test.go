@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // ocSuccessStream is a real stream captured from

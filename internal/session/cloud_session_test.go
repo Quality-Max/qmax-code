@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 // newTestClient wires an api.APIClient to a local httptest.Server so callers

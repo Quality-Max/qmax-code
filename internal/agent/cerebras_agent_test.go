@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // captureStdout redirects os.Stdout for the duration of fn and returns

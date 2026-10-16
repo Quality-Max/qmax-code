@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Quality-Max/qmax-code/internal/httpx"
 	"github.com/coder/websocket"
-	"github.com/qualitymax/qmax-code/internal/httpx"
 )
 
 // VNCFrame is a snapshot of the framebuffer after one or more updates.

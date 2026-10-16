@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
-	"github.com/qualitymax/qmax-code/internal/vnc"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/vnc"
 )
 
 // maybeLaunchLiveFeed opens /browserfeed using a pre-established VNCStream

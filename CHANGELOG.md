@@ -4,6 +4,16 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Changed
+- Go module path is now `github.com/Quality-Max/qmax-code`, matching the
+  GitHub repository. The old lowercase path stopped the Go proxy and
+  pkg.go.dev from resolving the module. `go install
+  github.com/Quality-Max/qmax-code@latest` works from the next tagged release.
+
+### Added
+- Package documentation for `pkg.go.dev` and a Go Reference badge.
+- CI uploads test coverage to Codecov.
+
 ## [1.38.0] - 2026-10-14
 
 ### Changed

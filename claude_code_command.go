@@ -13,8 +13,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/setup"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/setup"
 )
 
 const maxClaudeCodeAuthBytes = 64 * 1024

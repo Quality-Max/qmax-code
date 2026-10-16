@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/agent"
 )
 
 // TestIsValidModelName is the regression test for QUA-579: pre-fix, the

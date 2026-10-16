@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // OllamaAgentMode provides a full Ollama-powered agent that handles both

@@ -22,7 +22,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
 
-	"github.com/qualitymax/qmax-code/internal/vnc"
+	"github.com/Quality-Max/qmax-code/internal/vnc"
 )
 
 type blockMode int

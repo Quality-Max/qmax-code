@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 // captureLiveURL pulls live_browser_url out of a status JSON payload

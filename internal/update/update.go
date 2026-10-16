@@ -19,15 +19,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/httpx"
+	"github.com/Quality-Max/qmax-code/internal/httpx"
 )
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
 
 const (
-	releasesRepo  = "Quality-Max/qmax-code-releases"
-	checkInterval = 24 * time.Hour
-	downloadLimit = 128 << 20 // 128 MiB cap for the asset download
+	releasesRepo   = "Quality-Max/qmax-code-releases"
+	checkInterval  = 24 * time.Hour
+	downloadLimit  = 128 << 20 // 128 MiB cap for the asset download
 	requestTimeout = 10 * time.Second
 )
 

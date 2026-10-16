@@ -12,9 +12,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
-	"github.com/qualitymax/qmax-code/internal/vnc"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/vnc"
 )
 
 // Tests for the REPL-side live-feed plumbing (maybeLaunchLiveFeed,

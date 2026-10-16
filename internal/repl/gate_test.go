@@ -3,7 +3,7 @@ package repl
 import (
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/gate"
+	"github.com/Quality-Max/qmax-code/internal/gate"
 )
 
 func TestParseGateCommand(t *testing.T) {

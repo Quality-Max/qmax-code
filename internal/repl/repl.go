@@ -19,15 +19,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/gate"
-	"github.com/qualitymax/qmax-code/internal/session"
-	"github.com/qualitymax/qmax-code/internal/setup"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
-	"github.com/qualitymax/qmax-code/internal/update"
-	"github.com/qualitymax/qmax-code/internal/vnc"
+	"github.com/Quality-Max/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/gate"
+	"github.com/Quality-Max/qmax-code/internal/session"
+	"github.com/Quality-Max/qmax-code/internal/setup"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/update"
+	"github.com/Quality-Max/qmax-code/internal/vnc"
 )
 
 // Run is the REPL entrypoint. version is the qmax-code build version,

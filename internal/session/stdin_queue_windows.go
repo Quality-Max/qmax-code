@@ -2,7 +2,7 @@
 
 package session
 
-import "github.com/qualitymax/qmax-code/internal/tui"
+import "github.com/Quality-Max/qmax-code/internal/tui"
 
 // StartQueueReader is a no-op on Windows; the prompt queue still works via
 // /queue but concurrent stdin reading while streaming is not supported.
