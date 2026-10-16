@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,6 +39,7 @@ func newFakeCloud(t *testing.T) *fakeCloud {
 	fc := &fakeCloud{t: t, routes: map[string]func(http.ResponseWriter, *http.Request){}}
 	fc.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
 		fc.mu.Lock()
 		fc.seen = append(fc.seen, r.Method+" "+r.URL.Path)
 		fc.bodies = append(fc.bodies, string(body))
@@ -98,7 +100,11 @@ func routeAllRequestsTo(t *testing.T, srv *httptest.Server) {
 	t.Helper()
 	target, _ := url.Parse(srv.URL)
 	orig := http.DefaultTransport
-	http.DefaultTransport = rewriteTransport{target: target, base: orig}
+	base := orig
+	if prev, ok := orig.(rewriteTransport); ok {
+		base = prev.base
+	}
+	http.DefaultTransport = rewriteTransport{target: target, base: base}
 	t.Cleanup(func() { http.DefaultTransport = orig })
 }
 
