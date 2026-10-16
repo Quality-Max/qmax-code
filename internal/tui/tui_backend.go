@@ -201,6 +201,11 @@ type OpenCodeModelEntry struct {
 
 var effortLevels = []string{"low", "medium", "high"}
 
+// programOptions is applied to every interactive Bubble Tea program in this
+// package. It is empty in production; tests use it to supply scripted input
+// and discard rendering.
+var programOptions []tea.ProgramOption
+
 // probeOllamaReachable returns true if the Ollama base URL responds within 2s.
 func probeOllamaReachable(rawURL string) bool {
 	if rawURL == "" {
@@ -859,7 +864,7 @@ func ShowThemePicker(currentTheme string) (string, bool) {
 		currentTheme = "historic"
 	}
 	m := newThemePickerModel(currentTheme)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return currentTheme, false
@@ -896,7 +901,7 @@ type ModelPickerOpts struct {
 // Returns the result; Confirmed=false means the user cancelled.
 func ShowModelPicker(opts ModelPickerOpts) ModelPickerResult {
 	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled, opts.CerebrasKeySet, opts.OpenCodeInstalled, opts.AgyInstalled, opts.OpenCodeModels)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return ModelPickerResult{Confirmed: false}
@@ -1086,7 +1091,7 @@ func ShowSessionPicker(sessions []SessionPickerItem, activeID string) (string, b
 		return "", false
 	}
 	m := newSessionPickerModel(sessions, activeID)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return "", false
@@ -1236,7 +1241,7 @@ func ShowProviderPicker(items []ProviderPickerItem) ProviderPickerResult {
 		return ProviderPickerResult{}
 	}
 	m := newProviderPickerModel(items)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return ProviderPickerResult{}
@@ -1354,7 +1359,7 @@ func (m cloudSyncPickerModel) View() string {
 // means the user cancelled and the current value should be preserved.
 func ShowCloudSyncPicker(current *bool) (bool, bool) {
 	m := newCloudSyncPickerModel(current)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return false, false
@@ -1467,7 +1472,7 @@ func (m liveFeedPickerModel) View() string {
 // value should be preserved.
 func ShowLiveFeedPicker(current bool) (bool, bool) {
 	m := newLiveFeedPickerModel(current)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return false, false
