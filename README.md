@@ -37,6 +37,12 @@ Use the built-in agent with Anthropic, Cerebras, or Ollama, or use
 **orchestration mode** to run Claude Code, Codex, Antigravity, or OpenCode with the same qmax
 QA tools through MCP.
 
+![qmax-code startup banner in standalone local-only mode](docs/img/terminal.png)
+
+The terminal UI uses [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+for interactive pickers and input, [Lip Gloss](https://github.com/charmbracelet/lipgloss)
+for styling, and [Glamour](https://github.com/charmbracelet/glamour) for Markdown output.
+
 ![Five open QualityMax tools and where qmax-code sits among them](docs/img/family.svg)
 
 qmax-code is the terminal agent that drives a QA session. It sits alongside
