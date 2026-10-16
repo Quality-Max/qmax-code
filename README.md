@@ -281,6 +281,13 @@ troubleshooting.
 | OpenCode | `/opencode` or `/orch` | Per-provider key in OS keychain | CLI subprocess for opt-in Z.AI, Groq, and OpenRouter providers. |
 | Ollama | `/ollama` or `/orch` | Configured Ollama endpoint | Self-hosted inference; configure the URL and model first. |
 
+Haiku 5.5 is an explicit option in the Anthropic API and Claude Code pickers,
+or with `/model claude-haiku-5-5`. The `haiku` shorthand and automatic chat
+routing continue to use Haiku 4.5 until the upgrade is verified. Direct Haiku
+5.5 requests disable thinking to reserve the response budget for text and
+tools. Cost estimates preserve each request's prompt-size tier and reported
+cache tokens; historical sessions without recorded costs remain estimates.
+
 QualityMax authentication is independent of model-provider authentication. You
 can run any backend with `--local` and no QualityMax login. Without `--local`,
 qmax-code starts the QualityMax onboarding flow when no supported QualityMax

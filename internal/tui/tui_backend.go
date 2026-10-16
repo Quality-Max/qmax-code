@@ -148,6 +148,7 @@ var ccModels = []pickerEntry{
 	{backend: "cc", modelID: api.ModelOpus47, label: "Opus 4.7", subLabel: "1M ctx"},
 	{backend: "cc", modelID: api.ModelSonnet, label: "Sonnet 4.6"},
 	{backend: "cc", modelID: api.ModelHaiku, label: "Haiku 4.5"},
+	{backend: "cc", modelID: api.ModelHaiku55, label: "Haiku 5.5", isNew: true},
 }
 
 var codexModels = []pickerEntry{
@@ -176,6 +177,7 @@ var apiModels = []pickerEntry{
 	{backend: "", modelID: api.ModelOpus55, label: "Opus 5.5", isNew: true},
 	{backend: "", modelID: api.ModelOpus, label: "Opus 4.8"},
 	{backend: "", modelID: api.ModelHaiku, label: "Haiku 4.5"},
+	{backend: "", modelID: api.ModelHaiku55, label: "Haiku 5.5", isNew: true},
 }
 
 // cerebrasModels are run through Cerebras's OpenAI-compatible API (native

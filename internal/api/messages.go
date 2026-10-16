@@ -31,12 +31,27 @@ type ImageSource struct {
 
 // APIRequest is the Claude API request body.
 type APIRequest struct {
-	Model     string    `json:"model"`
-	MaxTokens int       `json:"max_tokens"`
-	System    string    `json:"system"`
-	Messages  []Message `json:"messages"`
-	Tools     []ToolDef `json:"tools"`
-	Stream    bool      `json:"stream"`
+	Model     string          `json:"model"`
+	MaxTokens int             `json:"max_tokens"`
+	System    string          `json:"system"`
+	Messages  []Message       `json:"messages"`
+	Tools     []ToolDef       `json:"tools"`
+	Stream    bool            `json:"stream"`
+	Thinking  *ThinkingConfig `json:"thinking,omitempty"`
+}
+
+// ThinkingConfig controls Anthropic thinking without sending sampling parameters.
+type ThinkingConfig struct {
+	Type string `json:"type"`
+}
+
+// DefaultThinking reserves Haiku 5.5's response budget for visible text and tools.
+// qmax-code does not retain the signed thinking blocks needed for replay.
+func DefaultThinking(model string) *ThinkingConfig {
+	if model == ModelHaiku55 {
+		return &ThinkingConfig{Type: "disabled"}
+	}
+	return nil
 }
 
 // APIResponse is the Claude API response (non-streaming).
@@ -51,8 +66,15 @@ type APIResponse struct {
 
 // APIUsage tracks token usage on a single request/response.
 type APIUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+}
+
+// TotalInputTokens includes cached prompt tokens, which count toward context limits.
+func (u APIUsage) TotalInputTokens() int {
+	return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 }
 
 // ToolDef is a Claude API tool definition.

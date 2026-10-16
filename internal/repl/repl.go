@@ -280,7 +280,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			PermissionMode: permissionMode,
 			OutputVerbose:  ag.Cfg.OutputVerbose,
 			Task:           lastTask,
-			TokensIn:       ag.Usage.InputTokens,
+			TokensIn:       ag.Usage.TotalInputTokens(),
 			TokensOut:      ag.Usage.OutputTokens,
 			ContextUsed:    lastContextTokens,
 			ContextWindow:  api.ContextWindow(model),
@@ -1414,9 +1414,9 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				if err == nil {
 					if stats, ok := cliAgent.(agent.TurnStatsProvider); ok {
 						if inputTokens, outputTokens, reported := stats.LastTurnStats(); reported {
-							ag.Usage.InputTokens += inputTokens
-							ag.Usage.OutputTokens += outputTokens
-							ag.Usage.Requests++
+							ag.Usage.RecordRequest(ag.Cfg.Model, api.APIUsage{
+								InputTokens: inputTokens, OutputTokens: outputTokens,
+							})
 							lastContextTokens = inputTokens
 							ag.LastContextTokens = inputTokens
 							turnIn, turnOut = inputTokens, outputTokens

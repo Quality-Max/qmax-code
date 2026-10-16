@@ -67,10 +67,10 @@ func (a *Agent) RunCerebrasAgent(term *tui.Terminal) (string, bool) {
 		}
 
 		choice := resp.Choices[0]
-		a.Usage.InputTokens += resp.Usage.PromptTokens
+		a.Usage.RecordRequest(a.Cerebras.Model, api.APIUsage{
+			InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens,
+		})
 		a.LastContextTokens = resp.Usage.PromptTokens
-		a.Usage.OutputTokens += resp.Usage.CompletionTokens
-		a.Usage.Requests++
 
 		// Reconstruct the assistant turn as Anthropic-shaped blocks so the rest
 		// of qmax (history compression, session persistence, cloud upload) sees

@@ -2785,20 +2785,25 @@ func callVisionAnalysis(sctx *api.SessionContext, imageURL, prompt string) strin
 		return jsonError(fmt.Sprintf("Vision API error %d: %s", resp.StatusCode, security.RedactSensitive(string(respData))))
 	}
 
-	var result map[string]interface{}
+	var result api.APIResponse
 	if err := json.Unmarshal(respData, &result); err != nil {
 		return jsonError("Failed to parse vision response")
 	}
 
 	// Extract text from response
-	content, _ := result["content"].([]interface{})
-	if len(content) == 0 {
+	if len(result.Content) == 0 {
 		return jsonError("Empty vision response")
 	}
-	block, _ := content[0].(map[string]interface{})
-	text, _ := block["text"].(string)
-
-	return text
+	var text strings.Builder
+	for _, block := range result.Content {
+		if block.Type == "text" {
+			text.WriteString(block.Text)
+		}
+	}
+	if text.Len() == 0 {
+		return jsonError("Empty vision response")
+	}
+	return text.String()
 }
 
 // callBackendVisionAnalysis falls back to QualityMax backend for vision analysis

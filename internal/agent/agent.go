@@ -582,6 +582,7 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 		Messages:  sanitized,
 		Tools:     a.tools,
 		Stream:    true,
+		Thinking:  api.DefaultThinking(model),
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -656,6 +657,13 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 	scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
 
 	var eventType string
+	var requestUsage api.APIUsage
+	var usageStarted bool
+	defer func() {
+		if usageStarted {
+			a.Usage.RecordRequest(model, requestUsage)
+		}
+	}()
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -684,9 +692,9 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 		case "message_start":
 			var ev sseMessageStart
 			if err := json.Unmarshal([]byte(rawData), &ev); err == nil {
-				a.Usage.InputTokens += ev.Message.Usage.InputTokens
-				a.LastContextTokens = ev.Message.Usage.InputTokens
-				a.Usage.Requests++
+				requestUsage = ev.Message.Usage
+				usageStarted = true
+				a.LastContextTokens = requestUsage.TotalInputTokens()
 				if a.Cfg.Verbose {
 					fmt.Fprintf(term.Stderr(), "[SSE] message_start: input_tokens=%d\n", ev.Message.Usage.InputTokens)
 				}
@@ -769,7 +777,8 @@ func (a *Agent) callStreamingAPI(term *tui.Terminal, model string) ([]api.Conten
 			var ev sseMessageDelta
 			if err := json.Unmarshal([]byte(rawData), &ev); err == nil {
 				stopReason = ev.Delta.StopReason
-				a.Usage.OutputTokens += ev.Usage.OutputTokens
+				// message_delta usage is cumulative for this response.
+				requestUsage.OutputTokens = ev.Usage.OutputTokens
 				if a.Cfg.Verbose {
 					fmt.Fprintf(term.Stderr(), "[SSE] message_delta: stop=%s, output_tokens=%d\n", stopReason, ev.Usage.OutputTokens)
 				}
@@ -802,6 +811,7 @@ func (a *Agent) callAPI() (*api.APIResponse, error) {
 		Messages:  a.History,
 		Tools:     a.tools,
 		Stream:    false,
+		Thinking:  api.DefaultThinking(a.Cfg.Model),
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -855,10 +865,8 @@ func (a *Agent) callAPI() (*api.APIResponse, error) {
 	apiResp.Content = content
 
 	// Track usage
-	a.Usage.InputTokens += apiResp.Usage.InputTokens
-	a.LastContextTokens = apiResp.Usage.InputTokens
-	a.Usage.OutputTokens += apiResp.Usage.OutputTokens
-	a.Usage.Requests++
+	a.Usage.RecordRequest(a.Cfg.Model, apiResp.Usage)
+	a.LastContextTokens = apiResp.Usage.TotalInputTokens()
 
 	if a.Cfg.Verbose {
 		fmt.Printf("[API] Response: stop=%s, input=%d, output=%d tokens\n",

@@ -513,7 +513,6 @@ func (s *VNCStream) readRaw(x, y, w, h int) error {
 		if dy < 0 || dy >= s.height {
 			continue
 		}
-		dst := s.fb[(dy*s.width+x)*4:]
 		// Clip horizontally if the rect overflows (shouldn't, but cheap).
 		n := w * 4
 		if x+w > s.width {
@@ -522,6 +521,7 @@ func (s *VNCStream) readRaw(x, y, w, h int) error {
 				continue
 			}
 		}
+		dst := s.fb[(dy*s.width+x)*4:]
 		copy(dst[:n], row[:n])
 	}
 	return nil

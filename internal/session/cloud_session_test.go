@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/Quality-Max/qmax-code/internal/api"
@@ -25,14 +24,13 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) (*api.APIClient, *htt
 	}, srv
 }
 
-// withTempHome points $HOME at a fresh temp dir for the test and restores it
-// in cleanup. Local copy of the helper in main package's config_command_test.go.
+// withTempHome isolates preferences and prevents access to OS credentials.
 func withTempHome(t *testing.T) string {
 	t.Helper()
-	orig := os.Getenv("HOME")
 	tmp := t.TempDir()
-	os.Setenv("HOME", tmp)
-	t.Cleanup(func() { os.Setenv("HOME", orig) })
+	t.Setenv("HOME", tmp)
+	t.Setenv("PATH", "")
+	t.Setenv("CEREBRAS_API_KEY", "")
 	return tmp
 }
 

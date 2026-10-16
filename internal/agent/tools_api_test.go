@@ -652,6 +652,14 @@ func TestScreenshotVisionTools(t *testing.T) {
 	if out := executeTool("get_page_elements", map[string]interface{}{"execution_id": "e"}, sctx, ctx, nil); out != "A login form with an email field." {
 		t.Fatalf("vision = %s", out)
 	}
+	vision.json("/v1/messages", `{"content":[{"type":"thinking","thinking":"internal"},{"type":"text","text":"A login "},{"type":"text","text":"form."}]}`)
+	if out := callVisionAnalysis(sctx, "https://x/s.png", "p"); out != "A login form." {
+		t.Fatalf("vision with thinking and multiple text blocks = %s", out)
+	}
+	vision.json("/v1/messages", `{"content":[{"type":"thinking","thinking":"internal"}]}`)
+	if out := callVisionAnalysis(sctx, "https://x/s.png", "p"); !strings.Contains(out, "Empty vision response") {
+		t.Fatalf("thinking-only vision = %s", out)
+	}
 	vision.json("/v1/messages", `{"content":[]}`)
 	if out := callVisionAnalysis(sctx, "https://x/s.png", "p"); !strings.Contains(out, "Empty vision response") {
 		t.Fatalf("empty vision = %s", out)
