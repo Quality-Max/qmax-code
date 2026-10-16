@@ -62,10 +62,7 @@ func showBrowserFeedStream(stream *vnc.VNCStream, mode blockMode, status string)
 		status:   status,
 	}
 	m.updateEffectiveDims()
-	p := tea.NewProgram(m,
-		tea.WithAltScreen(),
-		tea.WithMouseAllMotion(),
-	)
+	p := tea.NewProgram(m, browserFeedProgramOptions()...)
 
 	// Bridge stream channels → Bubble Tea. Both goroutines exit when their
 	// respective channels close (stream.Close() closes both). A WaitGroup
@@ -91,6 +88,12 @@ func showBrowserFeedStream(stream *vnc.VNCStream, mode blockMode, status string)
 	stream.Close() // cancels context + closes channels → goroutines above exit
 	wg.Wait()
 	return runErr
+}
+
+// browserFeedProgramOptions configures the feed's Bubble Tea program. Tests
+// replace it to run without a terminal.
+var browserFeedProgramOptions = func() []tea.ProgramOption {
+	return []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseAllMotion()}
 }
 
 // ─── Bubble Tea model ────────────────────────────────────────────────────────
