@@ -1085,6 +1085,9 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *api.SessionConte
 // When sctx.LiveFeed is true the test runs in a QM Cloud Sandbox; status
 // responses are scanned for `live_browser_url` and the freshest one is
 // stored on sctx for the REPL to auto-launch /browserfeed against.
+// testStatusPollInterval spaces CheckTestStatus polls while a cloud test runs.
+var testStatusPollInterval = 2 * time.Second
+
 func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.SessionContext, scriptID int, headless bool, browser, baseURL string, term *tui.Terminal) string {
 	// Start the test
 	raw := client.RunTest(ctx, scriptID, headless, browser, baseURL, sctx != nil && sctx.LiveFeed)
@@ -1153,7 +1156,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.S
 	lastPct := -1
 	stuckCount := 0
 	for i := 0; i < 180; i++ { // max 6 minutes
-		time.Sleep(2 * time.Second)
+		time.Sleep(testStatusPollInterval)
 
 		statusRaw := client.CheckTestStatus(ctx, execID)
 		captureLiveURLTo(sctx, statusRaw, term)
