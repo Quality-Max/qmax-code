@@ -15,6 +15,23 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   modes. It sends images to Cerebras and passes descriptions to the selected
   CLI model; requires a Cerebras key. Includes image fallback and cancellation
   regression tests.
+- `/handoff` keeps explicit, user-recorded rejected approaches and supporting
+  evidence visible across backend switches, history compaction, and session
+  restarts. Use `/handoff reject <approach> | <evidence>` to add a note and
+  `/handoff forget <number>` to remove one; write `\|` for a literal pipe in
+  the approach. The redacted checkpoint is bounded to 12 KiB, is part of every
+  built-in provider prompt, and is sent to a native CLI session when that
+  session is new, the checkpoint changed, or entries are being transferred, so
+  it is not repeated into the CLI's history every turn. No extra model call is
+  made. It instructs the destination to explain any justified retry; it does
+  not enforce model behavior or infer decisions from failures.
+- Switching backends after work not covered by the checkpoint prints a
+  one-line `/handoff reject` reminder, noting interrupted turns and failed tool
+  calls when the backend exposes them. It only suggests; nothing is recorded
+  automatically.
+- `eval/handoff` runs the live evaluation of rejected-approach handoffs:
+  checkpoint vs. control arms across backends, a fixed fixture with hidden
+  scoring tests, and per-run records summarized into `summary.md`.
 - Haiku 5.5 as an explicit Anthropic API and Claude Code model option, with
   request settings and per-request cost estimates. The `haiku` shorthand and
   automatic chat routing continue to use Haiku 4.5 until verified.
@@ -22,6 +39,11 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   authentication, sessions, setup, telemetry, and VNC frame handling.
 - Package documentation for `pkg.go.dev` and a Go Reference badge.
 - CI uploads test coverage to Codecov.
+
+### Fixed
+- Handing off a long history whose oldest entries must be dropped no longer
+  re-encodes the history once per dropped entry; about 800 untransferred
+  entries took ~13s before the backend started and now take under 2s.
 
 ## [1.38.0] - 2026-10-14
 

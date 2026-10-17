@@ -65,6 +65,7 @@ var slashMenuItems = []SlashMenuItem{
 	{"/status", "Auth + session info"},
 	{"/cost", "Token usage + cost"},
 	{"/context", "Show session context info"},
+	{"/handoff", "Rejected approaches and evidence across backends"},
 	{"/plan", "Show coding-plan usage window"},
 	{"/config", "Show config"},
 	{"/skills", "List qmax QA skills + install status"},

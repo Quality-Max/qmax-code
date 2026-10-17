@@ -108,6 +108,7 @@ internal/session/                      Local/cloud sessions and prompt queue
 internal/tui/                          Bubble Tea input, output, themes, media, pickers
 internal/security/                     Command validation and credential redaction
 internal/httpx/ and receipt.go          Guarded egress and Exposure Receipts
+eval/handoff/                          Live /handoff evaluation harness (not in the binary)
 ```
 
 The interactive loop lives in `internal/repl/repl.go`. Built-in backend prompts

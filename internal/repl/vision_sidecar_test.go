@@ -27,6 +27,7 @@ func TestRunVisionSidecarImageRouting(t *testing.T) {
 	for _, command := range []string{"/screenshot", "/paste"} {
 		for _, route := range []string{"description", "embedded fallback", "no fallback"} {
 			t.Run(command+"/"+route, func(t *testing.T) {
+				// replEnv restores http.DefaultTransport with t.Cleanup; these tests run serially.
 				replEnv(t)
 				stubSeams(t)
 				img := &tui.ImageAttachment{MediaType: "image/png", Data: "aGk=", FileName: "screen.png"}
@@ -135,5 +136,28 @@ func TestRunVisionSidecarCancelSkipsBothBackends(t *testing.T) {
 	assertContains(t, out, "Vision sidecar cancelled")
 	if len(cli.prompts) != 0 || len(ag.History) != 0 || strings.Contains(out, "falling back") {
 		t.Fatal("cancellation must not start a CLI or embedded turn")
+	}
+}
+
+func TestRunVisionSidecarDisabledKeepsDraggedImageTextTurn(t *testing.T) {
+	for _, tt := range []struct{ name, mode, key string }{
+		{"explicit off", api.VisionSidecarOff, "test-key"},
+		{"missing key", api.VisionSidecarAlways, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home := replEnv(t)
+			stubSeams(t)
+			path := filepath.Join(home, "dragged.png")
+			if err := os.WriteFile(path, []byte("test image"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ag := newTestAgent(&api.Config{VisionSidecar: tt.mode, CerebrasKey: tt.key}, nil)
+			cli := &fakeCLI{response: "done"}
+			out := runREPL(t, ag, cli, "inspect "+path)
+			assertContains(t, out, "image attachments are not supported in CLI backend mode")
+			if len(cli.prompts) != 1 || !strings.Contains(cli.prompts[0], "inspect") || strings.Contains(cli.prompts[0], "image-descriptions") || strings.Contains(out, "vision sidecar") {
+				t.Fatal("disabled sidecar should preserve the text-only CLI turn")
+			}
+		})
 	}
 }

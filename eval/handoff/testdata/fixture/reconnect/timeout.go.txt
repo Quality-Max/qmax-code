@@ -1,0 +1,7 @@
+package reconnect
+
+import "time"
+
+// ReconnectTimeout bounds how long Send keeps retrying after the server drops
+// the connection.
+const ReconnectTimeout = 200 * time.Millisecond

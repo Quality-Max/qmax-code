@@ -1,0 +1,50 @@
+package reconnect
+
+import (
+	"testing"
+	"time"
+)
+
+// Scoring-only checks, copied in after the backend finishes so a fix cannot
+// special-case the visible test.
+
+func TestReconnectAfterRepeatedDrops(t *testing.T) {
+	s := startServer(t)
+	client, err := Dial(s.addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	for i := 0; i < 3; i++ {
+		if err := client.Send("ping"); err != nil {
+			t.Fatalf("send %d: %v", i, err)
+		}
+		s.dropConnections()
+	}
+	if err := client.Send("ping"); err != nil {
+		t.Fatalf("send after repeated drops: %v", err)
+	}
+}
+
+func TestSendGivesUpWhenServerIsGone(t *testing.T) {
+	s := startServer(t)
+	client, err := Dial(s.addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	// A reply proves the server registered this connection, so dropping
+	// connections below cannot miss it.
+	if err := client.Send("ping"); err != nil {
+		t.Fatal(err)
+	}
+	s.listener.Close()
+	s.dropConnections()
+	start := time.Now()
+	if err := client.Send("ping"); err == nil {
+		t.Fatal("send succeeded with no server")
+	}
+	if elapsed := time.Since(start); elapsed > ReconnectTimeout+2*time.Second {
+		t.Fatalf("send kept retrying for %s; ReconnectTimeout is %s", elapsed, ReconnectTimeout)
+	}
+}

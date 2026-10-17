@@ -207,3 +207,130 @@ func TestBuildSidecarAugmentedPromptHeaderSkipsEmptyImages(t *testing.T) {
 		t.Error("expected error when no attachment has image data")
 	}
 }
+
+// Invalid attachments must fail before any HTTP request is attempted.
+func TestDescribeImagesWithGemmaRejectsInvalidInput(t *testing.T) {
+	image := tui.ImageAttachment{MediaType: "image/png", Data: "aGk=", FileName: "screen.png"}
+	tooMany := make([]tui.ImageAttachment, 11)
+	for i := range tooMany {
+		tooMany[i] = image
+	}
+	cfg := &api.Config{CerebrasKey: "test-key", CerebrasBaseURL: ":invalid"}
+	for _, tt := range []struct {
+		name   string
+		cfg    *api.Config
+		images []tui.ImageAttachment
+		want   string
+	}{
+		{"nil config", nil, []tui.ImageAttachment{image}, "no Cerebras API key"},
+		{"no images", cfg, nil, "no images to describe"},
+		{"over attachment limit", cfg, tooMany, "too many images (11)"},
+		{"no image data", cfg, []tui.ImageAttachment{{MediaType: "image/png"}, {Data: "aGk="}}, "no usable image data"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			desc, err := DescribeImagesWithGemma(context.Background(), tt.cfg, tt.images, "inspect")
+			if err == nil || !strings.Contains(err.Error(), tt.want) || desc != "" {
+				t.Fatalf("got description %q, error %v; want %q", desc, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestDescribeImagesWithGemmaRejectsFailedResponses(t *testing.T) {
+	for _, tt := range []struct {
+		name, body, want string
+		status           int
+	}{
+		{"no choices", `{"choices":[]}`, "empty description", http.StatusOK},
+		{"blank content", `{"choices":[{"message":{"content":"  \n "}}]}`, "empty description", http.StatusOK},
+		{"malformed response", `{`, "parse response", http.StatusOK},
+		{"provider refusal", `{"error":"image rejected"}`, "cerebras error 400", http.StatusBadRequest},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+			cfg := &api.Config{CerebrasKey: "test-key", CerebrasBaseURL: srv.URL}
+			imgs := []tui.ImageAttachment{{MediaType: "image/png", Data: "aGk="}}
+			desc, err := DescribeImagesWithGemma(context.Background(), cfg, imgs, "inspect")
+			if err == nil || !strings.Contains(err.Error(), tt.want) || desc != "" || calls != 1 {
+				t.Fatalf("got description %q, error %v, calls %d; want %q after one request", desc, err, calls, tt.want)
+			}
+		})
+	}
+}
+
+func TestDescribeImagesWithGemmaRequestContents(t *testing.T) {
+	for _, tt := range []struct {
+		name, prompt, wantContext string
+		defaultBase               bool
+	}{
+		{"empty task uses default endpoint", "  ", "Analyze these images.", true},
+		{"long Unicode task", strings.Repeat("界", 1001), strings.Repeat("界", 997) + "...", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" {
+					t.Errorf("unexpected endpoint: %s %s", r.Method, r.URL.Path)
+				}
+				var req struct {
+					Model    string `json:"model"`
+					Messages []struct {
+						Role    string          `json:"role"`
+						Content json.RawMessage `json:"content"`
+					} `json:"messages"`
+					Tools []oaiTool `json:"tools"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				if req.Model != api.CerebrasGemma4Model || len(req.Tools) != 0 || len(req.Messages) != 2 {
+					t.Errorf("request must use the vision model, no tools, and two messages")
+					return
+				}
+				var system string
+				if err := json.Unmarshal(req.Messages[0].Content, &system); err != nil || req.Messages[0].Role != "system" || !strings.Contains(system, "Report only what is visible") {
+					t.Error("missing vision description instructions")
+				}
+				var parts []oaiContentPart
+				if err := json.Unmarshal(req.Messages[1].Content, &parts); err != nil || req.Messages[1].Role != "user" || len(parts) != 11 {
+					t.Error("request must include all ten usable images and task context")
+					return
+				}
+				for i, part := range parts[:10] {
+					if part.Type != "image_url" || part.ImageURL == nil || part.ImageURL.URL != "data:image/png;base64,aGk=" {
+						t.Errorf("attachment %d was not sent as image data", i)
+					}
+				}
+				wantNames := strings.TrimSuffix(strings.Repeat("screen.png, ", 10), ", ")
+				text := parts[10]
+				if text.Type != "text" || !strings.Contains(text.Text, "Attachment filenames, in order: "+wantNames+".") || !strings.HasSuffix(text.Text, tt.wantContext+"\n") {
+					t.Error("task context or attachment order was lost")
+				}
+				_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ten screenshots"}}]}`))
+			}))
+			defer srv.Close()
+			cfg := &api.Config{CerebrasKey: "test-key", CerebrasBaseURL: srv.URL + "/v1/", CerebrasModel: "gpt-oss-120b"}
+			if tt.defaultBase {
+				// Restored by t.Cleanup; this package's transport-changing tests are serial.
+				routeAllRequestsTo(t, srv)
+				cfg.CerebrasBaseURL = ""
+			}
+			images := make([]tui.ImageAttachment, 10)
+			for i := range images {
+				images[i] = tui.ImageAttachment{FileName: "screen.png", MediaType: "image/png", Data: "aGk="}
+			}
+			desc, err := DescribeImagesWithGemma(context.Background(), cfg, images, tt.prompt)
+			if err != nil || desc != "ten screenshots" || calls != 1 {
+				t.Fatalf("description %q, error %v, calls %d", desc, err, calls)
+			}
+		})
+	}
+}
