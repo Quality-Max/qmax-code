@@ -140,6 +140,13 @@ They do not collect hidden reasoning, provider configuration, or credentials
 from the environment. Switching providers makes retained conversation content
 available to the newly selected provider.
 
+Explicit `/handoff` notes contain user-supplied rejected approaches and evidence.
+They use the same retention redaction as conversation content, are saved with
+the session, and accompany subsequent prompts on any selected backend. They
+do not read environment variables, provider configuration, or hidden reasoning,
+and do not make an additional model request. Quoted evidence is identified as
+data rather than instructions; these notes are not a command execution gate.
+
 Session writes use an owner-only temporary file and atomic replacement.
 Portable transcripts in `~/.qmax-code/sessions/` are reclaimed after 90 days;
 legacy sessions keep the seven-day cleanup. Large handoffs and built-in

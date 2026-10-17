@@ -573,6 +573,7 @@ type ccBlock struct {
 	Input     map[string]interface{} `json:"input,omitempty"`
 	ToolUseID string                 `json:"tool_use_id,omitempty"`
 	Content   json.RawMessage        `json:"content,omitempty"` // tool_result content
+	IsError   bool                   `json:"is_error,omitempty"`
 }
 
 // parseStream reads CC's NDJSON output and renders it in the terminal.

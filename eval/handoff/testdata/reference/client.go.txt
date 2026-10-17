@@ -1,0 +1,98 @@
+// Package reconnect is a line-oriented client that survives server restarts.
+package reconnect
+
+import (
+	"bufio"
+	"fmt"
+	"net"
+	"strings"
+	"sync"
+	"time"
+)
+
+// retryInterval spaces attempts while the server comes back.
+const retryInterval = 20 * time.Millisecond
+
+// Client sends newline-terminated messages and waits for an "ok" reply.
+type Client struct {
+	addr string
+
+	mu     sync.Mutex
+	conn   net.Conn
+	reader *bufio.Reader
+}
+
+// Dial connects to the server at addr.
+func Dial(addr string) (*Client, error) {
+	c := &Client{addr: addr}
+	if err := c.connect(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (c *Client) connect() error {
+	conn, err := net.DialTimeout("tcp", c.addr, ReconnectTimeout)
+	if err != nil {
+		return err
+	}
+	c.conn, c.reader = conn, bufio.NewReader(conn)
+	return nil
+}
+
+// Send delivers msg and waits for the reply, retrying until ReconnectTimeout
+// elapses if the server drops the connection.
+func (c *Client) Send(msg string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	deadline := time.Now().Add(ReconnectTimeout)
+	for {
+		err := c.attempt(msg)
+		if err == nil {
+			return nil
+		}
+		// A failed attempt leaves the connection unusable; redial next time.
+		if c.conn != nil {
+			c.conn.Close()
+			c.conn, c.reader = nil, nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("reconnect did not complete within %s: %w", ReconnectTimeout, err)
+		}
+		time.Sleep(retryInterval)
+	}
+}
+
+func (c *Client) attempt(msg string) error {
+	if c.conn == nil {
+		if err := c.connect(); err != nil {
+			return err
+		}
+	}
+	if err := c.conn.SetDeadline(time.Now().Add(ReconnectTimeout)); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.conn, "%s\n", msg); err != nil {
+		return err
+	}
+	reply, err := c.reader.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(reply) != "ok" {
+		return fmt.Errorf("unexpected reply %q", reply)
+	}
+	return nil
+}
+
+// Close releases the connection.
+func (c *Client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn == nil {
+		return nil
+	}
+	err := c.conn.Close()
+	c.conn, c.reader = nil, nil
+	return err
+}
