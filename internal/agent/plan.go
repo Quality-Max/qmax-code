@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // PlanStep is a single entry in the agent's task plan, surfaced via update_plan.

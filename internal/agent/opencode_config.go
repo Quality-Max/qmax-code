@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
 )
 
 // userOpenCodeConfigDir returns the directory opencode reads its own global

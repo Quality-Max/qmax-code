@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // OpenCodeAgent orchestrates an opencode CLI subprocess for LLM inference.

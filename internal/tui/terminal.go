@@ -16,7 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/chzyer/readline"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 // ANSI color codes (kept for prompt and readline which don't use lipgloss)
@@ -785,7 +785,7 @@ func (t *Terminal) PrintError(msg string) {
 func (t *Terminal) PrintTokenUsage(usage api.TokenUsage) {
 	t.emit(fmt.Sprintf("\n%s\n", styleUsage.Render(
 		fmt.Sprintf("  tokens: %d in / %d out (session: %d total, %d requests)",
-			usage.InputTokens, usage.OutputTokens, usage.TotalTokens(), usage.Requests))))
+			usage.TotalInputTokens(), usage.OutputTokens, usage.TotalTokens(), usage.Requests))))
 }
 
 // PrintCostSummary shows detailed cost info for /cost command. When plan is
@@ -794,7 +794,7 @@ func (t *Terminal) PrintCostSummary(usage api.TokenUsage, model string, plan *ap
 	cost := usage.EstimatedCost(model)
 	fmt.Printf("\n")
 	fmt.Printf("  %s\n", styleSystem.Render("Session Token Usage"))
-	fmt.Printf("  %-20s %d\n", "Input tokens:", usage.InputTokens)
+	fmt.Printf("  %-20s %d\n", "Input tokens:", usage.TotalInputTokens())
 	fmt.Printf("  %-20s %d\n", "Output tokens:", usage.OutputTokens)
 	fmt.Printf("  %-20s %d\n", "Total tokens:", usage.TotalTokens())
 	fmt.Printf("  %-20s %d\n", "API requests:", usage.Requests)
@@ -863,7 +863,7 @@ func (t *Terminal) PrintStatusInfo(ctx *api.SessionContext, usage api.TokenUsage
 		fmt.Printf("  %-20s #%d\n", "Active project:", ctx.ProjectID)
 	}
 	fmt.Printf("  %-20s %s\n", "Model:", model)
-	fmt.Printf("  %-20s %d in / %d out\n", "Session tokens:", usage.InputTokens, usage.OutputTokens)
+	fmt.Printf("  %-20s %d in / %d out\n", "Session tokens:", usage.TotalInputTokens(), usage.OutputTokens)
 	fmt.Printf("  %-20s $%.4f\n", "Est. cost:", usage.EstimatedCost(model))
 	if plan != nil && plan.Started() {
 		fmt.Printf("  %-20s resets in %s (%d turns)\n", "Plan window:",

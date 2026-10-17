@@ -21,6 +21,7 @@
 [![GitHub downloads](https://img.shields.io/github/downloads/Quality-Max/qmax-code/total?label=downloads)](https://github.com/Quality-Max/qmax-code/releases)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Made with Go](https://img.shields.io/badge/made%20with-Go%201.25.13+-00ADD8.svg)](https://go.dev/)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Quality-Max/qmax-code.svg)](https://pkg.go.dev/github.com/Quality-Max/qmax-code)
 [![Announcement](https://img.shields.io/badge/announcement-Apache%202.0-7c6cf0.svg)](docs/releases/v1.38.0.md)
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/qualitymax)
@@ -122,6 +123,12 @@ curl -sL https://qualitymax.io/static/install-qmax-code.txt | bash
 ```
 
 To build from source instead:
+
+```bash
+go install github.com/Quality-Max/qmax-code@latest
+```
+
+Or from a checkout:
 
 ```bash
 git clone https://github.com/Quality-Max/qmax-code.git
@@ -273,6 +280,13 @@ troubleshooting.
 | Cerebras | `/gemma`, `/orch`, or `--backend cerebras` | `CEREBRAS_API_KEY` or OS keychain | Built-in native function calling. Fast inference (~1000–2000+ tok/s): GPT-OSS 120B, GLM 4.7, Gemma 4 (vision + effort). **Qwen 3.8 coming soon.** |
 | OpenCode | `/opencode` or `/orch` | Per-provider key in OS keychain | CLI subprocess for opt-in Z.AI, Groq, and OpenRouter providers. |
 | Ollama | `/ollama` or `/orch` | Configured Ollama endpoint | Self-hosted inference; configure the URL and model first. |
+
+Haiku 5.5 is an explicit option in the Anthropic API and Claude Code pickers,
+or with `/model claude-haiku-5-5`. The `haiku` shorthand and automatic chat
+routing continue to use Haiku 4.5 until the upgrade is verified. Direct Haiku
+5.5 requests disable thinking to reserve the response budget for text and
+tools. Cost estimates preserve each request's prompt-size tier and reported
+cache tokens; historical sessions without recorded costs remain estimates.
 
 QualityMax authentication is independent of model-provider authentication. You
 can run any backend with `--local` and no QualityMax login. Without `--local`,

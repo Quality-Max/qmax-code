@@ -231,7 +231,7 @@ func (m settingsPickerModel) View() string {
 // error is reported as a plain cancellation.
 func ShowSettingsPicker(rows []SettingsRow) SettingsPickerResult {
 	m := newSettingsPickerModel(rows)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return SettingsPickerResult{}

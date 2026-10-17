@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/httpx"
-	"github.com/qualitymax/qmax-code/internal/security"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/httpx"
+	"github.com/Quality-Max/qmax-code/internal/security"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // jsonError formats msg as a JSON-encoded error object after redaction.
@@ -1085,6 +1085,9 @@ func executeToolViaAPI(name string, rawInput interface{}, sctx *api.SessionConte
 // When sctx.LiveFeed is true the test runs in a QM Cloud Sandbox; status
 // responses are scanned for `live_browser_url` and the freshest one is
 // stored on sctx for the REPL to auto-launch /browserfeed against.
+// testStatusPollInterval spaces CheckTestStatus polls while a cloud test runs.
+var testStatusPollInterval = 2 * time.Second
+
 func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.SessionContext, scriptID int, headless bool, browser, baseURL string, term *tui.Terminal) string {
 	// Start the test
 	raw := client.RunTest(ctx, scriptID, headless, browser, baseURL, sctx != nil && sctx.LiveFeed)
@@ -1153,7 +1156,7 @@ func runTestWithProgress(ctx context.Context, client *api.APIClient, sctx *api.S
 	lastPct := -1
 	stuckCount := 0
 	for i := 0; i < 180; i++ { // max 6 minutes
-		time.Sleep(2 * time.Second)
+		time.Sleep(testStatusPollInterval)
 
 		statusRaw := client.CheckTestStatus(ctx, execID)
 		captureLiveURLTo(sctx, statusRaw, term)
@@ -2782,20 +2785,25 @@ func callVisionAnalysis(sctx *api.SessionContext, imageURL, prompt string) strin
 		return jsonError(fmt.Sprintf("Vision API error %d: %s", resp.StatusCode, security.RedactSensitive(string(respData))))
 	}
 
-	var result map[string]interface{}
+	var result api.APIResponse
 	if err := json.Unmarshal(respData, &result); err != nil {
 		return jsonError("Failed to parse vision response")
 	}
 
 	// Extract text from response
-	content, _ := result["content"].([]interface{})
-	if len(content) == 0 {
+	if len(result.Content) == 0 {
 		return jsonError("Empty vision response")
 	}
-	block, _ := content[0].(map[string]interface{})
-	text, _ := block["text"].(string)
-
-	return text
+	var text strings.Builder
+	for _, block := range result.Content {
+		if block.Type == "text" {
+			text.WriteString(block.Text)
+		}
+	}
+	if text.Len() == 0 {
+		return jsonError("Empty vision response")
+	}
+	return text.String()
 }
 
 // callBackendVisionAnalysis falls back to QualityMax backend for vision analysis

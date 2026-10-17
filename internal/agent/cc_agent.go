@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // CLIAgent is the interface implemented by both CCAgent (claude CLI) and
@@ -70,24 +70,24 @@ type PlanLimitReporter interface {
 //  5. CC session ID is saved for --resume on the next turn
 type CCAgent struct {
 	TurnTranscript
-	claudeBin      string
-	modelID        string // "" = let CC decide; otherwise passed as --model
-	effort         string // "low" | "medium" | "high" — injected into system prompt
+	claudeBin        string
+	modelID          string // "" = let CC decide; otherwise passed as --model
+	effort           string // "low" | "medium" | "high" — injected into system prompt
 	outputVerbose    bool   // false = compact answer style; true = previous detailed style
 	narrateToolCalls string // "off" | "brief" | "full" — see narrationDirective
 	permissionMode   string // "standard" | "unattended" — see Run() for behavior
-	ccSessionID    string // CC's own session ID, for --resume
-	mcpConfigPath  string // temp MCP config written once per qmax session
-	mcpConfigInfo  os.FileInfo
-	sctx           *api.SessionContext
-	lastToolName   string                  // track last tool name for result display
-	fileSnaps      map[string]fileSnapshot // CC tool_use id → pre-edit snapshot
-	lastTurnIn     int                     // token usage of the most recent turn (from CC's result event)
-	lastTurnOut    int
-	lastTurnOK     bool // true once a result event carried usage this turn
-	mu             sync.Mutex
-	runMu          sync.Mutex
-	runCancel      context.CancelFunc // non-nil while Run() is active
+	ccSessionID      string // CC's own session ID, for --resume
+	mcpConfigPath    string // temp MCP config written once per qmax session
+	mcpConfigInfo    os.FileInfo
+	sctx             *api.SessionContext
+	lastToolName     string                  // track last tool name for result display
+	fileSnaps        map[string]fileSnapshot // CC tool_use id → pre-edit snapshot
+	lastTurnIn       int                     // token usage of the most recent turn (from CC's result event)
+	lastTurnOut      int
+	lastTurnOK       bool // true once a result event carried usage this turn
+	mu               sync.Mutex
+	runMu            sync.Mutex
+	runCancel        context.CancelFunc // non-nil while Run() is active
 }
 
 // ccStandardAllowlist is the curated list passed to `claude --allowedTools` in

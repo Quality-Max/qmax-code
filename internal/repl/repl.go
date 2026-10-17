@@ -19,15 +19,46 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/gate"
-	"github.com/qualitymax/qmax-code/internal/session"
-	"github.com/qualitymax/qmax-code/internal/setup"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
-	"github.com/qualitymax/qmax-code/internal/update"
-	"github.com/qualitymax/qmax-code/internal/vnc"
+	"github.com/Quality-Max/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/gate"
+	"github.com/Quality-Max/qmax-code/internal/session"
+	"github.com/Quality-Max/qmax-code/internal/setup"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/update"
+	"github.com/Quality-Max/qmax-code/internal/vnc"
+)
+
+// Interactive and external entry points used by Run. Tests replace them to
+// script the REPL without a TTY, network, or installed coding-agent CLIs.
+var (
+	readInput           = tui.ReadInput
+	runTurnViewport     = tui.RunTurnViewport
+	showModelPicker     = tui.ShowModelPicker
+	showThemePicker     = tui.ShowThemePicker
+	showSessionPicker   = tui.ShowSessionPicker
+	showCloudSyncPicker = tui.ShowCloudSyncPicker
+	showLiveFeedPicker  = tui.ShowLiveFeedPicker
+	showSettingsPicker  = tui.ShowSettingsPicker
+	showProviderPicker  = tui.ShowProviderPicker
+	captureScreenshot   = tui.CaptureScreenshot
+	pasteImage          = tui.PasteImageFromClipboard
+	pasteText           = tui.PasteTextFromClipboard
+	promptOrchConsent   = setup.PromptOrchConsent
+	readSecret          = setup.ReadSecret
+	promptAgyLogin      = setup.PromptAgyGoogleLogin
+	promptChoice        = setup.PromptChoice
+	loginViaBrowser     = setup.LoginViaBrowser
+	checkUpdate         = update.Check
+	maybeCheckUpdate    = update.MaybeCheck
+	readConsent         = (*tui.Terminal).ReadConsent
+	runGate             = gate.Run
+	openBrowserFeed     = showBrowserFeed
+	findClaudeCode      = agent.FindClaudeCode
+	findCodex           = agent.FindCodex
+	findAgy             = agent.FindAgy
+	findOpenCode        = agent.FindOpenCode
 )
 
 // Run is the REPL entrypoint. version is the qmax-code build version,
@@ -249,7 +280,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			PermissionMode: permissionMode,
 			OutputVerbose:  ag.Cfg.OutputVerbose,
 			Task:           lastTask,
-			TokensIn:       ag.Usage.InputTokens,
+			TokensIn:       ag.Usage.TotalInputTokens(),
 			TokensOut:      ag.Usage.OutputTokens,
 			ContextUsed:    lastContextTokens,
 			ContextWindow:  api.ContextWindow(model),
@@ -284,7 +315,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			fmt.Println()
 			inputHistory = append(inputHistory, redactSecretInput(input))
 		} else {
-			result := tui.ReadInput(term.Prompt(), inputHistory, ag.Cfg.OutputVerbose, inputStatus())
+			result := readInput(term.Prompt(), inputHistory, ag.Cfg.OutputVerbose, inputStatus())
 
 			if result.OutputToggle {
 				toggleOutputVerbose(ag, cliAgent, term)
@@ -318,7 +349,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			fmt.Fprintf(os.Stderr, "Goodbye!\n")
 			return
 		case input == "/update":
-			rel, err := update.Check(version)
+			rel, err := checkUpdate(version)
 			switch {
 			case err != nil:
 				fmt.Printf("  %s✗ %v%s\n", tui.ColorRed, err, tui.ColorReset)
@@ -338,7 +369,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintError(err.Error())
 				continue
 			}
-			result := gate.Run(context.Background(), gate.Options{
+			result := runGate(context.Background(), gate.Options{
 				Base: base,
 				Dir:  ".",
 				OnProgress: func(message string) {
@@ -444,7 +475,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			for i, s := range sessions {
 				items[i] = tui.SessionPickerItem{ID: s.ID, UpdatedAt: s.UpdatedAt, Turns: s.Turns, Tokens: s.Tokens, ProjectID: s.ProjectID, Model: s.Model}
 			}
-			chosenID, ok := tui.ShowSessionPicker(items, sessionID)
+			chosenID, ok := showSessionPicker(items, sessionID)
 			if !ok {
 				continue
 			}
@@ -559,7 +590,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					currentEffort = "low"
 				}
 			}
-			if len(cfg.ActiveProviders()) > 0 && agent.FindOpenCode() != "" {
+			if len(cfg.ActiveProviders()) > 0 && findOpenCode() != "" {
 				term.PrintSystem("Querying opencode models for your enabled providers…")
 			}
 			ocModels, modelQueryWarnings := buildOpenCodeModelEntries(cfg, ag.Cfg.Context)
@@ -569,17 +600,17 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			if len(ocModels) == 0 {
 				ocModels = openCodeSetupEntries()
 			}
-			result := tui.ShowModelPicker(tui.ModelPickerOpts{
+			result := showModelPicker(tui.ModelPickerOpts{
 				CurrentBackend:    currentBackend,
 				CurrentModelID:    currentModelID,
 				Effort:            currentEffort,
 				OllamaURL:         cfg.OllamaURL,
 				OllamaModel:       cfg.OllamaModel,
-				CCInstalled:       agent.FindClaudeCode() != "",
-				CodexInstalled:    agent.FindCodex() != "",
-				AgyInstalled:      agent.FindAgy() != "",
+				CCInstalled:       findClaudeCode() != "",
+				CodexInstalled:    findCodex() != "",
+				AgyInstalled:      findAgy() != "",
 				CerebrasKeySet:    cfg.CerebrasKey != "",
-				OpenCodeInstalled: agent.FindOpenCode() != "",
+				OpenCodeInstalled: findOpenCode() != "",
 				OpenCodeModels:    ocModels,
 			})
 			if !result.Confirmed {
@@ -627,7 +658,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				// leaving it blank cancels the switch without changing anything.
 				if cfg.CerebrasKey == "" {
 					term.PrintSystem("Cerebras needs an API key (get one at https://cloud.cerebras.ai).")
-					key := setup.ReadSecret("  Paste your Cerebras key (blank to cancel): ")
+					key := readSecret("  Paste your Cerebras key (blank to cancel): ")
 					if key == "" {
 						term.PrintSystem("No key entered — backend not changed.")
 						continue
@@ -679,26 +710,26 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			// ── Validate the chosen CLI is actually installed ─────────────────
 			switch result.Backend {
 			case "cc":
-				if agent.FindClaudeCode() == "" {
+				if findClaudeCode() == "" {
 					term.PrintError("Claude Code ('claude') not found. Install it first.")
 					term.PrintSystem("  https://claude.ai/download")
 					continue
 				}
 			case "codex":
-				if agent.FindCodex() == "" {
+				if findCodex() == "" {
 					term.PrintError("Codex CLI ('codex') not found.")
 					term.PrintSystem("  npm install -g @openai/codex")
 					continue
 				}
 			case "agy":
-				if agent.FindAgy() == "" {
+				if findAgy() == "" {
 					term.PrintError("Antigravity CLI ('agy') not found.")
 					term.PrintSystem("  curl -fsSL https://antigravity.google/cli/install.sh | bash")
 					term.PrintSystem("  Then run `agy` and sign in with Google")
 					continue
 				}
 			case "opencode":
-				if agent.FindOpenCode() == "" {
+				if findOpenCode() == "" {
 					term.PrintError("opencode CLI ('opencode') not found.")
 					term.PrintSystem("  curl -fsSL https://opencode.ai/install | bash")
 					continue
@@ -707,7 +738,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 
 			// Consent gate: required before activating CC/Codex (autonomous shell + edits).
 			if result.Backend != "" {
-				consent := setup.PromptOrchConsent(cfg, result.Backend)
+				consent := promptOrchConsent(cfg, result.Backend)
 				if !consent.Proceed {
 					term.PrintSystem("Backend not changed.")
 					continue
@@ -728,7 +759,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					setup.InstallSkillsReport(result.Backend, term)
 				}
 				if result.Backend == "agy" {
-					setup.PromptAgyGoogleLogin(agent.FindAgy())
+					promptAgyLogin(findAgy())
 				}
 			}
 
@@ -742,24 +773,24 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			// Spin up the new agent with selected model + effort.
 			switch result.Backend {
 			case "cc":
-				cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
+				cliAgent = agent.NewCCAgent(findClaudeCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				term.PrintSystem(fmt.Sprintf("Backend: Claude Code  model: %s  effort: %s", result.ModelID, result.Effort))
 			case "codex":
-				ca := agent.NewCodexAgent(agent.FindCodex(), result.ModelID, result.Effort, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
+				ca := agent.NewCodexAgent(findCodex(), result.ModelID, result.Effort, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				if err := ca.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: Codex MCP config: %v", err))
 				}
 				cliAgent = ca
 				term.PrintSystem(fmt.Sprintf("Backend: Codex  model: %s  policy: Codex config  prompt effort: %s", codexModelLabel(result.ModelID), result.Effort))
 			case "agy":
-				aa := agent.NewAgyAgent(agent.FindAgy(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
+				aa := agent.NewAgyAgent(findAgy(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				if err := aa.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: Antigravity MCP config: %v", err))
 				}
 				cliAgent = aa
 				term.PrintSystem(fmt.Sprintf("Backend: Antigravity  model: %s  effort: %s  (Google OAuth)", agyModelLabel(result.ModelID), result.Effort))
 			case "opencode":
-				oc := agent.NewOpenCodeAgent(agent.FindOpenCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg, ag.Cfg.Context)
+				oc := agent.NewOpenCodeAgent(findOpenCode(), result.ModelID, result.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg, ag.Cfg.Context)
 				if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context, cfg.OrchPermissionMode); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: opencode config: %v", err))
 				}
@@ -783,7 +814,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintError("api.Config not loaded.")
 				continue
 			}
-			chosen, ok := tui.ShowThemePicker(cfg.Theme)
+			chosen, ok := showThemePicker(cfg.Theme)
 			if !ok {
 				continue
 			}
@@ -805,7 +836,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintError("api.Config not loaded.")
 				continue
 			}
-			enabled, ok := tui.ShowCloudSyncPicker(cfg.CloudSync)
+			enabled, ok := showCloudSyncPicker(cfg.CloudSync)
 			if !ok {
 				continue
 			}
@@ -860,7 +891,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			// from a different backend (e.g. gpt-5.6 from Codex), which must never
 			// be passed to opencode.
 			if wantBackend == "opencode" {
-				if agent.FindOpenCode() == "" {
+				if findOpenCode() == "" {
 					term.PrintError("'opencode' CLI not found.")
 					term.PrintSystem("  curl -fsSL https://opencode.ai/install | bash")
 					continue
@@ -874,7 +905,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					term.PrintError("No opencode models available for your enabled providers. Check keys with /providers or pick a model in /orch.")
 					continue
 				}
-				consent := setup.PromptOrchConsent(cfg, "opencode")
+				consent := promptOrchConsent(cfg, "opencode")
 				if !consent.Proceed {
 					term.PrintSystem("Backend not changed.")
 					continue
@@ -884,13 +915,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 
 			if wantBackend == "agy" {
-				if agent.FindAgy() == "" {
+				if findAgy() == "" {
 					term.PrintError("'agy' CLI not found.")
 					term.PrintSystem("  curl -fsSL https://antigravity.google/cli/install.sh | bash")
 					term.PrintSystem("  Then run `agy` and sign in with Google")
 					continue
 				}
-				consent := setup.PromptOrchConsent(cfg, "agy")
+				consent := promptOrchConsent(cfg, "agy")
 				if !consent.Proceed {
 					term.PrintSystem("Backend not changed.")
 					continue
@@ -903,7 +934,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 					}
 					setup.InstallSkillsReport("agy", term)
 				}
-				setup.PromptAgyGoogleLogin(agent.FindAgy())
+				promptAgyLogin(findAgy())
 			}
 
 			// Tear down current CLI agent.
@@ -915,13 +946,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 
 			switch wantBackend {
 			case "cc":
-				bin := agent.FindClaudeCode()
+				bin := findClaudeCode()
 				if bin == "" {
 					term.PrintError("'claude' CLI not found. Install Claude Code first.")
 					term.PrintSystem("  https://claude.ai/download")
 					continue
 				}
-				consent := setup.PromptOrchConsent(cfg, "cc")
+				consent := promptOrchConsent(cfg, "cc")
 				if !consent.Proceed {
 					term.PrintSystem("Backend not changed.")
 					continue
@@ -940,13 +971,13 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintSystem(fmt.Sprintf("Backend → Claude Code (%s) · %s mode", bin, cfg.OrchPermissionMode))
 
 			case "codex":
-				bin := agent.FindCodex()
+				bin := findCodex()
 				if bin == "" {
 					term.PrintError("'codex' CLI not found.")
 					term.PrintSystem("  npm install -g @openai/codex")
 					continue
 				}
-				consent := setup.PromptOrchConsent(cfg, "codex")
+				consent := promptOrchConsent(cfg, "codex")
 				if !consent.Proceed {
 					term.PrintSystem("Backend not changed.")
 					continue
@@ -969,7 +1000,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintSystem(fmt.Sprintf("Backend → Codex (%s) · Codex config policy", bin))
 
 			case "agy":
-				bin := agent.FindAgy()
+				bin := findAgy()
 				aa := agent.NewAgyAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg.NarrateToolCalls, ag.Cfg.Context)
 				if err := aa.WriteMCPConfig(); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: MCP config: %v", err))
@@ -982,7 +1013,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			case "opencode":
 				// Pre-flight above already validated the CLI, providers, model, and
 				// consent (and set cfg.ModelOverride / cfg.OrchPermissionMode).
-				bin := agent.FindOpenCode()
+				bin := findOpenCode()
 				oc := agent.NewOpenCodeAgent(bin, cfg.ModelOverride, cfg.Effort, cfg.OrchPermissionMode, cfg.OutputVerbose, cfg, ag.Cfg.Context)
 				if _, err := agent.WriteOpenCodeConfig(cfg, ag.Cfg.Context, cfg.OrchPermissionMode); err != nil {
 					term.PrintSystem(fmt.Sprintf("Warning: opencode config: %v", err))
@@ -1040,7 +1071,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 
 			if cfg.CerebrasKey == "" {
 				term.PrintSystem("Cerebras needs an API key (get one at https://cloud.cerebras.ai).")
-				key := setup.ReadSecret("  Paste your Cerebras key (blank to cancel): ")
+				key := readSecret("  Paste your Cerebras key (blank to cancel): ")
 				if key == "" {
 					term.PrintSystem("No key entered — Gemma not activated.")
 					continue
@@ -1143,7 +1174,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				term.PrintSystem("  --half : use 2-pixel half-blocks (more portable, lower res)")
 				continue
 			}
-			if err := showBrowserFeed(arg, mode); err != nil {
+			if err := openBrowserFeed(arg, mode); err != nil {
 				term.PrintError(fmt.Sprintf("browserfeed: %v", err))
 			}
 			continue
@@ -1175,7 +1206,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			case "":
 				// No argument → open the TUI picker. Matches the /cloudsync
 				// pattern so toggles feel consistent across the app.
-				next, ok := tui.ShowLiveFeedPicker(cfg.LiveFeed)
+				next, ok := showLiveFeedPicker(cfg.LiveFeed)
 				if !ok {
 					continue // user cancelled; leave current value alone
 				}
@@ -1217,12 +1248,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				}
 				continue
 			}
-			if err := showBrowserFeed(url, blockModeQuarter); err != nil {
+			if err := openBrowserFeed(url, blockModeQuarter); err != nil {
 				term.PrintError(fmt.Sprintf("browserfeed: %v", err))
 			}
 			continue
 		case input == "/screenshot":
-			img, err := tui.CaptureScreenshot()
+			img, err := captureScreenshot()
 			if err != nil {
 				term.PrintError(err.Error())
 				continue
@@ -1232,7 +1263,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			turnImages = append(turnImages, *img)
 		case input == "/paste":
 			// Try image first, then text
-			img, imgErr := tui.PasteImageFromClipboard()
+			img, imgErr := pasteImage()
 			if imgErr == nil {
 				term.PrintSystem(fmt.Sprintf("Pasted image from clipboard (%s)", img.FileName))
 				input = "Analyze this pasted image."
@@ -1240,7 +1271,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				break
 			}
 			// Fall back to text paste
-			text, textErr := tui.PasteTextFromClipboard()
+			text, textErr := pasteText()
 			if textErr != nil || text == "" {
 				term.PrintError("Nothing in clipboard")
 				continue
@@ -1370,7 +1401,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			watchCancel()
 		}
 
-		turnInput := tui.RunTurnViewport(term, term.Prompt(), inputStatus(), cancelCurrent, func() {
+		turnInput := runTurnViewport(term, term.Prompt(), inputStatus(), cancelCurrent, func() {
 			if runWithCLI {
 				if len(images) > 0 {
 					term.PrintSystem("Note: image attachments are not supported in CLI backend mode.")
@@ -1383,9 +1414,9 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 				if err == nil {
 					if stats, ok := cliAgent.(agent.TurnStatsProvider); ok {
 						if inputTokens, outputTokens, reported := stats.LastTurnStats(); reported {
-							ag.Usage.InputTokens += inputTokens
-							ag.Usage.OutputTokens += outputTokens
-							ag.Usage.Requests++
+							ag.Usage.RecordRequest(ag.Cfg.Model, api.APIUsage{
+								InputTokens: inputTokens, OutputTokens: outputTokens,
+							})
 							lastContextTokens = inputTokens
 							ag.LastContextTokens = inputTokens
 							turnIn, turnOut = inputTokens, outputTokens
@@ -1508,7 +1539,7 @@ func handleConnect(ag *agent.Agent, term *tui.Terminal) {
 	tui.AnimateMax(tui.MoodWaving, "Let's connect you to QualityMax!")
 	fmt.Println()
 
-	auth, err := setup.LoginViaBrowser()
+	auth, err := loginViaBrowser()
 	if err != nil {
 		tui.AnimateMax(tui.MoodSad, "Connection failed: "+err.Error())
 		fmt.Println()
@@ -1614,7 +1645,7 @@ func handleKeys(ag *agent.Agent, term *tui.Terminal) {
 	}
 	fmt.Println()
 
-	choice := setup.PromptChoice("  What would you like to do?", []string{
+	choice := promptChoice("  What would you like to do?", []string{
 		"Set Anthropic API key",
 		"Connect to QualityMax (browser)",
 		"Disconnect from QualityMax",
@@ -1626,7 +1657,7 @@ func handleKeys(ag *agent.Agent, term *tui.Terminal) {
 		fmt.Println()
 		fmt.Println("  Get your key at: https://console.anthropic.com/settings/keys")
 		fmt.Println()
-		key := setup.ReadSecret("  Paste your Anthropic key: ")
+		key := readSecret("  Paste your Anthropic key: ")
 		if key == "" {
 			term.PrintSystem("Cancelled.")
 			return
@@ -1968,7 +1999,7 @@ func handleSetCommand(input string, ag *agent.Agent, term *tui.Terminal) {
 		case "apikey", "anthropic-key", "anthropic_key":
 			// Prompt hidden rather than making the user paste a secret into the
 			// visible input line (and its history).
-			value := setup.ReadSecret("  Paste the value (blank to cancel): ")
+			value := readSecret("  Paste the value (blank to cancel): ")
 			if value == "" {
 				term.PrintSystem("No value entered — nothing changed.")
 				return
@@ -2206,7 +2237,7 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 		// For live switching use /cc, /codex, or /api instead.
 		switch strings.ToLower(value) {
 		case "cc":
-			if agent.FindClaudeCode() == "" {
+			if findClaudeCode() == "" {
 				term.PrintError("'claude' CLI not found. Install Claude Code first.")
 				term.PrintSystem("  https://claude.ai/download")
 				return settingInvalid
@@ -2214,7 +2245,7 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 			cfg.Backend = "cc"
 			term.PrintSystem("Backend set to CC. Use /cc to switch live, or restart to apply.")
 		case "codex":
-			if agent.FindCodex() == "" {
+			if findCodex() == "" {
 				term.PrintError("'codex' CLI not found.")
 				term.PrintSystem("  npm install -g @openai/codex")
 				return settingInvalid
@@ -2222,7 +2253,7 @@ func applySettingValue(key, value string, ag *agent.Agent, term *tui.Terminal) s
 			cfg.Backend = "codex"
 			term.PrintSystem("Backend set to Codex. Use /codex to switch live, or restart to apply.")
 		case "agy":
-			if agent.FindAgy() == "" {
+			if findAgy() == "" {
 				term.PrintError("'agy' CLI not found.")
 				term.PrintSystem("  curl -fsSL https://antigravity.google/cli/install.sh | bash")
 				term.PrintSystem("  Then run `agy` and sign in with Google")
@@ -2384,7 +2415,7 @@ func runSettingsPicker(ag *agent.Agent, term *tui.Terminal) {
 		cfg = api.DefaultConfig()
 		ag.AppConfig = cfg
 	}
-	res := tui.ShowSettingsPicker(buildSettingsRows(cfg))
+	res := showSettingsPicker(buildSettingsRows(cfg))
 	if !res.Confirmed {
 		term.PrintSystem("Settings unchanged.")
 		return
@@ -2497,7 +2528,7 @@ func embeddedInferenceAvailable(ag *agent.Agent) bool {
 // its models silently vanish from the picker. The failure is now returned as a
 // warning string so the caller can tell the user why rows are missing.
 func buildOpenCodeModelEntries(cfg *api.Config, sctx *api.SessionContext) ([]tui.OpenCodeModelEntry, []string) {
-	bin := agent.FindOpenCode()
+	bin := findOpenCode()
 	if bin == "" {
 		return nil, nil
 	}
@@ -2626,7 +2657,7 @@ func pickAndEnableProvider(cfg *api.Config, ag *agent.Agent, term *tui.Terminal)
 		}
 		items = append(items, item)
 	}
-	result := tui.ShowProviderPicker(items)
+	result := showProviderPicker(items)
 	if !result.Confirmed {
 		return
 	}
@@ -2645,7 +2676,7 @@ func enableProvider(cfg *api.Config, id string, ag *agent.Agent, term *tui.Termi
 	}
 	if !api.ProviderKeySet(id) {
 		term.PrintSystem(fmt.Sprintf("%s needs an API key (%s).", p.DisplayName, p.SignupURL))
-		key := setup.ReadSecret(fmt.Sprintf("  Paste your %s key (blank to cancel): ", p.DisplayName))
+		key := readSecret(fmt.Sprintf("  Paste your %s key (blank to cancel): ", p.DisplayName))
 		if key == "" {
 			term.PrintSystem("No key entered — provider not enabled.")
 			return
@@ -2673,7 +2704,7 @@ func enableProvider(cfg *api.Config, id string, ag *agent.Agent, term *tui.Termi
 		term.PrintSystem(fmt.Sprintf("Warning: opencode config: %v", err))
 	}
 	term.PrintSystem(fmt.Sprintf("Enabled %s. Pick a model in /orch (opencode section).", p.DisplayName))
-	if agent.FindOpenCode() == "" {
+	if findOpenCode() == "" {
 		term.PrintSystem("  Heads-up: the opencode CLI isn't installed yet — curl -fsSL https://opencode.ai/install | bash")
 	}
 	// qmax now holds this provider's key in the OS keychain and injects it at
@@ -2719,14 +2750,14 @@ var sdkCreditCutover = time.Date(2026, time.June, 15, 0, 0, 0, 0, time.Local)
 // silent. Best-effort: any read/write failure simply re-shows.
 // maybeProposeUpdate offers a self-update when a newer release exists.
 func maybeProposeUpdate(term *tui.Terminal, current string) {
-	rel := update.MaybeCheck(current)
+	rel := maybeCheckUpdate(current)
 	if rel == nil {
 		return
 	}
 	fmt.Printf("  %sUpdate available: %s%s (you have %s)\n",
 		tui.ColorYellow, rel.Version, tui.ColorReset, current)
 	fmt.Printf("  %sUpdate now? [y/N] %s", tui.ColorBold, tui.ColorReset)
-	answer, err := term.ReadConsent()
+	answer, err := readConsent(term)
 	if err != nil {
 		update.MarkSkipped(rel.Version) // non-interactive stdin: don't loop
 		return

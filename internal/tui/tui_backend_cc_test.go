@@ -3,8 +3,8 @@ package tui
 import (
 	"testing"
 
-	"github.com/qualitymax/qmax-code/codexrunner"
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/codexrunner"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 func TestPickerIncludesClaudeCodeFableSonnet5AndOpus55(t *testing.T) {

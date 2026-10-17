@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/agent"
 	"golang.org/x/term"
 )
 

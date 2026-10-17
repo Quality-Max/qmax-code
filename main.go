@@ -11,14 +11,14 @@ import (
 
 	xterm "golang.org/x/term"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/mcp"
-	"github.com/qualitymax/qmax-code/internal/repl"
-	"github.com/qualitymax/qmax-code/internal/session"
-	"github.com/qualitymax/qmax-code/internal/setup"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/mcp"
+	"github.com/Quality-Max/qmax-code/internal/repl"
+	"github.com/Quality-Max/qmax-code/internal/session"
+	"github.com/Quality-Max/qmax-code/internal/setup"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"

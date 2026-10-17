@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/session"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/session"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 type conversationSpy struct {

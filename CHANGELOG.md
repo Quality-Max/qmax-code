@@ -4,6 +4,21 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Changed
+- Go module path is now `github.com/Quality-Max/qmax-code`, matching the
+  GitHub repository. The old lowercase path stopped the Go proxy and
+  pkg.go.dev from resolving the module. `go install
+  github.com/Quality-Max/qmax-code@latest` works from the next tagged release.
+
+### Added
+- Haiku 5.5 as an explicit Anthropic API and Claude Code model option, with
+  request settings and per-request cost estimates. The `haiku` shorthand and
+  automatic chat routing continue to use Haiku 4.5 until verified.
+- Regression coverage for CLI commands, agent loops, the REPL, terminal UI,
+  authentication, sessions, setup, telemetry, and VNC frame handling.
+- Package documentation for `pkg.go.dev` and a Go Reference badge.
+- CI uploads test coverage to Codecov.
+
 ## [1.38.0] - 2026-10-14
 
 ### Changed
