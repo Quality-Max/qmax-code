@@ -17,9 +17,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/session"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/session"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // mockCLIAgent is a CLIAgent stub that returns scripted responses without
@@ -211,6 +211,68 @@ func TestCCAgentSetOutputVerboseTogglesField(t *testing.T) {
 	}
 }
 
+func TestNarrationDirectiveIncludesModeLabel(t *testing.T) {
+	for _, mode := range []string{"off", "brief", "full"} {
+		got := narrationDirective(mode)
+		want := "TOOL NARRATION: " + strings.ToUpper(mode)
+		if !strings.Contains(got, want) {
+			t.Fatalf("narrationDirective(%q) missing %q; got %q", mode, want, got)
+		}
+	}
+	// Unrecognized value falls back to BRIEF.
+	if !strings.Contains(narrationDirective("bogus"), "TOOL NARRATION: BRIEF") {
+		t.Fatal("narrationDirective(bogus) should fall back to BRIEF")
+	}
+}
+
+// TestNarrationDirectiveCarriesRedactionClause guards the credential-leak
+// mitigation Copilot flagged on #210: every mode (off/brief/full) must tell
+// the subprocess agent to redact secrets before echoing commands, snippets,
+// output lines, or errors into the transcript. If someone loosens the
+// directive without replacing the guard, this test breaks loudly.
+func TestNarrationDirectiveCarriesRedactionClause(t *testing.T) {
+	// Named secret classes the directive must call out by name. Missing any
+	// of these means the mitigation regressed and the release is unsafe.
+	mustName := []string{
+		"REDACTION",
+		"<REDACTED>",
+		"API keys",
+		"bearer",
+		"token",
+		"password",
+		"private key",
+		"Authorization:",
+		"Cookie:",
+		"connection string",
+		"--token=",
+		"--api-key=",
+		"env-var",
+		"webhook signing",
+		"env", // "raw `env` / `printenv` ..."
+		"printenv",
+		".env",
+	}
+	for _, mode := range []string{"off", "brief", "full", "bogus"} {
+		got := narrationDirective(mode)
+		for _, want := range mustName {
+			if !strings.Contains(got, want) {
+				t.Errorf("narrationDirective(%q) missing redaction clause item %q", mode, want)
+			}
+		}
+	}
+}
+
+func TestCCAgentPromptIncludesNarrationDirective(t *testing.T) {
+	a := NewCCAgent("bin", "", "high", "standard", false, "full", &api.SessionContext{})
+	if a.narrateToolCalls != "full" {
+		t.Fatalf("narrateToolCalls stored as %q, want full", a.narrateToolCalls)
+	}
+	b := NewCCAgent("bin", "", "high", "standard", false, "", &api.SessionContext{})
+	if b.narrateToolCalls != "brief" {
+		t.Fatalf("empty narrate should normalize to brief, got %q", b.narrateToolCalls)
+	}
+}
+
 func TestCCSessionIDValidation(t *testing.T) {
 	valid := []string{
 		"550e8400-e29b-41d4-a716-446655440000",
@@ -248,7 +310,7 @@ func TestCCAgentRunRejectsInvalidResumeIDBeforeExec(t *testing.T) {
 		t.Fatalf("write mcp config: %v", err)
 	}
 
-	a := NewCCAgent(claudeBin, "", "high", "standard", false, &api.SessionContext{})
+	a := NewCCAgent(claudeBin, "", "high", "standard", false, "", &api.SessionContext{})
 	a.mu.Lock()
 	a.mcpConfigPath = mcpConfigPath
 	a.ccSessionID = "$(touch pwned)"

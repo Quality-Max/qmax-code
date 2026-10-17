@@ -11,9 +11,8 @@ import (
 // https://platform.claude.com/docs/en/about-claude/pricing — Opus 4.6+ is
 // $5/$25 (not the retired Opus 4.1 $15/$75), Haiku 4.5 is $1/$5 (not the
 // retired Haiku 3 $0.25/$1.25), Fable 5 is $10/$50, Sonnet 4.6 is $3/$15,
-// and Sonnet 5 is $2/$10 intro through Aug 31 2026 then $3/$15. The 1M
-// context window bills at these same rates, so model substring alone
-// determines the rate.
+// and Sonnet 5 is $2/$10 intro through Aug 31 2026 then $3/$15.
+// Haiku 5.5 uses the long-prompt tier above 100k input tokens.
 func TestEstimatedCost(t *testing.T) {
 	introSonnet5 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	standardSonnet5 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
@@ -25,6 +24,7 @@ func TestEstimatedCost(t *testing.T) {
 	}{
 		{"claude-fable-5", introSonnet5, 10.0 + 50.0},
 		{"claude-fable-5-1", introSonnet5, 10.0 + 50.0},
+		{"claude-opus-5-5", introSonnet5, 5.0 + 25.0},
 		{"claude-opus-4-8", introSonnet5, 5.0 + 25.0},
 		{"claude-opus-4-8[1m]", introSonnet5, 5.0 + 25.0}, // 1M variant bills at standard rate
 		{"claude-opus-4-7", introSonnet5, 5.0 + 25.0},
@@ -32,6 +32,7 @@ func TestEstimatedCost(t *testing.T) {
 		{"claude-sonnet-5", standardSonnet5, 3.0 + 15.0},
 		{"claude-sonnet-4-6", introSonnet5, 3.0 + 15.0},
 		{"claude-haiku-4-5-20251001", introSonnet5, 1.0 + 5.0},
+		{ModelHaiku55, standardSonnet5, 0.50 + 2.50},
 		{"auto", introSonnet5, 3.0 + 15.0}, // unknown → sonnet default
 	}
 	for _, c := range cases {

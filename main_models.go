@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/qualitymax/qmax-code/codexrunner"
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/codexrunner"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 // resolveSessionModel applies CLI selection to the active harness and returns

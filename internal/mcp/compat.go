@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/agent"
 )
 
 type compatibilityAlias struct {

@@ -9,9 +9,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/httpx"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/httpx"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
 )
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -141,24 +141,24 @@ type pickerEntry struct {
 var ccModels = []pickerEntry{
 	{backend: "cc", modelID: api.ModelFable51, label: "Fable 5.1", subLabel: "1M ctx · long agents", isNew: true, shortcut: '1'},
 	{backend: "cc", modelID: api.ModelFable, label: "Fable 5", subLabel: "1M ctx · long agents"},
-	{backend: "cc", modelID: api.ModelSonnet5, label: "Sonnet 5", subLabel: "1M ctx", isNew: true, isFav: true, shortcut: '2'},
-	{backend: "cc", modelID: api.ModelOpus1M, label: "Opus 4.8", subLabel: "1M ctx", shortcut: '3'},
-	{backend: "cc", modelID: api.ModelOpus, label: "Opus 4.8", shortcut: '4'},
-	{backend: "cc", modelID: api.ModelOpus47, label: "Opus 4.7", subLabel: "1M ctx", shortcut: '5'},
+	{backend: "cc", modelID: api.ModelSonnet5, label: "Sonnet 5", subLabel: "1M ctx", isNew: true, shortcut: '2'},
+	{backend: "cc", modelID: api.ModelOpus55, label: "Opus 5.5", isNew: true, isFav: true, shortcut: '3'},
+	{backend: "cc", modelID: api.ModelOpus1M, label: "Opus 4.8", subLabel: "1M ctx", shortcut: '4'},
+	{backend: "cc", modelID: api.ModelOpus, label: "Opus 4.8", shortcut: '5'},
+	{backend: "cc", modelID: api.ModelOpus47, label: "Opus 4.7", subLabel: "1M ctx"},
 	{backend: "cc", modelID: api.ModelSonnet, label: "Sonnet 4.6"},
 	{backend: "cc", modelID: api.ModelHaiku, label: "Haiku 4.5"},
+	{backend: "cc", modelID: api.ModelHaiku55, label: "Haiku 5.5", isNew: true},
 }
 
 var codexModels = []pickerEntry{
 	{backend: "codex", modelID: "", label: "Codex default", subLabel: "uses Codex config", external: true, isFav: true, shortcut: '6'},
 	{backend: "codex", modelID: "gpt-6-astra", label: "GPT 6 Astra", external: true, isNew: true},
+	{backend: "codex", modelID: "gpt-6-sol", label: "GPT 6 Sol", external: true, isNew: true},
+	{backend: "codex", modelID: "gpt-6-luna", label: "GPT 6 Luna", external: true, isNew: true},
 	{backend: "codex", modelID: "gpt-5.6-sol", label: "GPT 5.6 Sol", external: true},
 	{backend: "codex", modelID: "gpt-5.6-terra", label: "GPT 5.6 Terra", external: true},
-	{backend: "codex", modelID: "gpt-5.6-luna", label: "GPT 5.6 Luna", external: true},
 	{backend: "codex", modelID: "gpt-5.5", label: "GPT 5.5", external: true},
-	{backend: "codex", modelID: "gpt-5.4", label: "GPT 5.4", external: true},
-	{backend: "codex", modelID: "gpt-5.4-mini", label: "GPT 5.4 Mini", external: true},
-	{backend: "codex", modelID: "gpt-5.3-codex-spark", label: "GPT 5.3 Codex Spark", external: true},
 }
 
 var agyModels = []pickerEntry{
@@ -166,14 +166,18 @@ var agyModels = []pickerEntry{
 	{backend: "agy", modelID: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash", subLabel: "high", external: true, isNew: true},
 	{backend: "agy", modelID: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash", subLabel: "medium", external: true},
 	{backend: "agy", modelID: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro", subLabel: "high", external: true},
+	{backend: "agy", modelID: "claude-opus-4-6", label: "Opus 4.6", external: true, isNew: true},
+	{backend: "agy", modelID: "claude-sonnet-4-6", label: "Sonnet 4.6", external: true, isNew: true},
 }
 
 var apiModels = []pickerEntry{
 	{backend: "", modelID: api.ModelFable51, label: "Fable 5.1", subLabel: "1M ctx", isNew: true},
 	{backend: "", modelID: "auto", label: "auto", subLabel: "haiku→sonnet routing", isFav: true},
 	{backend: "", modelID: api.ModelSonnet, label: "Sonnet 4.6"},
+	{backend: "", modelID: api.ModelOpus55, label: "Opus 5.5", isNew: true},
 	{backend: "", modelID: api.ModelOpus, label: "Opus 4.8"},
 	{backend: "", modelID: api.ModelHaiku, label: "Haiku 4.5"},
+	{backend: "", modelID: api.ModelHaiku55, label: "Haiku 5.5", isNew: true},
 }
 
 // cerebrasModels are run through Cerebras's OpenAI-compatible API (native
@@ -198,6 +202,11 @@ type OpenCodeModelEntry struct {
 }
 
 var effortLevels = []string{"low", "medium", "high"}
+
+// programOptions is applied to every interactive Bubble Tea program in this
+// package. It is empty in production; tests use it to supply scripted input
+// and discard rendering.
+var programOptions []tea.ProgramOption
 
 // probeOllamaReachable returns true if the Ollama base URL responds within 2s.
 func probeOllamaReachable(rawURL string) bool {
@@ -857,7 +866,7 @@ func ShowThemePicker(currentTheme string) (string, bool) {
 		currentTheme = "historic"
 	}
 	m := newThemePickerModel(currentTheme)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return currentTheme, false
@@ -894,7 +903,7 @@ type ModelPickerOpts struct {
 // Returns the result; Confirmed=false means the user cancelled.
 func ShowModelPicker(opts ModelPickerOpts) ModelPickerResult {
 	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled, opts.CerebrasKeySet, opts.OpenCodeInstalled, opts.AgyInstalled, opts.OpenCodeModels)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return ModelPickerResult{Confirmed: false}
@@ -1084,7 +1093,7 @@ func ShowSessionPicker(sessions []SessionPickerItem, activeID string) (string, b
 		return "", false
 	}
 	m := newSessionPickerModel(sessions, activeID)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return "", false
@@ -1234,7 +1243,7 @@ func ShowProviderPicker(items []ProviderPickerItem) ProviderPickerResult {
 		return ProviderPickerResult{}
 	}
 	m := newProviderPickerModel(items)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return ProviderPickerResult{}
@@ -1352,7 +1361,7 @@ func (m cloudSyncPickerModel) View() string {
 // means the user cancelled and the current value should be preserved.
 func ShowCloudSyncPicker(current *bool) (bool, bool) {
 	m := newCloudSyncPickerModel(current)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return false, false
@@ -1465,7 +1474,7 @@ func (m liveFeedPickerModel) View() string {
 // value should be preserved.
 func ShowLiveFeedPicker(current bool) (bool, bool) {
 	m := newLiveFeedPickerModel(current)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return false, false

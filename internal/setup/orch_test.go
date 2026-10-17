@@ -7,14 +7,13 @@ import (
 	"testing"
 )
 
-// withTempHome points $HOME at a fresh temp dir for the test and restores it
-// in cleanup. Local copy of the helper used by other test files in the repo.
+// withTempHome isolates preferences and prevents access to OS credentials.
 func withTempHome(t *testing.T) string {
 	t.Helper()
-	orig := os.Getenv("HOME")
 	tmp := t.TempDir()
-	os.Setenv("HOME", tmp)
-	t.Cleanup(func() { os.Setenv("HOME", orig) })
+	t.Setenv("HOME", tmp)
+	t.Setenv("PATH", "")
+	t.Setenv("CEREBRAS_API_KEY", "")
 	return tmp
 }
 

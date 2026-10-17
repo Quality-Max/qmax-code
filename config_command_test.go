@@ -6,16 +6,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 func withTempHome(t *testing.T) string {
 	t.Helper()
-	orig := os.Getenv("HOME")
 	tmp := t.TempDir()
-	os.Setenv("HOME", tmp)
-	t.Cleanup(func() { os.Setenv("HOME", orig) })
+	t.Setenv("HOME", tmp)
+	unsetOverridingEnv(t)
+	// HOME does not isolate the OS keychain, so shadow its helpers as well.
+	prependFakeBinaries(t, "security", "secret-tool")
 	return tmp
 }
 
@@ -263,6 +264,48 @@ func TestSetConfigField_OutputVerboseBoolForms(t *testing.T) {
 
 	if err := setConfigField("output_verbose", "maybe"); err == nil {
 		t.Fatal("expected error for invalid output_verbose value")
+	}
+}
+
+func TestSetConfigField_NarrateToolCalls(t *testing.T) {
+	withTempHome(t)
+
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{"off", "off"},
+		{"none", "off"},
+		{"silent", "off"},
+		{"brief", "brief"},
+		{"default", "brief"},
+		{"full", "full"},
+		{"verbose", "full"},
+		{"detailed", "full"},
+		{"OFF", "off"},
+		{"  Full  ", "full"},
+	} {
+		if err := setConfigField("narrate_tool_calls", tc.in); err != nil {
+			t.Fatalf("set narrate_tool_calls=%q: %v", tc.in, err)
+		}
+		loaded := api.LoadQMaxCodeConfig()
+		if loaded.NarrateToolCalls != tc.want {
+			t.Fatalf("narrate_tool_calls=%q: stored %q, want %q", tc.in, loaded.NarrateToolCalls, tc.want)
+		}
+	}
+
+	if err := setConfigField("narrate_tool_calls", "maybe"); err == nil {
+		t.Fatal("expected error for invalid narrate_tool_calls value")
+	}
+
+	if err := setConfigField("narrate_tool_calls", ""); err != nil {
+		t.Fatalf("clearing narrate_tool_calls should succeed: %v", err)
+	}
+	loaded := api.LoadQMaxCodeConfig()
+	// Empty stored value → LoadQMaxCodeConfig returns default "brief" via DefaultConfig,
+	// then json.Unmarshal leaves it as-is; NormalizeNarrateToolCalls-on-read still yields "brief".
+	if api.NormalizeNarrateToolCalls(loaded.NarrateToolCalls) != "brief" {
+		t.Fatalf("cleared narrate_tool_calls should normalize to brief, got %q", loaded.NarrateToolCalls)
 	}
 }
 

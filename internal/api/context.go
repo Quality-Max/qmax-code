@@ -63,40 +63,71 @@ type GitInfo struct {
 
 // TokenUsage tracks cumulative token usage across the session.
 type TokenUsage struct {
-	InputTokens  int
-	OutputTokens int
-	Requests     int
+	InputTokens              int
+	OutputTokens             int
+	Requests                 int
+	CacheReadInputTokens     int      `json:",omitempty"`
+	CacheCreationInputTokens int      `json:",omitempty"`
+	CostUSD                  *float64 `json:",omitempty"`
+}
+
+// TotalInputTokens includes both uncached and cached prompt tokens.
+func (u *TokenUsage) TotalInputTokens() int {
+	return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 }
 
 // TotalTokens returns the total token count.
 func (u *TokenUsage) TotalTokens() int {
-	return u.InputTokens + u.OutputTokens
+	return u.TotalInputTokens() + u.OutputTokens
 }
 
-// EstimatedCost returns estimated cost in USD, based on standard per-MTok API
-// rates (https://platform.claude.com/docs/en/about-claude/pricing). The 1M
-// context window bills at these same standard rates, so a flat rate per model
-// is correct. Pricing: Fable 5 input=$10/MTok output=$50/MTok,
-// Opus 4.6/4.7/4.8 input=$5/MTok output=$25/MTok, Sonnet 4.6 input=$3/MTok
-// output=$15/MTok, Sonnet 5 intro $2/$10 through Aug 31 2026 then $3/$15,
-// Haiku 4.5 input=$1/MTok output=$5/MTok.
+// RecordRequest retains each request's estimated API cost before totals lose
+// its model, pricing date, and prompt-size tier. Legacy sessions without costs
+// use their aggregate estimate for the existing portion of the session.
+func (u *TokenUsage) RecordRequest(model string, usage APIUsage) {
+	request := TokenUsage{
+		InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+		CacheReadInputTokens:     usage.CacheReadInputTokens,
+		CacheCreationInputTokens: usage.CacheCreationInputTokens,
+	}
+	cost := u.EstimatedCost(model) + request.EstimatedCost(model)
+	u.CostUSD = &cost
+	u.InputTokens += usage.InputTokens
+	u.OutputTokens += usage.OutputTokens
+	u.CacheReadInputTokens += usage.CacheReadInputTokens
+	u.CacheCreationInputTokens += usage.CacheCreationInputTokens
+	u.Requests++
+}
+
+// EstimatedCost returns recorded per-request estimates when available. Legacy
+// aggregate-only usage is estimated using the supplied model and current rates.
+// Cache writes use the five-minute rate; CLI plan billing is provider-owned.
 func (u *TokenUsage) EstimatedCost(model string) float64 {
 	return u.estimatedCostAt(model, time.Now())
 }
 
 func (u *TokenUsage) estimatedCostAt(model string, now time.Time) float64 {
+	if u.CostUSD != nil {
+		return *u.CostUSD
+	}
 	var inputRate, outputRate float64
 	switch {
 	case strings.Contains(model, "fable"):
 		inputRate, outputRate = 10.0, 50.0
 	case strings.Contains(model, "opus"):
 		inputRate, outputRate = 5.0, 25.0
+	case model == ModelHaiku55:
+		inputRate, outputRate = 0.10, 0.50
+		if u.TotalInputTokens() > 100_000 {
+			inputRate, outputRate = 0.50, 2.50
+		}
 	case strings.Contains(model, "haiku"):
 		inputRate, outputRate = 1.0, 5.0
 	default: // sonnet
 		inputRate, outputRate = sonnetCostRates(model, now)
 	}
-	return (float64(u.InputTokens)/1_000_000)*inputRate + (float64(u.OutputTokens)/1_000_000)*outputRate
+	input := float64(u.InputTokens) + float64(u.CacheReadInputTokens)*0.1 + float64(u.CacheCreationInputTokens)*1.25
+	return (input/1_000_000)*inputRate + (float64(u.OutputTokens)/1_000_000)*outputRate
 }
 
 func sonnetCostRates(model string, now time.Time) (inputRate, outputRate float64) {

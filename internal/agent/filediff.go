@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // fileSnapshot captures a file's pre-edit content so the TUI can render a live

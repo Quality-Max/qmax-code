@@ -125,3 +125,41 @@ func TestNextCycleOptionFallsBackToFirst(t *testing.T) {
 		t.Fatalf("empty options should keep current, got %q", got)
 	}
 }
+
+func TestSettingsPickerViewAndShow(t *testing.T) {
+	rows := pickerRows()
+	rows[2].Hint = "0 = unlimited"
+	rows[1].Display = func(v string) string { return "[" + v + "]" }
+	var model tea.Model = newSettingsPickerModel(rows)
+	if model.Init() != nil {
+		t.Fatal("settings Init should be nil")
+	}
+	steps := []tea.KeyMsg{
+		{Type: tea.KeyUp}, {Type: tea.KeyDown}, {Type: tea.KeyDown}, {Type: tea.KeyDown},
+		{Type: tea.KeyEnter}, {Type: tea.KeyBackspace}, {Type: tea.KeyRunes, Runes: []rune("5")}, {Type: tea.KeyEsc},
+		{Type: tea.KeyEnter}, {Type: tea.KeyRunes, Runes: []rune("9")}, {Type: tea.KeyEnter},
+		{Type: tea.KeyUp}, {Type: tea.KeyEnter}, {Type: tea.KeyRunes, Runes: []rune("x")},
+	}
+	for _, k := range steps {
+		model, _ = model.Update(k)
+		if model.View() == "" {
+			t.Fatalf("empty view after %v", k)
+		}
+	}
+	if _, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}); cmd == nil {
+		t.Fatal("q should quit")
+	}
+	if _, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd == nil {
+		t.Fatal("esc should quit")
+	}
+
+	scriptedPrograms(t, "\x1b[B\r\x1b[B\r12\rs")
+	res := ShowSettingsPicker(pickerRows())
+	if !res.Confirmed || res.Changes["theme"] != "forest" || res.Changes["budget"] != "100012" {
+		t.Fatalf("ShowSettingsPicker = %+v", res)
+	}
+	scriptedPrograms(t, "q")
+	if res := ShowSettingsPicker(pickerRows()); res.Confirmed {
+		t.Fatalf("q should not confirm: %+v", res)
+	}
+}

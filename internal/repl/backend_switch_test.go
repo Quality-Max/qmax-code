@@ -3,7 +3,7 @@ package repl
 import (
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/agent"
 )
 
 func TestDeactivateEmbeddedBackendsClearsCerebrasAndOllamaMode(t *testing.T) {

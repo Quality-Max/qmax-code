@@ -4,6 +4,91 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Changed
+- Go module path is now `github.com/Quality-Max/qmax-code`, matching the
+  GitHub repository. The old lowercase path stopped the Go proxy and
+  pkg.go.dev from resolving the module. `go install
+  github.com/Quality-Max/qmax-code@latest` works from the next tagged release.
+
+### Added
+- Haiku 5.5 as an explicit Anthropic API and Claude Code model option, with
+  request settings and per-request cost estimates. The `haiku` shorthand and
+  automatic chat routing continue to use Haiku 4.5 until verified.
+- Regression coverage for CLI commands, agent loops, the REPL, terminal UI,
+  authentication, sessions, setup, telemetry, and VNC frame handling.
+- Package documentation for `pkg.go.dev` and a Go Reference badge.
+- CI uploads test coverage to Codecov.
+
+## [1.38.0] - 2026-10-14
+
+### Changed
+- qmax-code is now licensed under Apache 2.0, effective immediately for this
+  release. Replaces the previous source-available license, non-compete
+  restriction, and two-year conversion period.
+- README, contributor terms, and public source scope now reflect Apache 2.0.
+  The hosted QualityMax backend remains separate and closed source.
+
+### Added
+- [Apache 2.0 launch announcement](docs/releases/v1.38.0.md).
+- License, copyright notice, and third-party dependency licenses included in
+  every platform release archive.
+- Version-specific announcements included in GitHub release notes and mirrored
+  to the public binary releases repository.
+
+## [1.37.0] - 2026-09-27
+
+### Added
+- `/orch` picker: Opus 5.5 (`claude-opus-5-5`) is now the default (⭐)
+  Claude Code entry on shortcut `3`, marked NEW. Also added to the
+  Direct API section, again marked NEW. Sonnet 5 remains on shortcut
+  `2` but is no longer the default; Opus 4.8 (1M and standard) shift
+  to shortcuts `4`/`5`; Opus 4.7 remains selectable without a
+  shortcut. Picker tests cover the new Direct API row and default
+  cursor placement. (#209)
+- `narrate_tool_calls` config knob controlling how much the CLI agent
+  prefaces each tool call in the transcript. Values `off` / `brief`
+  (default) / `full`; set via `qmax-code config set narrate_tool_calls
+  <value>` (synonyms accepted: `none`/`silent` → `off`,
+  `verbose`/`detailed` → `full`). Injected into the turn-1 system
+  prompt for all four subprocess backends (cc/codex/agy/opencode) via
+  the new `narrationDirective` helper, sibling of the existing
+  `effortDirective` / `outputStyleDirective`. (#210)
+
+### Security
+- `narrationDirective` carries a mandatory redaction clause in every
+  mode (off/brief/full). The subprocess agent is told to replace API
+  keys, bearer/OAuth/session tokens, passwords, private keys,
+  `Authorization:` / `Cookie:` header values, connection strings,
+  `--token=`/`--api-key=`/`--password=`/`--secret=` flag values,
+  `AWS_*` / `GITHUB_TOKEN` / `ANTHROPIC_API_KEY` / other `*_KEY` /
+  `*_TOKEN` / `*_SECRET` env-var values, and webhook signing secrets
+  with `<REDACTED>` before echoing commands, snippets, output lines,
+  or errors into the narration channel. Raw `env` / `printenv` /
+  `railway variables` output and `.env*` contents must not be quoted
+  in narration. Subprocess agents (Codex, Antigravity, opencode) do
+  not inherit qmax-code's own CLAUDE.md secret-handling rules, so the
+  guard is spelled out in the injected system prompt. Guarded by
+  `TestNarrationDirectiveCarriesRedactionClause`. (#211)
+
+## [1.36.0] - 2026-09-25
+
+### Added
+- Anthropic API: `claude-opus-5-5` is now selectable, and the `opus`
+  shorthand resolves to it. Prior Opus 4.8 (with its `[1m]` 1M-context
+  variant) and Opus 4.7 remain selectable by full ID. Cost estimation
+  reuses the existing Opus $5/$25 branch.
+- Codex backend: added `gpt-6-sol` and `gpt-6-luna` alongside
+  `gpt-6-astra`, surfaced in the model picker.
+- Antigravity backend: Claude `claude-opus-4-6` ("Opus 4.6") and
+  `claude-sonnet-4-6` ("Sonnet 4.6") are now offered in the picker
+  alongside the Gemini options.
+
+### Removed
+- Codex backend: retired `gpt-5.6-luna`, `gpt-5.4`, `gpt-5.4-mini`, and
+  `gpt-5.3-codex-spark` from the runner allowlist and picker. Sessions
+  that had one of these persisted will fall back to Codex's default on
+  next resolve.
+
 ## [1.35.3] - 2026-09-15
 
 ### Fixed

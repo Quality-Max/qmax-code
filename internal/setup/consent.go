@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 // ConsentResult is what activateBackend gets back from the consent prompt.

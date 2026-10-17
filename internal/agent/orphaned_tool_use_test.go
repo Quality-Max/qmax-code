@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 // Regression for the "messages.13.content: Input should be a valid list"

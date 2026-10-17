@@ -55,7 +55,7 @@ func TestWriteAgyMCPEntryMergesQmaxAndPreservesOthers(t *testing.T) {
 }
 
 func TestBuildAgyArgsPutsPrintLastAndResumesConversation(t *testing.T) {
-	a := NewAgyAgent("agy", "gemini-3.7-flash-high", "medium", "unattended", false, nil)
+	a := NewAgyAgent("agy", "gemini-3.7-flash-high", "medium", "unattended", false, "", nil)
 	args, err := a.buildAgyArgs("review the diff", "/tmp/repo", "055a398f-db14-4c5f-abbb-1bf03f8120a7")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestBuildAgyArgsPutsPrintLastAndResumesConversation(t *testing.T) {
 }
 
 func TestBuildAgyArgsRejectsBadConversationID(t *testing.T) {
-	a := NewAgyAgent("agy", "", "high", "standard", false, nil)
+	a := NewAgyAgent("agy", "", "high", "standard", false, "", nil)
 	if _, err := a.buildAgyArgs("hi", ".", "not-a-uuid"); err == nil {
 		t.Fatal("expected invalid conversation id to fail")
 	}
@@ -94,7 +94,7 @@ func TestParseAgyStreamCapturesResultAndUsage(t *testing.T) {
 		`{"event":"step_update","step_update":{"conversation_id":"c3b66b04-872b-4fbe-a3a4-058a026ef20a","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"ok\n"}}`,
 		`{"event":"result","result":{"conversation_id":"c3b66b04-872b-4fbe-a3a4-058a026ef20a","status":"SUCCESS","response":"ok\n","usage":{"input_tokens":10,"output_tokens":2}}}`,
 	}, "\n")
-	a := NewAgyAgent("agy", "", "high", "standard", false, nil)
+	a := NewAgyAgent("agy", "", "high", "standard", false, "", nil)
 	got := a.parseStream(strings.NewReader(ndjson), nil)
 	if got != "ok\n" {
 		t.Fatalf("response = %q", got)
@@ -112,7 +112,7 @@ func TestParseAgyStreamCapturesResultAndUsage(t *testing.T) {
 }
 
 func TestAgyResetConversationClearsResumeID(t *testing.T) {
-	a := NewAgyAgent("agy", "", "high", "standard", false, nil)
+	a := NewAgyAgent("agy", "", "high", "standard", false, "", nil)
 	a.conversationID = "c3b66b04-872b-4fbe-a3a4-058a026ef20a"
 	a.ResetConversation()
 	if a.conversationID != "" {
@@ -121,7 +121,7 @@ func TestAgyResetConversationClearsResumeID(t *testing.T) {
 }
 
 func TestWrapAgyExitPointsAtGoogleOAuth(t *testing.T) {
-	a := NewAgyAgent("agy", "", "high", "standard", false, nil)
+	a := NewAgyAgent("agy", "", "high", "standard", false, "", nil)
 	a.lastStderr = "authentication required"
 	err := a.wrapAgyExit(os.ErrPermission)
 	if err == nil || !strings.Contains(err.Error(), "Run `agy`") {

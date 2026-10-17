@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/session"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/session"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 type conversationSpy struct {
@@ -106,11 +106,11 @@ cat > "$QMAX_TEST_PROMPT_PATH"
 printf '%s\n' '{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-1234567890ab"}' '{"type":"item.completed","item":{"type":"command_execution","command":"go test ./...","aggregated_output":"all tests passed","exit_code":0}}' '{"type":"item.completed","item":{"type":"agent_message","text":"first result"}}'
 `)
 	a := &Agent{}
-	first := NewCodexAgent(bin, "gpt-6-astra", "high", false, &api.SessionContext{})
+	first := NewCodexAgent(bin, "gpt-6-astra", "high", false, "", &api.SessionContext{})
 	if _, err := a.RunCLI(first, "original requirement", nil); err != nil {
 		t.Fatal(err)
 	}
-	next := NewCodexAgent(bin, "gpt-6-astra", "low", false, &api.SessionContext{})
+	next := NewCodexAgent(bin, "gpt-6-astra", "low", false, "", &api.SessionContext{})
 	if _, err := a.RunCLI(next, "follow up", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-123
 	}
 	restored := &Agent{}
 	restored.RestoreConversation(saved.Messages, saved.Conversation)
-	changed := NewCodexAgent(bin, "gpt-5.4", "medium", false, &api.SessionContext{})
+	changed := NewCodexAgent(bin, "gpt-5.5", "medium", false, "", &api.SessionContext{})
 	if _, err := restored.RunCLI(changed, "finish", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"abcdef12-3456-4abc-8def-123
 	if !strings.Contains(string(prompt), "other provider decision") || strings.Contains(string(prompt), "original requirement") {
 		t.Fatal("switch-back did not transfer only missing context")
 	}
-	if changed.getContinuity().Checkpoint().Model != "gpt-5.4" {
+	if changed.getContinuity().Checkpoint().Model != "gpt-5.5" {
 		t.Fatal("model change was ignored")
 	}
 	other := &conversationSpy{}
@@ -164,9 +164,9 @@ func TestNativeRestoreAndResetAllBackends(t *testing.T) {
 		cli  CLIAgent
 		id   string
 	}{
-		{"cc", NewCCAgent("unused", "", "high", "standard", false, nil), firstAdapterThreadID},
-		{"codex", NewCodexAgent("unused", "", "high", false, nil), firstAdapterThreadID},
-		{"agy", NewAgyAgent("unused", "", "high", "standard", false, nil), firstAdapterThreadID},
+		{"cc", NewCCAgent("unused", "", "high", "standard", false, "", nil), firstAdapterThreadID},
+		{"codex", NewCodexAgent("unused", "", "high", false, "", nil), firstAdapterThreadID},
+		{"agy", NewAgyAgent("unused", "", "high", "standard", false, "", nil), firstAdapterThreadID},
 		{"opencode", NewOpenCodeAgent("unused", "", "high", "standard", false, nil, nil), "ses_abc123"},
 	}
 	for _, tc := range cases {

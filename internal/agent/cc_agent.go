@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // CLIAgent is the interface implemented by both CCAgent (claude CLI) and
@@ -70,23 +70,24 @@ type PlanLimitReporter interface {
 //  5. CC session ID is saved for --resume on the next turn
 type CCAgent struct {
 	TurnTranscript
-	claudeBin      string
-	modelID        string // "" = let CC decide; otherwise passed as --model
-	effort         string // "low" | "medium" | "high" — injected into system prompt
-	outputVerbose  bool   // false = compact answer style; true = previous detailed style
-	permissionMode string // "standard" | "unattended" — see Run() for behavior
-	ccSessionID    string // CC's own session ID, for --resume
-	mcpConfigPath  string // temp MCP config written once per qmax session
-	mcpConfigInfo  os.FileInfo
-	sctx           *api.SessionContext
-	lastToolName   string                  // track last tool name for result display
-	fileSnaps      map[string]fileSnapshot // CC tool_use id → pre-edit snapshot
-	lastTurnIn     int                     // token usage of the most recent turn (from CC's result event)
-	lastTurnOut    int
-	lastTurnOK     bool // true once a result event carried usage this turn
-	mu             sync.Mutex
-	runMu          sync.Mutex
-	runCancel      context.CancelFunc // non-nil while Run() is active
+	claudeBin        string
+	modelID          string // "" = let CC decide; otherwise passed as --model
+	effort           string // "low" | "medium" | "high" — injected into system prompt
+	outputVerbose    bool   // false = compact answer style; true = previous detailed style
+	narrateToolCalls string // "off" | "brief" | "full" — see narrationDirective
+	permissionMode   string // "standard" | "unattended" — see Run() for behavior
+	ccSessionID      string // CC's own session ID, for --resume
+	mcpConfigPath    string // temp MCP config written once per qmax session
+	mcpConfigInfo    os.FileInfo
+	sctx             *api.SessionContext
+	lastToolName     string                  // track last tool name for result display
+	fileSnaps        map[string]fileSnapshot // CC tool_use id → pre-edit snapshot
+	lastTurnIn       int                     // token usage of the most recent turn (from CC's result event)
+	lastTurnOut      int
+	lastTurnOK       bool // true once a result event carried usage this turn
+	mu               sync.Mutex
+	runMu            sync.Mutex
+	runCancel        context.CancelFunc // non-nil while Run() is active
 }
 
 // ccStandardAllowlist is the curated list passed to `claude --allowedTools` in
@@ -216,7 +217,7 @@ func FindClaudeCode() string {
 // effort is "low" | "medium" | "high" (empty defaults to "high").
 // permissionMode is "standard" (curated allowlist) or "unattended"
 // (--dangerously-skip-permissions). Both require explicit user consent.
-func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose bool, sctx *api.SessionContext) *CCAgent {
+func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose bool, narrateToolCalls string, sctx *api.SessionContext) *CCAgent {
 	if effort == "" {
 		effort = "high"
 	}
@@ -224,12 +225,13 @@ func NewCCAgent(claudeBin, modelID, effort, permissionMode string, outputVerbose
 		permissionMode = "standard"
 	}
 	return &CCAgent{
-		claudeBin:      claudeBin,
-		modelID:        modelID,
-		effort:         effort,
-		outputVerbose:  outputVerbose,
-		permissionMode: permissionMode,
-		sctx:           sctx,
+		claudeBin:        claudeBin,
+		modelID:          modelID,
+		effort:           effort,
+		outputVerbose:    outputVerbose,
+		narrateToolCalls: api.NormalizeNarrateToolCalls(narrateToolCalls),
+		permissionMode:   permissionMode,
+		sctx:             sctx,
 	}
 }
 
@@ -418,7 +420,7 @@ func (a *CCAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		return "", err
 	}
 
-	systemPrompt := cliQASystemPrompt(a.sctx, ccQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose)
+	systemPrompt := cliQASystemPrompt(a.sctx, ccQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + narrationDirective(a.narrateToolCalls)
 
 	args := []string{
 		"--print",
@@ -739,6 +741,34 @@ func outputStyleDirective(verbose bool) string {
 		return "\n\nOUTPUT MODE: VERBOSE — Use the previous detailed response style. Include material findings, rationale, coverage gaps, and the next highest-impact action. Do not dump raw JSON unless explicitly requested."
 	}
 	return "\n\nOUTPUT MODE: COMPACT — Keep final answers short and high-signal by default. Lead with the result, use at most 3-5 bullets unless critical failures require more, and avoid low-risk enumeration. Still fetch real data, run tests, diagnose failures, and flag high-risk coverage gaps."
+}
+
+// narrationDirective controls how much the agent prefaces each tool call in
+// the transcript. "off" keeps the current terse chained-tool-call behavior;
+// "brief" (default) asks for a one-line preface quoting the command or
+// snippet; "full" additionally asks for a quoted key output line after each
+// non-trivial tool call. Applied on top of OUTPUT MODE so a compact final
+// answer can still coexist with informative in-flight narration.
+//
+// Every mode carries the same REDACTION clause: whatever the model chooses
+// to echo (command text, snippet, output line, error) must strip secrets
+// before printing. Subprocess agents (Codex, Antigravity, opencode) do not
+// inherit qmax-code's own CLAUDE.md secret-handling rules, so the guard is
+// spelled out here to prevent narrated transcripts from leaking credentials.
+func narrationDirective(mode string) string {
+	// redaction is repeated in every mode because "off" still narrates on
+	// failure ("only narrate when a tool call fails"), and the failure output
+	// is exactly where secrets tend to appear (401 responses, curl -v dumps,
+	// env-var listings from a broken test).
+	const redaction = " REDACTION (applies to any text you narrate — command, snippet, output, error): before printing, replace secrets with `<REDACTED>`. Treat as secret: API keys, bearer/OAuth/session tokens, passwords, private keys, `Authorization:` and `Cookie:` header values, connection strings (postgres://user:pass@…, redis://…), `--token=`/`--api-key=`/`--password=`/`--secret=` flag values, `AWS_*` / `GITHUB_TOKEN` / `ANTHROPIC_API_KEY` / other `*_KEY` / `*_TOKEN` / `*_SECRET` env-var values, webhook signing secrets, and anything the surrounding text calls a key/token/secret. When in doubt, redact. Never quote raw `env` / `printenv` / `railway variables` output or `.env*` file contents in narration."
+	switch mode {
+	case "off":
+		return "\n\nTOOL NARRATION: OFF — Chain tool calls without prose between them when the plan is obvious. Only narrate when a tool call fails or when direction changes." + redaction
+	case "full":
+		return "\n\nTOOL NARRATION: FULL — Before each non-trivial tool call, output one line quoting the command (```bash …```) or snippet about to be written; after the tool returns, quote the key output line that mattered (test count, PR URL, error). Never chain 3+ silent tool calls." + redaction
+	default: // "brief" and any unrecognized value
+		return "\n\nTOOL NARRATION: BRIEF — Before each non-trivial tool call, output one short line quoting the command or the snippet about to be written. Skip the preface for trivial reads. Never chain 3+ silent tool calls." + redaction
+	}
 }
 
 func (a *CCAgent) SetOutputVerbose(verbose bool) {

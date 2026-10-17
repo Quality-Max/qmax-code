@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // AgyAgent orchestrates an Antigravity CLI (`agy`) subprocess for LLM
@@ -33,22 +33,23 @@ import (
 //  5. conversation_id is kept for --conversation on the next turn
 type AgyAgent struct {
 	TurnTranscript
-	agyBin         string
-	modelID        string // "" = agy default; otherwise --model
-	effort         string // "low" | "medium" | "high"
-	outputVerbose  bool
-	permissionMode string // "standard" | "unattended"
-	conversationID string
-	sctx           *api.SessionContext
-	lastTurnIn     int
-	lastTurnOut    int
-	lastTurnOK     bool
-	lastLimitHit   bool
-	lastLimitReset time.Time
-	lastStderr     string
-	mu             sync.Mutex
-	runMu          sync.Mutex
-	runCancel      context.CancelFunc
+	agyBin           string
+	modelID          string // "" = agy default; otherwise --model
+	effort           string // "low" | "medium" | "high"
+	outputVerbose    bool
+	narrateToolCalls string // "off" | "brief" | "full" — see narrationDirective
+	permissionMode   string // "standard" | "unattended"
+	conversationID   string
+	sctx             *api.SessionContext
+	lastTurnIn       int
+	lastTurnOut      int
+	lastTurnOK       bool
+	lastLimitHit     bool
+	lastLimitReset   time.Time
+	lastStderr       string
+	mu               sync.Mutex
+	runMu            sync.Mutex
+	runCancel        context.CancelFunc
 }
 
 const agyQASystemPrompt = `You are QMax, an elite QA engineer running inside Google Antigravity.
@@ -106,7 +107,7 @@ func AgyFileTokenPresent() bool {
 }
 
 // NewAgyAgent creates an Antigravity subprocess orchestrator.
-func NewAgyAgent(bin, modelID, effort, permissionMode string, outputVerbose bool, sctx *api.SessionContext) *AgyAgent {
+func NewAgyAgent(bin, modelID, effort, permissionMode string, outputVerbose bool, narrateToolCalls string, sctx *api.SessionContext) *AgyAgent {
 	if effort == "" {
 		effort = "high"
 	}
@@ -114,12 +115,13 @@ func NewAgyAgent(bin, modelID, effort, permissionMode string, outputVerbose bool
 		permissionMode = "standard"
 	}
 	return &AgyAgent{
-		agyBin:         bin,
-		modelID:        modelID,
-		effort:         effort,
-		outputVerbose:  outputVerbose,
-		permissionMode: permissionMode,
-		sctx:           sctx,
+		agyBin:           bin,
+		modelID:          modelID,
+		effort:           effort,
+		outputVerbose:    outputVerbose,
+		narrateToolCalls: api.NormalizeNarrateToolCalls(narrateToolCalls),
+		permissionMode:   permissionMode,
+		sctx:             sctx,
 	}
 }
 
@@ -265,9 +267,9 @@ func (a *AgyAgent) Run(userMsg string, term *tui.Terminal) (string, error) {
 		cwd = "."
 	}
 
-	message := effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + userMsg
+	message := effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + narrationDirective(a.narrateToolCalls) + "\n\n" + userMsg
 	if conversationID == "" {
-		message = cliQASystemPrompt(a.sctx, agyQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + "\n\n" + userMsg
+		message = cliQASystemPrompt(a.sctx, agyQASystemPrompt) + effortDirective(a.effort) + outputStyleDirective(a.outputVerbose) + narrationDirective(a.narrateToolCalls) + "\n\n" + userMsg
 	}
 
 	args, err := a.buildAgyArgs(message, cwd, conversationID)

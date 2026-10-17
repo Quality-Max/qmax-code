@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // captureStdout redirects os.Stdout for the duration of fn and returns
@@ -24,12 +24,18 @@ func captureStdout(t *testing.T, fn func()) string {
 	}
 	os.Stdout = w
 	t.Cleanup(func() { os.Stdout = orig })
+	// Drain concurrently so output larger than the pipe buffer cannot block fn.
+	done := make(chan []byte)
+	go func() {
+		out, _ := io.ReadAll(r)
+		done <- out
+	}()
 
 	fn()
 
 	w.Close()
-	out, _ := io.ReadAll(r)
-	return string(out)
+	os.Stdout = orig
+	return string(<-done)
 }
 
 // A real Cerebras request failure (bad model, auth error, malformed request,

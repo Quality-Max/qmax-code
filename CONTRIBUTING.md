@@ -274,6 +274,6 @@ Do not commit generated binaries, release archives, customer reports, local cred
 
 ## License
 
-`qmax-code` is released under the [Functional Source License, Version 1.1, ALv2 Future License (FSL-1.1-ALv2)](LICENSE). By contributing, you agree your contributions are licensed under the same terms.
-
-FSL permits all non-competing use and automatically converts to Apache 2.0 two years after each release. See [fsl.software](https://fsl.software) for a plain-language explanation.
+`qmax-code` is released under the [Apache License, Version 2.0](LICENSE).
+By contributing, you agree your contributions are licensed under the same terms.
+Third-party dependencies retain their own licenses.

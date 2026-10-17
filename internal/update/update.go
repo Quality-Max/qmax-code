@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/httpx"
+	"github.com/Quality-Max/qmax-code/internal/httpx"
 )
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }

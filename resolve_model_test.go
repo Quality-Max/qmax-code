@@ -3,14 +3,14 @@ package main
 import (
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 func TestResolveModelUsesCentralModelConstants(t *testing.T) {
 	cases := map[string]string{
 		"haiku":  api.ModelHaiku,
 		"sonnet": api.ModelSonnet5,
-		"opus":   api.ModelOpus,
+		"opus":   api.ModelOpus55,
 		"custom": "custom",
 	}
 	for input, want := range cases {

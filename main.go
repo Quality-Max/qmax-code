@@ -11,18 +11,18 @@ import (
 
 	xterm "golang.org/x/term"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/mcp"
-	"github.com/qualitymax/qmax-code/internal/repl"
-	"github.com/qualitymax/qmax-code/internal/session"
-	"github.com/qualitymax/qmax-code/internal/setup"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/mcp"
+	"github.com/Quality-Max/qmax-code/internal/repl"
+	"github.com/Quality-Max/qmax-code/internal/session"
+	"github.com/Quality-Max/qmax-code/internal/setup"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=x.y.z"
-var Version = "1.30.0"
+var Version = "1.38.0"
 
 const Name = "qmax-code"
 
@@ -561,7 +561,7 @@ func main() {
 		if appConfig.OrchGlobalInstall {
 			_, _ = setup.InstallSkills("cc")
 		}
-		cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
+		cliAgent = agent.NewCCAgent(agent.FindClaudeCode(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, appConfig.NarrateToolCalls, ctx)
 	case "codex":
 		if appConfig.OrchGlobalInstall && !setup.IsOrchInstalled("codex") {
 			if res, err := setup.InstallCodex(); err == nil && !res.AlreadyHadMCP {
@@ -572,7 +572,7 @@ func main() {
 		if appConfig.OrchGlobalInstall {
 			_, _ = setup.InstallSkills("codex")
 		}
-		ca := agent.NewCodexAgent(agent.FindCodex(), appConfig.CodexModel, appConfig.Effort, appConfig.OutputVerbose, ctx)
+		ca := agent.NewCodexAgent(agent.FindCodex(), appConfig.CodexModel, appConfig.Effort, appConfig.OutputVerbose, appConfig.NarrateToolCalls, ctx)
 		if err := ca.WriteMCPConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not write Codex MCP config: %v\n", err)
 		}
@@ -586,7 +586,7 @@ func main() {
 		if appConfig.OrchGlobalInstall {
 			_, _ = setup.InstallSkills("agy")
 		}
-		aa := agent.NewAgyAgent(agent.FindAgy(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, ctx)
+		aa := agent.NewAgyAgent(agent.FindAgy(), appConfig.ModelOverride, appConfig.Effort, appConfig.OrchPermissionMode, appConfig.OutputVerbose, appConfig.NarrateToolCalls, ctx)
 		if err := aa.WriteMCPConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not write Antigravity MCP config: %v\n", err)
 		}

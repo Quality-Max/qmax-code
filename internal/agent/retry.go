@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 const maxAPIRetries = 3

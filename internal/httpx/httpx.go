@@ -28,9 +28,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Quality-Max/qmax-code/internal/exposure"
 	receipt "github.com/Quality-Max/qmax-receipt"
 	"github.com/coder/websocket"
-	"github.com/qualitymax/qmax-code/internal/exposure"
 )
 
 // NewClient returns an *http.Client whose Transport records every request into

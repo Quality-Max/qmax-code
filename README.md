@@ -19,14 +19,14 @@
 
 [![Latest release](https://img.shields.io/github/v/release/Quality-Max/qmax-code?label=release&color=217a45)](https://github.com/Quality-Max/qmax-code/releases/latest)
 [![GitHub downloads](https://img.shields.io/github/downloads/Quality-Max/qmax-code/total?label=downloads)](https://github.com/Quality-Max/qmax-code/releases)
-[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-2ea44f.svg)](LICENSE)
-[![Future License: Apache 2.0](https://img.shields.io/badge/future%20license-Apache%202.0-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Made with Go](https://img.shields.io/badge/made%20with-Go%201.25.13+-00ADD8.svg)](https://go.dev/)
-[![Announcement](https://img.shields.io/badge/announcement-2026--05--01-7c6cf0.svg)](https://qualitymax.io/blog/qmax-code-open-source)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Quality-Max/qmax-code.svg)](https://pkg.go.dev/github.com/Quality-Max/qmax-code)
+[![Announcement](https://img.shields.io/badge/announcement-Apache%202.0-7c6cf0.svg)](docs/releases/v1.38.0.md)
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/qualitymax)
 
-**AI-powered terminal coding and QA agent.** Named after Max, the real cat who inspired it all.
+**The open-source QA terminal that can switch inference.** Named after Max, the real cat who inspired it all.
 
 qmax-code can work as a standalone local repository agent with no QualityMax
 account, or connect to QualityMax for hosted QA workflows. In connected mode it
@@ -38,6 +38,12 @@ Use the built-in agent with Anthropic, Cerebras, or Ollama, or use
 **orchestration mode** to run Claude Code, Codex, Antigravity, or OpenCode with the same qmax
 QA tools through MCP.
 
+![qmax-code startup banner in standalone local-only mode](docs/img/terminal.png)
+
+The terminal UI uses [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+for interactive pickers and input, [Lip Gloss](https://github.com/charmbracelet/lipgloss)
+for styling, and [Glamour](https://github.com/charmbracelet/glamour) for Markdown output.
+
 ![Five open QualityMax tools and where qmax-code sits among them](docs/img/family.svg)
 
 qmax-code is the terminal agent that drives a QA session. It sits alongside
@@ -48,11 +54,10 @@ audits inside a coding agent), [qmax-mcp](https://github.com/Quality-Max/qmax-mc
 [qmax-local-agent](https://github.com/Quality-Max/qmax-local-agent) (let the
 cloud reach a private network). Only hosted QualityMax needs an account.
 
-> **License:** Source-available under the
-> [Functional Source License (FSL-1.1-ALv2)](LICENSE), created by
-> [Sentry](https://fsl.software). It is free for non-competing use, including
-> internal use, modification, contribution, education, research, and
-> professional services. Each release converts to Apache 2.0 after two years.
+> **qmax-code is now Apache 2.0.** Starting with v1.38.0, use, modify,
+> fork, and redistribute the CLI under the [Apache License 2.0](LICENSE),
+> including for commercial use. No waiting period or non-compete restriction.
+> [Read the announcement →](docs/releases/v1.38.0.md)
 
 ## Where it sits
 
@@ -118,6 +123,12 @@ curl -sL https://qualitymax.io/static/install-qmax-code.txt | bash
 ```
 
 To build from source instead:
+
+```bash
+go install github.com/Quality-Max/qmax-code@latest
+```
+
+Or from a checkout:
 
 ```bash
 git clone https://github.com/Quality-Max/qmax-code.git
@@ -269,6 +280,13 @@ troubleshooting.
 | Cerebras | `/gemma`, `/orch`, or `--backend cerebras` | `CEREBRAS_API_KEY` or OS keychain | Built-in native function calling. Fast inference (~1000–2000+ tok/s): GPT-OSS 120B, GLM 4.7, Gemma 4 (vision + effort). **Qwen 3.8 coming soon.** |
 | OpenCode | `/opencode` or `/orch` | Per-provider key in OS keychain | CLI subprocess for opt-in Z.AI, Groq, and OpenRouter providers. |
 | Ollama | `/ollama` or `/orch` | Configured Ollama endpoint | Self-hosted inference; configure the URL and model first. |
+
+Haiku 5.5 is an explicit option in the Anthropic API and Claude Code pickers,
+or with `/model claude-haiku-5-5`. The `haiku` shorthand and automatic chat
+routing continue to use Haiku 4.5 until the upgrade is verified. Direct Haiku
+5.5 requests disable thinking to reserve the response budget for text and
+tools. Cost estimates preserve each request's prompt-size tier and reported
+cache tokens; historical sessions without recorded costs remain estimates.
 
 QualityMax authentication is independent of model-provider authentication. You
 can run any backend with `--local` and no QualityMax login. Without `--local`,
@@ -488,6 +506,4 @@ personality-free response style.
 
 ---
 
-**Source-available CLI for the QualityMax platform. Licensed under
-[FSL-1.1-ALv2](LICENSE), free for non-competing use and converting to Apache
-2.0 after two years.**
+**Open-source QA terminal. Licensed under [Apache 2.0](LICENSE).**

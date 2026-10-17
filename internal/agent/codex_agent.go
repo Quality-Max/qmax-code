@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qualitymax/qmax-code/codexrunner"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/codexrunner"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // CodexAgent orchestrates an OpenAI Codex CLI subprocess for LLM inference.
@@ -29,21 +29,22 @@ import (
 //  5. qmax-code streams Codex's stdout to the terminal
 type CodexAgent struct {
 	TurnTranscript
-	codexBin       string
-	modelID        string
-	effort         string // "low" | "medium" | "high"
-	outputVerbose  bool   // false = compact answer style; true = previous detailed style
-	sctx           *api.SessionContext
-	continuity     *codexrunner.Continuity
-	lastTurnIn     int // token usage of the most recent turn, when codex reports it
-	lastTurnOut    int
-	lastTurnOK     bool
-	lastLimitHit   bool      // true if the plan limit was hit this turn
-	lastLimitReset time.Time // provider-reported reset (usually zero for codex)
-	mu             sync.Mutex
-	turnMu         sync.Mutex // keeps checkpoint selection and execution atomic
-	runMu          sync.Mutex
-	runCancel      context.CancelFunc // non-nil while Run() is active
+	codexBin         string
+	modelID          string
+	effort           string // "low" | "medium" | "high"
+	outputVerbose    bool   // false = compact answer style; true = previous detailed style
+	narrateToolCalls string // "off" | "brief" | "full" — see narrationDirective
+	sctx             *api.SessionContext
+	continuity       *codexrunner.Continuity
+	lastTurnIn       int // token usage of the most recent turn, when codex reports it
+	lastTurnOut      int
+	lastTurnOK       bool
+	lastLimitHit     bool      // true if the plan limit was hit this turn
+	lastLimitReset   time.Time // provider-reported reset (usually zero for codex)
+	mu               sync.Mutex
+	turnMu           sync.Mutex // keeps checkpoint selection and execution atomic
+	runMu            sync.Mutex
+	runCancel        context.CancelFunc // non-nil while Run() is active
 }
 
 // FindCodex returns the path to the codex CLI binary, or "" if not installed.
@@ -66,17 +67,18 @@ func FindCodex() string {
 
 // NewCodexAgent creates a Codex subprocess orchestrator. An empty modelID uses
 // Codex configuration. Approval and sandbox choices always come from Codex.
-func NewCodexAgent(bin, modelID, effort string, outputVerbose bool, sctx *api.SessionContext) *CodexAgent {
+func NewCodexAgent(bin, modelID, effort string, outputVerbose bool, narrateToolCalls string, sctx *api.SessionContext) *CodexAgent {
 	if effort == "" {
 		effort = "high"
 	}
 	return &CodexAgent{
-		codexBin:      bin,
-		modelID:       modelID,
-		effort:        effort,
-		outputVerbose: outputVerbose,
-		sctx:          sctx,
-		continuity:    codexrunner.NewContinuity(codexrunner.New(codexrunner.Options{Executable: bin})),
+		codexBin:         bin,
+		modelID:          modelID,
+		effort:           effort,
+		outputVerbose:    outputVerbose,
+		narrateToolCalls: api.NormalizeNarrateToolCalls(narrateToolCalls),
+		sctx:             sctx,
+		continuity:       codexrunner.NewContinuity(codexrunner.New(codexrunner.Options{Executable: bin})),
 	}
 }
 
@@ -242,7 +244,7 @@ func (a *CodexAgent) buildPrompt(userMsg string, initial bool) string {
 	effort := a.effort
 	outputVerbose := a.outputVerbose
 	a.mu.Unlock()
-	prefix := effortDirective(effort) + outputStyleDirective(outputVerbose)
+	prefix := effortDirective(effort) + outputStyleDirective(outputVerbose) + narrationDirective(a.narrateToolCalls)
 	if initial {
 		prefix = cliQASystemPrompt(a.sctx, codexQASystemPrompt) + prefix
 	}
