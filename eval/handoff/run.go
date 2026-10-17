@@ -455,6 +455,9 @@ func teeStdout(file string) (func(), error) {
 	os.Stdout = w
 	done := make(chan struct{})
 	go func() {
+		// A failed mirror (for example, a closed stdout pipe) must release
+		// writers too. Otherwise a long turn fills w and stalls forever.
+		defer r.Close()
 		_, _ = io.Copy(io.MultiWriter(original, log), r)
 		close(done)
 	}()

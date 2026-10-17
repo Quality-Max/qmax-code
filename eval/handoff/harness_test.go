@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,40 @@ import (
 	"github.com/Quality-Max/qmax-code/internal/api"
 	"github.com/Quality-Max/qmax-code/internal/tui"
 )
+
+func TestTeeStdoutBrokenMirrorDoesNotBlockTurn(t *testing.T) {
+	original := os.Stdout
+	t.Cleanup(func() { os.Stdout = original })
+	broken, err := os.CreateTemp(t.TempDir(), "closed-output")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := broken.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = broken
+	restore, err := teeStdout(filepath.Join(t.TempDir(), "output.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore()
+	writer := os.Stdout
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.WriteString(writer, strings.Repeat("x", 1<<20))
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected the broken mirror to fail the write")
+		}
+	case <-time.After(5 * time.Second):
+		// Release the test writer before cleanup even if the regression returns.
+		_ = writer.Close()
+		t.Fatal("broken output mirror blocked the turn")
+	}
+}
 
 // fakeBackend stands in for backend B: it edits the run's repository (the
 // current directory during the turn) and records what it was asked.
