@@ -4,11 +4,13 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.40.0] - 2026-10-17
+
 ### Changed
 - Go module path is now `github.com/Quality-Max/qmax-code`, matching the
   GitHub repository. The old lowercase path stopped the Go proxy and
-  pkg.go.dev from resolving the module. `go install
-  github.com/Quality-Max/qmax-code@latest` works from the next tagged release.
+  pkg.go.dev from resolving the module. Install this release with
+  `go install github.com/Quality-Max/qmax-code@v1.40.0`.
 
 ### Added
 - Gemma 4 vision sidecar for CLI backends, with `auto`, `always`, and `off`
