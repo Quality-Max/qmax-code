@@ -97,6 +97,28 @@ func TestHandleConfigCommandSetInvalidValueExits(t *testing.T) {
 	}
 }
 
+func TestConfigVisionSidecarPersistsAndValidates(t *testing.T) {
+	withTempHome(t)
+	for _, value := range []string{"auto", " ALWAYS ", "off", ""} {
+		if err := setConfigField("vision_sidecar", value); err != nil {
+			t.Fatal(err)
+		}
+		want := strings.ToLower(strings.TrimSpace(value))
+		if got := api.LoadQMaxCodeConfig().VisionSidecar; got != want {
+			t.Fatalf("stored vision sidecar = %q, want %q", got, want)
+		}
+	}
+	if err := setConfigField("vision-sidecar", "off"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setConfigField("vision_sidecar", "sometimes"); err == nil {
+		t.Fatal("invalid mode was accepted")
+	}
+	if got := api.LoadQMaxCodeConfig().VisionSidecarMode(); got != api.VisionSidecarOff {
+		t.Fatalf("invalid mode changed the stored setting to %q", got)
+	}
+}
+
 func TestHandleConfigCommandUnset(t *testing.T) {
 	withTempHome(t)
 	if err := setConfigField("default_framework", "go_test"); err != nil {

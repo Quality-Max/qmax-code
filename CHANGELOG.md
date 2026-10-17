@@ -11,6 +11,10 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   github.com/Quality-Max/qmax-code@latest` works from the next tagged release.
 
 ### Added
+- Gemma 4 vision sidecar for CLI backends, with `auto`, `always`, and `off`
+  modes. It sends images to Cerebras and passes descriptions to the selected
+  CLI model; requires a Cerebras key. Includes image fallback and cancellation
+  regression tests.
 - `/handoff` keeps explicit, user-recorded rejected approaches and supporting
   evidence visible across backend switches, history compaction, and session
   restarts. Use `/handoff reject <approach> | <evidence>` to add a note and
@@ -28,7 +32,6 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 - `eval/handoff` runs the live evaluation of rejected-approach handoffs:
   checkpoint vs. control arms across backends, a fixed fixture with hidden
   scoring tests, and per-run records summarized into `summary.md`.
-
 - Haiku 5.5 as an explicit Anthropic API and Claude Code model option, with
   request settings and per-request cost estimates. The `haiku` shorthand and
   automatic chat routing continue to use Haiku 4.5 until verified.
