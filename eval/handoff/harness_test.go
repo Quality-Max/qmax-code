@@ -47,6 +47,34 @@ func TestTeeStdoutBrokenMirrorDoesNotBlockTurn(t *testing.T) {
 	}
 }
 
+func TestRunOneRestoresProcessStateAfterBackendPanic(t *testing.T) {
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	// Keep the remaining suite usable even if this regression returns.
+	t.Cleanup(func() { os.Stdout = original; _ = os.Chdir(previous) })
+	o := options{out: t.TempDir(), models: map[string]string{}, turnTimeout: time.Minute}
+	func() {
+		defer func() {
+			if got := recover(); got != "backend panic" {
+				t.Errorf("panic = %v, want backend panic", got)
+			}
+		}()
+		runOne(runSpec{Backend: "fake", Arm: armControl}, o, testSeed,
+			func(runSpec, *api.SessionContext) (agent.CLIAgent, string, error) {
+				return &fakeBackend{t: t, act: func(*testing.T, string) { panic("backend panic") }}, "", nil
+			})
+	}()
+	if os.Stdout != original {
+		t.Error("backend panic left stdout redirected")
+	}
+	if got, err := os.Getwd(); err != nil || got != previous {
+		t.Errorf("working directory = %q, %v; want %q", got, err, previous)
+	}
+}
+
 // fakeBackend stands in for backend B: it edits the run's repository (the
 // current directory during the turn) and records what it was asked.
 type fakeBackend struct {

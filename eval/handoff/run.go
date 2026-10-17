@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Quality-Max/qmax-code/internal/agent"
@@ -303,18 +304,24 @@ func runOne(spec runSpec, o options, s seed, factory backendFactory) (res result
 	if err := os.Chdir(repo); err != nil {
 		return fail(err)
 	}
+	defer func() { _ = os.Chdir(previous) }()
 	restoreStdout, err := teeStdout(filepath.Join(dir, "output.log"))
 	if err != nil {
 		_ = os.Chdir(previous)
 		return fail(err)
 	}
+	restoreStdout = sync.OnceFunc(restoreStdout)
+	defer restoreStdout()
 	watcher := watchTimeout(repo)
+	stopWatcher := sync.OnceValues(watcher.Stop)
+	defer stopWatcher()
 	timer := time.AfterFunc(o.turnTimeout, cli.Cancel)
+	defer timer.Stop()
 	start := time.Now()
 	response, runErr := a.RunCLI(cli, continuePrompt, &tui.Terminal{})
 	res.DurationSec = time.Since(start).Seconds()
 	timer.Stop()
-	res.TimeoutValuesSeen, res.FirstTimeoutChangeSec = watcher.Stop()
+	res.TimeoutValuesSeen, res.FirstTimeoutChangeSec = stopWatcher()
 	restoreStdout()
 	if err := os.Chdir(previous); err != nil {
 		return fail(err)
