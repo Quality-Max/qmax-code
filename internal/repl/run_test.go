@@ -100,6 +100,40 @@ func TestRunLocalOnlyBlocksCloudCommands(t *testing.T) {
 	assertContains(t, out, "Mode: standalone local-only")
 }
 
+func TestRunFeedOpensCapturedURLAndReportsFailure(t *testing.T) {
+	for _, fails := range []bool{false, true} {
+		name := "opens feed"
+		if fails {
+			name = "reports failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			replEnv(t)
+			stubSeams(t)
+			const capturedURL = "https://example.test/vnc.html"
+			ag := newTestAgent(nil, &api.SessionContext{LastLiveURL: capturedURL})
+			calls := 0
+			openBrowserFeed = func(url string, mode blockMode) error {
+				calls++
+				if url != capturedURL || mode != blockModeQuarter {
+					t.Errorf("feed target = %q, mode = %v", url, mode)
+				}
+				if fails {
+					return errors.New("feed disconnected")
+				}
+				return nil
+			}
+
+			out := runREPL(t, ag, nil, "/feed")
+			if calls != 1 {
+				t.Fatalf("feed opened %d times, want once", calls)
+			}
+			if reported := strings.Contains(out, "browserfeed: feed disconnected"); reported != fails {
+				t.Fatalf("feed failure reported = %v, want %v", reported, fails)
+			}
+		})
+	}
+}
+
 func TestRunCtrlCAndOutputToggle(t *testing.T) {
 	replEnv(t)
 	stubSeams(t)

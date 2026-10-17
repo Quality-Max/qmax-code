@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"io"
@@ -310,8 +311,10 @@ func containsMsg(b []byte, msgType byte) bool {
 func TestShowBrowserFeedRunsUntilStreamCloses(t *testing.T) {
 	orig := browserFeedProgramOptions
 	t.Cleanup(func() { browserFeedProgramOptions = orig })
+	defaults := orig()
+	var output bytes.Buffer
 	browserFeedProgramOptions = func() []tea.ProgramOption {
-		return []tea.ProgramOption{tea.WithInput(nil), tea.WithOutput(io.Discard)}
+		return append(defaults, tea.WithInput(nil), tea.WithOutput(&output), tea.WithoutSignalHandler())
 	}
 
 	rs := newRFBServer(t, true)
@@ -340,6 +343,16 @@ func TestShowBrowserFeedRunsUntilStreamCloses(t *testing.T) {
 
 	if err := showBrowserFeed("ftp://nope", blockModeHalf); err == nil || !strings.Contains(err.Error(), "connect") {
 		t.Fatalf("bad URL error = %v", err)
+	}
+	for name, sequence := range map[string]string{
+		"enter alternate screen": "\x1b[?1049h",
+		"enable mouse motion":    "\x1b[?1003h",
+		"restore main screen":    "\x1b[?1049l",
+		"disable mouse motion":   "\x1b[?1003l",
+	} {
+		if !strings.Contains(output.String(), sequence) {
+			t.Errorf("browser feed did not %s", name)
+		}
 	}
 }
 

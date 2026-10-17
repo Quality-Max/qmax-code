@@ -46,6 +46,28 @@ func TestHaiku55RequestSettings(t *testing.T) {
 	}
 }
 
+func TestAPIUsageContextIncludesCachedPromptTokens(t *testing.T) {
+	for _, tt := range []struct {
+		name, response string
+		want           int
+	}{
+		{"empty", `{}`, 0},
+		{"uncached", `{"input_tokens":120,"output_tokens":40}`, 120},
+		{"cached only", `{"cache_read_input_tokens":900,"cache_creation_input_tokens":100}`, 1000},
+		{"mixed", `{"input_tokens":20,"cache_read_input_tokens":900,"cache_creation_input_tokens":100,"output_tokens":40}`, 1020},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var usage APIUsage
+			if err := json.Unmarshal([]byte(tt.response), &usage); err != nil {
+				t.Fatal(err)
+			}
+			if got := usage.TotalInputTokens(); got != tt.want {
+				t.Fatalf("prompt context = %d, want %d; output tokens must not count", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHaiku55CostTiersAndCache(t *testing.T) {
 	for _, tt := range []struct {
 		name  string

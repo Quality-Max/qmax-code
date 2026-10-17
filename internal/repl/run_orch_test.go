@@ -58,6 +58,42 @@ func TestOrchCancelAndPickerOptions(t *testing.T) {
 	}
 }
 
+func TestOrchListsEnabledProviderModelsWhenOpenCodeIsInstalled(t *testing.T) {
+	for _, installed := range []bool{false, true} {
+		name := "missing CLI"
+		if installed {
+			name = "installed CLI"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := replEnv(t)
+			stubSeams(t)
+			cfg := api.DefaultConfig()
+			cfg.EnabledProviders = []string{"groq"}
+			ag := newTestAgent(cfg, nil)
+			if installed {
+				bin := writeStub(t, filepath.Join(home, "bin"), "opencode", `printf '%s\n' 'groq/test-model'`)
+				findOpenCode = func() string { return bin }
+			}
+			var seen tui.ModelPickerOpts
+			showModelPicker = func(opts tui.ModelPickerOpts) tui.ModelPickerResult {
+				seen = opts
+				return tui.ModelPickerResult{}
+			}
+
+			out := runREPL(t, ag, nil, "/orch")
+			if got := strings.Contains(out, "Querying opencode models"); got != installed {
+				t.Fatalf("model-query notice = %v, installed = %v", got, installed)
+			}
+			if seen.OpenCodeInstalled != installed {
+				t.Fatalf("picker CLI availability = %v, want %v", seen.OpenCodeInstalled, installed)
+			}
+			if installed && (len(seen.OpenCodeModels) != 1 || seen.OpenCodeModels[0].ModelID != "groq/test-model") {
+				t.Fatalf("enabled provider models did not reach the picker: %+v", seen.OpenCodeModels)
+			}
+		})
+	}
+}
+
 func TestOrchSelectsOllama(t *testing.T) {
 	replEnv(t)
 	stubSeams(t)
