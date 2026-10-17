@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 func authenticatedTestState(cloudURL string) *serverState {

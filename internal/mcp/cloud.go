@@ -12,10 +12,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/exposure"
-	"github.com/qualitymax/qmax-code/internal/httpx"
-	"github.com/qualitymax/qmax-code/internal/security"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/exposure"
+	"github.com/Quality-Max/qmax-code/internal/httpx"
+	"github.com/Quality-Max/qmax-code/internal/security"
 )
 
 const (

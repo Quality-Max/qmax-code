@@ -707,7 +707,7 @@ type InputResult struct {
 func ReadInput(prompt string, history []string, outputVerbose bool, status *StatusInfo) InputResult {
 	m := newInputModelWithOutputMode(prompt, history, outputVerbose)
 	m.status = status
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return InputResult{}

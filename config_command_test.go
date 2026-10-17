@@ -6,16 +6,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 func withTempHome(t *testing.T) string {
 	t.Helper()
-	orig := os.Getenv("HOME")
 	tmp := t.TempDir()
-	os.Setenv("HOME", tmp)
-	t.Cleanup(func() { os.Setenv("HOME", orig) })
+	t.Setenv("HOME", tmp)
+	unsetOverridingEnv(t)
+	// HOME does not isolate the OS keychain, so shadow its helpers as well.
+	prependFakeBinaries(t, "security", "secret-tool")
 	return tmp
 }
 

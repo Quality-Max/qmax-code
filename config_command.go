@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // handleConfigCommand implements the `qmax-code config ...` subcommand

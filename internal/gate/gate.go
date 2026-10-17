@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/qualitymax/qmax-code/internal/security"
+	"github.com/Quality-Max/qmax-code/internal/security"
 )
 
 const (

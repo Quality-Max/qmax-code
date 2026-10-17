@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // fakeBackend stands in for backend B: it edits the run's repository (the

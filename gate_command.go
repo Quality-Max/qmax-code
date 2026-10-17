@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/qualitymax/qmax-code/internal/gate"
+	"github.com/Quality-Max/qmax-code/internal/gate"
 )
 
 func runGateCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {

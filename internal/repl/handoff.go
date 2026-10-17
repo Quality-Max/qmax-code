@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 const handoffUsage = `Usage: /handoff | /handoff reject <approach> | <evidence> | /handoff forget <number>  (write \| for a literal pipe in the approach)`

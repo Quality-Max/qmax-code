@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/security"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/security"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
 )
 
 // RunServer starts an MCP (Model Context Protocol) server over stdin/stdout.

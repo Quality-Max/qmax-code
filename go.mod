@@ -1,4 +1,4 @@
-module github.com/qualitymax/qmax-code
+module github.com/Quality-Max/qmax-code
 
 go 1.25.13
 

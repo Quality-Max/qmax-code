@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 const largePastedTextThreshold = 8 * 1024

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 type fableTestTransport func(*http.Request) (*http.Response, error)

@@ -4,6 +4,12 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Changed
+- Go module path is now `github.com/Quality-Max/qmax-code`, matching the
+  GitHub repository. The old lowercase path stopped the Go proxy and
+  pkg.go.dev from resolving the module. `go install
+  github.com/Quality-Max/qmax-code@latest` works from the next tagged release.
+
 ### Added
 - `/handoff` keeps explicit, user-recorded rejected approaches and supporting
   evidence visible across backend switches, history compaction, and session
@@ -23,10 +29,34 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
   checkpoint vs. control arms across backends, a fixed fixture with hidden
   scoring tests, and per-run records summarized into `summary.md`.
 
+- Haiku 5.5 as an explicit Anthropic API and Claude Code model option, with
+  request settings and per-request cost estimates. The `haiku` shorthand and
+  automatic chat routing continue to use Haiku 4.5 until verified.
+- Regression coverage for CLI commands, agent loops, the REPL, terminal UI,
+  authentication, sessions, setup, telemetry, and VNC frame handling.
+- Package documentation for `pkg.go.dev` and a Go Reference badge.
+- CI uploads test coverage to Codecov.
+
 ### Fixed
 - Handing off a long history whose oldest entries must be dropped no longer
   re-encodes the history once per dropped entry; about 800 untransferred
   entries took ~13s before the backend started and now take under 2s.
+
+## [1.38.0] - 2026-10-14
+
+### Changed
+- qmax-code is now licensed under Apache 2.0, effective immediately for this
+  release. Replaces the previous source-available license, non-compete
+  restriction, and two-year conversion period.
+- README, contributor terms, and public source scope now reflect Apache 2.0.
+  The hosted QualityMax backend remains separate and closed source.
+
+### Added
+- [Apache 2.0 launch announcement](docs/releases/v1.38.0.md).
+- License, copyright notice, and third-party dependency licenses included in
+  every platform release archive.
+- Version-specific announcements included in GitHub release notes and mirrored
+  to the public binary releases repository.
 
 ## [1.37.0] - 2026-09-27
 

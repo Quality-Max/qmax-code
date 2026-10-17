@@ -8,8 +8,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/qualitymax/qmax-code/internal/httpx"
-	"github.com/qualitymax/qmax-code/internal/security"
+	"github.com/Quality-Max/qmax-code/internal/httpx"
+	"github.com/Quality-Max/qmax-code/internal/security"
 )
 
 // CodexConnection is the non-sensitive connection state returned by QualityMax.

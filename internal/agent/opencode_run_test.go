@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // TestRedactStderrTail pins the defensive redaction applied to the stderr tail

@@ -9,9 +9,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/httpx"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/httpx"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
 )
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -148,6 +148,7 @@ var ccModels = []pickerEntry{
 	{backend: "cc", modelID: api.ModelOpus47, label: "Opus 4.7", subLabel: "1M ctx"},
 	{backend: "cc", modelID: api.ModelSonnet, label: "Sonnet 4.6"},
 	{backend: "cc", modelID: api.ModelHaiku, label: "Haiku 4.5"},
+	{backend: "cc", modelID: api.ModelHaiku55, label: "Haiku 5.5", isNew: true},
 }
 
 var codexModels = []pickerEntry{
@@ -176,6 +177,7 @@ var apiModels = []pickerEntry{
 	{backend: "", modelID: api.ModelOpus55, label: "Opus 5.5", isNew: true},
 	{backend: "", modelID: api.ModelOpus, label: "Opus 4.8"},
 	{backend: "", modelID: api.ModelHaiku, label: "Haiku 4.5"},
+	{backend: "", modelID: api.ModelHaiku55, label: "Haiku 5.5", isNew: true},
 }
 
 // cerebrasModels are run through Cerebras's OpenAI-compatible API (native
@@ -200,6 +202,11 @@ type OpenCodeModelEntry struct {
 }
 
 var effortLevels = []string{"low", "medium", "high"}
+
+// programOptions is applied to every interactive Bubble Tea program in this
+// package. It is empty in production; tests use it to supply scripted input
+// and discard rendering.
+var programOptions []tea.ProgramOption
 
 // probeOllamaReachable returns true if the Ollama base URL responds within 2s.
 func probeOllamaReachable(rawURL string) bool {
@@ -859,7 +866,7 @@ func ShowThemePicker(currentTheme string) (string, bool) {
 		currentTheme = "historic"
 	}
 	m := newThemePickerModel(currentTheme)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return currentTheme, false
@@ -896,7 +903,7 @@ type ModelPickerOpts struct {
 // Returns the result; Confirmed=false means the user cancelled.
 func ShowModelPicker(opts ModelPickerOpts) ModelPickerResult {
 	m := newModelPickerModel(opts.CurrentBackend, opts.CurrentModelID, opts.Effort, opts.OllamaURL, opts.OllamaModel, opts.CCInstalled, opts.CodexInstalled, opts.CerebrasKeySet, opts.OpenCodeInstalled, opts.AgyInstalled, opts.OpenCodeModels)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return ModelPickerResult{Confirmed: false}
@@ -1086,7 +1093,7 @@ func ShowSessionPicker(sessions []SessionPickerItem, activeID string) (string, b
 		return "", false
 	}
 	m := newSessionPickerModel(sessions, activeID)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return "", false
@@ -1236,7 +1243,7 @@ func ShowProviderPicker(items []ProviderPickerItem) ProviderPickerResult {
 		return ProviderPickerResult{}
 	}
 	m := newProviderPickerModel(items)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return ProviderPickerResult{}
@@ -1354,7 +1361,7 @@ func (m cloudSyncPickerModel) View() string {
 // means the user cancelled and the current value should be preserved.
 func ShowCloudSyncPicker(current *bool) (bool, bool) {
 	m := newCloudSyncPickerModel(current)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return false, false
@@ -1467,7 +1474,7 @@ func (m liveFeedPickerModel) View() string {
 // value should be preserved.
 func ShowLiveFeedPicker(current bool) (bool, bool) {
 	m := newLiveFeedPickerModel(current)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	result, err := p.Run()
 	if err != nil {
 		return false, false

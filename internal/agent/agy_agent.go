@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // AgyAgent orchestrates an Antigravity CLI (`agy`) subprocess for LLM
@@ -33,23 +33,23 @@ import (
 //  5. conversation_id is kept for --conversation on the next turn
 type AgyAgent struct {
 	TurnTranscript
-	agyBin         string
-	modelID        string // "" = agy default; otherwise --model
+	agyBin           string
+	modelID          string // "" = agy default; otherwise --model
 	effort           string // "low" | "medium" | "high"
 	outputVerbose    bool
 	narrateToolCalls string // "off" | "brief" | "full" — see narrationDirective
 	permissionMode   string // "standard" | "unattended"
-	conversationID string
-	sctx           *api.SessionContext
-	lastTurnIn     int
-	lastTurnOut    int
-	lastTurnOK     bool
-	lastLimitHit   bool
-	lastLimitReset time.Time
-	lastStderr     string
-	mu             sync.Mutex
-	runMu          sync.Mutex
-	runCancel      context.CancelFunc
+	conversationID   string
+	sctx             *api.SessionContext
+	lastTurnIn       int
+	lastTurnOut      int
+	lastTurnOK       bool
+	lastLimitHit     bool
+	lastLimitReset   time.Time
+	lastStderr       string
+	mu               sync.Mutex
+	runMu            sync.Mutex
+	runCancel        context.CancelFunc
 }
 
 const agyQASystemPrompt = `You are QMax, an elite QA engineer running inside Google Antigravity.

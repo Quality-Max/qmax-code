@@ -643,7 +643,7 @@ func (m *turnViewportModel) jumpToMark(dir int) {
 // run emits streaming output through Terminal. It returns only after run exits.
 func RunTurnViewport(term *Terminal, prompt string, status *StatusInfo, cancelFn func(), run func()) TurnInputResult {
 	m := newTurnViewportModel(prompt, status, cancelFn)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, programOptions...)
 	term.attachTurnProgram(p)
 	done := make(chan struct{})
 	go func() {

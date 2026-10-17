@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 // PromptCloudSyncConsent asks the user once whether they want sessions synced

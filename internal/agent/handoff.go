@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/security"
-	"github.com/qualitymax/qmax-code/internal/session"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/security"
+	"github.com/Quality-Max/qmax-code/internal/session"
 )
 
 const maxHandoffNotesBytes = 12 * 1024

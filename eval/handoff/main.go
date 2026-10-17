@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/qualitymax/qmax-code/internal/mcp"
+	"github.com/Quality-Max/qmax-code/internal/mcp"
 )
 
 const usage = `Usage:

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/qualitymax/qmax-code/codexrunner"
-	"github.com/qualitymax/qmax-code/internal/api"
-	"github.com/qualitymax/qmax-code/internal/session"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/codexrunner"
+	"github.com/Quality-Max/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/session"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // AppendHistory adds messages to both the working context and lossless archive.

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/qualitymax/qmax-code/internal/agent"
-	"github.com/qualitymax/qmax-code/internal/skills"
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/agent"
+	"github.com/Quality-Max/qmax-code/internal/skills"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 // InstallResult describes what autosetup did so the caller can display it.

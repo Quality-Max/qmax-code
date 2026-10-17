@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/api"
+	"github.com/Quality-Max/qmax-code/internal/api"
 )
 
 // limitReporter is a CLI agent stub that reports a plan-limit hit.

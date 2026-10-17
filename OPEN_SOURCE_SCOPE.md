@@ -41,7 +41,7 @@ Before public release, every cloud route/tool should be classified as:
 - Replace "closed-source companion" language in `README.md` when the license
   decision is made.
 - Add public-facing `SECURITY.md`, `CONTRIBUTING.md`, and release policy.
-  `SECURITY.md` and `CONTRIBUTING.md` now exist. License resolved: FSL-1.1-ALv2 (2026-05-01).
+  `SECURITY.md` and `CONTRIBUTING.md` now exist. License resolved: Apache-2.0 (2026-10-14).
 - Review asset rights for `assets/max-the-cat.mp4` and any referenced README
   images before publishing.
 - Keep generated/customer-specific reports out of source. The local
@@ -215,12 +215,12 @@ Phase 5 cleanup completed:
 
 Still needs maintainer/legal decision:
 
-- ~~Public license choice.~~ Resolved: FSL-1.1-ALv2 (2026-05-01).
+- ~~Public license choice.~~ Resolved: Apache-2.0 (2026-10-14).
 - Final release policy and whether to keep publishing to the separate releases
   repository.
-- Dependency/license review. Local attempt was blocked by sandboxed network DNS
-  resolution for `proxy.golang.org`; rerun in a networked environment before
-  public release.
+- Runtime dependencies across all six target platforms have been inventoried.
+  Release archives include their license and notice texts; dependencies retain
+  their own terms. Collection fails if a runtime module has no license notice.
 
 ## Initial Risk Ranking
 

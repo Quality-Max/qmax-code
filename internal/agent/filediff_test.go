@@ -5,23 +5,23 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/qualitymax/qmax-code/internal/tui"
+	"github.com/Quality-Max/qmax-code/internal/tui"
 )
 
 func TestIsFileEditTool(t *testing.T) {
 	cases := map[string]bool{
-		"edit_file":          true,
-		"write_file":         true,
-		"Edit":               true, // Claude Code
-		"Write":              true,
-		"NotebookEdit":       true,
-		"qmax__edit_file":    true, // mcp-prefixed
-		"opencode.edit":      true,
-		"applypatch":         true,
-		"read_file":          false,
-		"bash":               false,
-		"update_plan":        false,
-		"webfetch":           false,
+		"edit_file":       true,
+		"write_file":      true,
+		"Edit":            true, // Claude Code
+		"Write":           true,
+		"NotebookEdit":    true,
+		"qmax__edit_file": true, // mcp-prefixed
+		"opencode.edit":   true,
+		"applypatch":      true,
+		"read_file":       false,
+		"bash":            false,
+		"update_plan":     false,
+		"webfetch":        false,
 	}
 	for name, want := range cases {
 		if got := isFileEditTool(name); got != want {
@@ -36,8 +36,8 @@ func TestToolPathFieldVariants(t *testing.T) {
 		want  string
 	}{
 		{map[string]interface{}{"path": "a.go"}, "a.go"},
-		{map[string]interface{}{"file_path": "b.go"}, "b.go"},       // CC
-		{map[string]interface{}{"filePath": "c.go"}, "c.go"},        // OpenCode
+		{map[string]interface{}{"file_path": "b.go"}, "b.go"}, // CC
+		{map[string]interface{}{"filePath": "c.go"}, "c.go"},  // OpenCode
 		{map[string]interface{}{"notebook_path": "n.ipynb"}, "n.ipynb"},
 		{map[string]interface{}{"files": map[string]interface{}{"path": "d.go"}}, "d.go"},
 		{map[string]interface{}{"command": "ls"}, ""},

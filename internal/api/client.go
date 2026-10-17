@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qualitymax/qmax-code/internal/httpx"
-	"github.com/qualitymax/qmax-code/internal/security"
-	"github.com/qualitymax/qmax-code/internal/sysutil"
+	"github.com/Quality-Max/qmax-code/internal/httpx"
+	"github.com/Quality-Max/qmax-code/internal/security"
+	"github.com/Quality-Max/qmax-code/internal/sysutil"
 )
 
 // APIClient calls QualityMax REST API directly (no qmax CLI needed).
