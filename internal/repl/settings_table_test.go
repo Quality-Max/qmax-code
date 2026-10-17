@@ -86,6 +86,13 @@ func TestApplySettingValueTable(t *testing.T) {
 		{key: "cerebras_reasoning_effort", value: "high", want: settingApplied},
 		{key: "cerebras-reasoning-effort", value: "", want: settingApplied},
 		{key: "cerebras_reasoning_effort", value: "ultra", want: settingInvalid},
+		{key: "vision_sidecar", value: " ALWAYS ", want: settingApplied, check: func(t *testing.T, ag *agent.Agent) {
+			if ag.AppConfig.VisionSidecar != api.VisionSidecarAlways {
+				t.Error("vision sidecar setting was not normalized")
+			}
+		}},
+		{key: "vision-sidecar", value: "off", want: settingApplied},
+		{key: "vision_sidecar", value: "sometimes", want: settingInvalid},
 		{key: "theme", value: "no-such-theme", want: settingInvalid},
 		{key: "theme", value: tui.ThemeNames()[0], want: settingApplied},
 		{key: "anthropic_key", value: "sk-ant-api03-table", want: settingAppliedNoSave, check: func(t *testing.T, ag *agent.Agent) {

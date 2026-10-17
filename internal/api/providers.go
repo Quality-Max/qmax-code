@@ -49,11 +49,6 @@ type Provider struct {
 type ProviderModel struct {
 	ID   string // model id opencode uses after the "provider/" prefix
 	Name string // display name in the opencode config models map
-	// Vision reports whether the model accepts image input through this
-	// provider's endpoint. The Z.AI coding-plan endpoint is text-only, so
-	// every GLM model is Vision=false; the Gemma 4 vision sidecar (agent
-	// package) reads images for these models instead.
-	Vision bool
 }
 
 // builtinProviders is the static catalogue of opt-in providers. Cerebras is

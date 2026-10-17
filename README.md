@@ -396,8 +396,19 @@ unavailable in standalone local-only mode.
 
 Use `/screenshot` to capture a screen and `/paste` to attach clipboard text or
 an image. Image attachments are supported by the built-in multimodal path
-(including Gemma 4 on Cerebras); CLI subprocess backends currently receive text
-only.
+(including Gemma 4 on Cerebras).
+
+For CLI backends, the Gemma 4 vision sidecar can send images to Cerebras and
+pass their text descriptions to the selected coding model. It requires a
+Cerebras key. The default `auto` mode enables this for OpenCode with Z.AI
+coding-plan models; `always` enables it for every CLI backend, and `off`
+disables it. Set the mode with `/set vision_sidecar auto|always|off` or
+`qmax-code config set vision_sidecar off`.
+
+If the sidecar fails, screenshots and clipboard images use the built-in
+multimodal backend when configured; otherwise the turn stops without sending
+the image. Dragged image paths retain the text-only CLI fallback. Cancelling
+the sidecar skips the turn.
 
 ## Exposure Receipts
 
