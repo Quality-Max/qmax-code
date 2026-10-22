@@ -4,6 +4,12 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.40.1] - 2026-10-22
+
+### Security
+- Rebuild release binaries with Go 1.27.3 so `crypto/x509` rejects the
+  compromised emSign root certificates covered by GO-2026-6809.
+
 ## [1.40.0] - 2026-10-17
 
 ### Changed

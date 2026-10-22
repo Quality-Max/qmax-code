@@ -20,7 +20,7 @@
 [![Latest release](https://img.shields.io/github/v/release/Quality-Max/qmax-code?label=release&color=217a45)](https://github.com/Quality-Max/qmax-code/releases/latest)
 [![GitHub downloads](https://img.shields.io/github/downloads/Quality-Max/qmax-code/total?label=downloads)](https://github.com/Quality-Max/qmax-code/releases)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Made with Go](https://img.shields.io/badge/made%20with-Go%201.25.13+-00ADD8.svg)](https://go.dev/)
+[![Made with Go](https://img.shields.io/badge/made%20with-Go%201.27.3+-00ADD8.svg)](https://go.dev/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Quality-Max/qmax-code.svg)](https://pkg.go.dev/github.com/Quality-Max/qmax-code)
 [![Announcement](https://img.shields.io/badge/announcement-Apache%202.0-7c6cf0.svg)](docs/releases/v1.38.0.md)
 
@@ -137,7 +137,7 @@ go build -o qmax-code .
 ./qmax-code --version
 ```
 
-Go 1.25.13 or newer is required for source builds.
+Go 1.27.3 or newer is required for source builds.
 
 ## Why Go
 

@@ -1,6 +1,6 @@
 module github.com/Quality-Max/qmax-code
 
-go 1.25.13
+go 1.27.3
 
 require (
 	github.com/BourgeoisBear/rasterm v1.1.2
