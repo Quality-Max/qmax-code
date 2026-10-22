@@ -25,9 +25,9 @@ jobs:
         run: go build ./...
 
       - name: Lint
-        # Build with the project's Go toolchain; the v1 release binary was
-        # built with Go 1.24 and cannot analyze this module's Go 1.25 target.
-        run: go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run
+        # v2 supports the current Go export format. Limit its upgraded rule set
+        # to this change until the pre-existing v2 findings are cleaned up.
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run --new-from-rev=${{ github.event.pull_request.base.sha || github.event.before }}
 
       - name: Vet
         run: go vet ./...
