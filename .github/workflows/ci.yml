@@ -14,6 +14,8 @@ jobs:
       id-token: write # Codecov OIDC upload; no stored token needed
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
