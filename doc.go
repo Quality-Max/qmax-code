@@ -10,7 +10,7 @@
 //
 //	curl -sL https://qualitymax.io/static/install-qmax-code.txt | bash
 //
-// Or build from source with Go 1.25.13 or newer:
+// Or build from source with Go 1.27.3 or newer:
 //
 //	go install github.com/Quality-Max/qmax-code@latest
 //
