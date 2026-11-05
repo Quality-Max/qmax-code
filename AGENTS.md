@@ -4,23 +4,33 @@ Instructions for coding agents working on qmax-code.
 
 ## What this is
 
-qmax-code is evolving into a **standalone IDE with optional, first-class
-QualityMax connectivity through MCP**. The current Go terminal agent is the
-foundation: it works on local repositories without a QualityMax account and
-can connect to QualityMax for hosted QA workflows. Through `/orch` it can
-launch Claude Code, Codex, Antigravity, or OpenCode while keeping qmax tools
-and terminal UX — or run the built-in loop on Anthropic, Cerebras, or Ollama.
+qmax-code is a **developer-first coding environment**: a Go terminal agent
+that works on the repository in front of the user, with no account, no
+project, and no QualityMax request in standalone mode. It is evolving into a
+**standalone IDE with optional, first-class QualityMax connectivity through
+MCP**. Through `/orch` it hosts Claude Code, Codex, Antigravity, or OpenCode
+while keeping qmax tools and terminal UX, or runs the built-in loop on
+Anthropic, Cerebras, or Ollama.
 
 This repository is **Go 1.27.3+**, not TypeScript. The thing users install is one
 compiled binary.
 
 ## Positioning
 
-The product direction is an independent development environment for coding,
-testing, review, and agent workflows. QualityMax is an optional integration
-with first-class MCP support, rather than a prerequisite for using the IDE.
-QA remains a core strength: crawl, generate/run tests, review, heal, and receipts.
-Claude Code, Codex, Antigravity, and OpenCode are selectable coding backends.
+Lead with the developer. The product is the environment a developer works
+in: their repo, their terminal, their choice of model and agent, their keys
+in their keychain. QualityMax is an optional integration with first-class
+MCP support, never a prerequisite. QA remains a core strength, framed as part
+of the developer's own loop (write, test, review, ship) rather than as a
+separate service.
+
+Be exact about the standalone boundary. `--local` exposes five agent tools
+(`update_plan`, `read_file`, `write_file`, `edit_file`, `run_command`), the
+`/orch` backends, and `/skills`. Test generation from managed test cases,
+hosted test runs, crawls, repository review, project and test-case
+management, PR creation, CI setup, and script healing require a QualityMax
+connection. Say so when describing a feature; do not imply a connected tool
+works offline.
 
 Distinguish the IDE direction from capabilities shipped today. The current
 release is a terminal application; describe planned IDE features as future work.
@@ -34,9 +44,10 @@ release is a terminal application; describe planned IDE features as future work.
 - **OpenCode** = opt-in providers (Z.AI GLM, Groq, OpenRouter) via
   `/providers`.
 
-When writing product-direction copy, say “a standalone IDE with optional,
-first-class QualityMax connectivity through MCP.” Describe current terminal
-capabilities accurately and attribute inference speed to the backend.
+When writing product-direction copy, say "a developer-first coding
+environment, evolving into a standalone IDE with optional, first-class
+QualityMax connectivity through MCP." Describe current terminal capabilities
+accurately and attribute inference speed to the backend.
 
 ## Why Go
 

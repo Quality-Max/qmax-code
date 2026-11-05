@@ -26,22 +26,19 @@
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/qualitymax)
 
-**Building an open-source standalone IDE with optional, first-class QualityMax connectivity through MCP.** Named after Max, the real cat who inspired it all.
+**An open-source coding environment built for developers first: your repository, your terminal, your choice of models and agents.** One Go binary, no account required. Evolving into a standalone IDE with optional, first-class QualityMax connectivity through MCP. Named after Max, the real cat who inspired it all.
 
-qmax-code is evolving into an independent development environment for coding,
-testing, review, and agent workflows. QualityMax is an optional integration,
-with first-class connectivity through MCP as part of that direction.
+qmax-code runs against the repository in front of you. It reads, edits, and
+searches code, runs allowlisted commands and tests, and keeps QA in the same
+loop as coding: write the change, generate the tests, run them, review the
+diff, ship. Bring your own inference (Anthropic, Cerebras, or Ollama) or host
+the coding agent you already use (Claude Code, Codex, Antigravity, or
+OpenCode) and switch between them with `/orch`.
 
-Today, qmax-code ships as a Go terminal application that works on local
-repositories without a QualityMax account. Connect to QualityMax to manage
-projects and test cases, crawl sites, generate and run tests, review
-repositories, heal scripts, and prepare CI. The current client calls the
-QualityMax API directly and exposes tools to coding-agent backends through
-its embedded MCP server; the separate `qmax` CLI is optional.
-
-Use the built-in agent with Anthropic, Cerebras, or Ollama, or use
-**orchestration mode** to run Claude Code, Codex, Antigravity, or OpenCode with the same qmax
-QA tools through MCP.
+QualityMax is an opt-in extension, not a prerequisite. Connect it when you
+want hosted browser test runs, crawls, project and test-case management, or
+repository review. Its tools reach whichever agent you run through the
+embedded MCP server, and `/disconnect` takes them away again.
 
 ![qmax-code startup banner in standalone local-only mode](docs/img/terminal.png)
 
@@ -65,18 +62,37 @@ cloud reach a private network). Only hosted QualityMax needs an account.
 > including for commercial use. No waiting period or non-compete restriction.
 > [Read the announcement →](docs/releases/v1.38.0.md)
 
-## Where it sits
+## Built for developers
 
-The goal is a **standalone IDE** where local development, coding agents, and
-QA workflows share one environment. QualityMax connectivity through MCP is
-optional and first-class: it extends the environment with hosted QA services
-without making a QualityMax account a requirement for local work.
+- **Local by default.** `qmax-code --local` needs no login, no project, and
+  makes no QualityMax request. Your code leaves the machine only through the
+  inference backend you chose; pick Ollama when it should not leave at all.
+- **Your keys, your agents.** Use an Anthropic or Cerebras key, a local Ollama
+  endpoint, or a Claude Code or Codex install you have already signed in to.
+  Keys live in the OS keychain or in environment variables, never in a
+  QualityMax proxy.
+- **One binary.** `curl | bash` installs a single Go executable for macOS,
+  Linux, and Windows on Intel and ARM. No Node, Python, or version manager.
+- **Nothing hidden.** Exposure Receipts write a signed local manifest of every
+  LLM and cloud-API egress. Telemetry is off unless you set two environment
+  variables. Local commands run under an allowlist with your user permissions.
+- **QA inside the dev loop.** A catalog of QA skills (diff risk, secrets,
+  dependencies, accessibility, Core Web Vitals, flaky selectors, release
+  gates, and more) installs into Claude Code, Codex, and OpenCode with
+  `/skills install`, so review happens before the PR, not after.
+- **QualityMax when you want it.** Connected mode adds hosted Playwright
+  execution, crawls, test generation from managed test cases, repository
+  review, script healing, and CI setup through MCP. Disconnect and everything
+  above keeps working.
 
-The current terminal application is the foundation for that IDE. It already
-supports local file editing, commands, tests, and selectable coding backends.
-Connected workflows add crawls, hosted tests, repository review, and healing.
-The standalone IDE is the product direction; the capabilities documented
-below describe the terminal release available today.
+## Where it is going
+
+The direction is a standalone IDE where local development, coding agents, and
+QA share one environment, with QualityMax as an optional, first-class MCP
+integration. The terminal application is the foundation and what ships today:
+file editing, commands, tests, selectable backends, QA skills, and the
+connected tools listed below. Planned IDE features are future work; everything
+documented in this README describes the current release.
 
 Go makes the binary install once. **Cerebras** makes tokens fast (today:
 GPT-OSS 120B, GLM 4.7, Gemma 4 at ~1000–2000+ tok/s; **Qwen 3.8 coming
@@ -85,40 +101,39 @@ in `/orch`; do not run two CLIs and two configs.
 
 | Job | Pick |
 | --- | --- |
-| Tests, crawls, coverage, QualityMax projects | qmax-code connected (or `--local` for workspace-only) |
+| Edit, search, run commands and tests in a local repo | qmax-code `--local` with any backend |
 | Fast loops, bulk generation, cheap iteration | `/orch` → Cerebras |
 | Hard design, tricky refactors | `/orch` → Claude Code or Codex |
 | GLM on a coding plan | `/providers` → Z.AI, then OpenCode in `/orch` |
 | Air-gapped / local weights | Ollama |
-
-In the current terminal release, use `/orch` to select the backend for your
-next task. Local coding works without QualityMax; enable connected mode when
-you need its hosted QA workflows.
+| Hosted browser tests, crawls, coverage, QualityMax projects | qmax-code connected |
 
 ## What qmax-code can do
 
 ![Plan, generate, execute, review, and ship, over a local repository lane](docs/img/lifecycle.svg)
 
-- **Plan and manage QA work:** list and manage projects and test cases, enhance
-  cases, find coverage gaps, and import requirements or repositories.
-- **Generate and execute tests:** create Playwright, pytest, Go, and Rust tests;
-  run browser tests in QualityMax, run Go/Rust tests on the native runner, or
-  execute supported tests locally.
-- **Crawl and inspect applications:** discover pages, generate test scenarios,
-  analyze screenshots and page elements, and optionally watch test/crawl runs
-  through a live terminal browser feed.
-- **Review and ship:** analyze repositories for quality, coverage, security, and
-  testing risk; honor saved review preferences; create test PRs; and generate a
-  GitHub Actions test workflow.
-- **Work on local repositories:** read, create, and edit files; search code; run
-  allowlisted commands and tests. Standalone mode provides this lane without a
-  QualityMax login.
-- **Extend coding agents:** install QA skills into Claude Code, Codex, and
-  OpenCode, including accessibility, performance, security, dependency,
-  usability, flaky-selector, and release-gate workflows.
+The table shows what works in standalone mode and what connecting to
+QualityMax adds. Standalone exposes exactly five agent tools (plan, read,
+write, edit, run command) plus whichever backend `/orch` selects; every other
+tool is refused until you connect.
 
-Some advanced surfaces—k6, QTML, framework export/trigger operations, and
-background-job health—remain experimental and are only exposed when
+| Capability | Standalone (`--local`) | Connected to QualityMax |
+| --- | --- | --- |
+| Read, create, edit, and search files in your repository | Yes | Yes |
+| Run allowlisted commands and your own test suites | Yes | Yes |
+| Host Claude Code, Codex, Antigravity, or OpenCode through `/orch` | Yes | Yes, with qmax tools served over MCP |
+| Install QA skills into those agents with `/skills install` | Yes | Yes |
+| Exposure Receipts for every outbound request | Yes | Yes |
+| Generate Playwright, pytest, Go, and Rust tests from managed test cases | No (the model writes tests directly with the file tools) | Yes |
+| Run browser tests in QualityMax, Go and Rust tests on the native runner | No | Yes |
+| Crawl an app, generate scenarios, analyze screenshots and page elements | No | Yes, optionally with the live terminal browser feed |
+| Review a repository for quality, coverage, security, and testing risk | No | Yes, honoring saved review preferences |
+| Manage projects and test cases, enhance cases, find coverage gaps, import requirements | No | Yes |
+| Create test PRs and a GitHub Actions test workflow | No | Yes |
+| Heal broken scripts and roll back script versions | No | Yes |
+
+Some advanced surfaces (k6, QTML, framework export/trigger operations, and
+background-job health) remain experimental and are only exposed when
 `QMAX_EXPERIMENTAL=1`.
 
 ## Latest changes

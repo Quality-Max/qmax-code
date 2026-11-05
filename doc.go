@@ -1,12 +1,15 @@
-// Command qmax-code is the terminal foundation for a standalone IDE with
-// optional, first-class QualityMax connectivity through MCP.
+// Command qmax-code is a developer-first coding environment: a terminal
+// agent that works on the local repository with no account required, and the
+// foundation for a standalone IDE with optional, first-class QualityMax
+// connectivity through MCP.
 //
-// It runs standalone against a local repository or connects to QualityMax,
-// and can switch inference between the Anthropic API, Cerebras, Ollama, and
-// hosted coding agents (Claude Code, Codex, Antigravity, OpenCode) through
-// /orch. It supports local coding, QA work, and exposure receipts. Connected
-// workflows add test generation and execution, app crawling, and repository
-// review.
+// In standalone mode (--local) it reads, writes, edits, and searches files
+// and runs allowlisted commands and tests, using the Anthropic API, Cerebras,
+// or Ollama for inference, or hosting Claude Code, Codex, Antigravity, or
+// OpenCode through /orch. Every outbound request is recorded in a signed
+// Exposure Receipt. Connecting to QualityMax adds hosted test generation and
+// execution, app crawling, repository review, and project management over
+// the same MCP server.
 //
 // Install a release binary:
 //
