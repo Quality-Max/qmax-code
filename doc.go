@@ -1,10 +1,12 @@
-// Command qmax-code is a QA-focused AI terminal agent.
+// Command qmax-code is the terminal foundation for a standalone IDE with
+// optional, first-class QualityMax connectivity through MCP.
 //
 // It runs standalone against a local repository or connects to QualityMax,
 // and can switch inference between the Anthropic API, Cerebras, Ollama, and
 // hosted coding agents (Claude Code, Codex, Antigravity, OpenCode) through
-// /orch. Its focus is QA work: generating and running tests, crawling apps,
-// reviewing diffs, and recording receipts.
+// /orch. It supports local coding, QA work, and exposure receipts. Connected
+// workflows add test generation and execution, app crawling, and repository
+// review.
 //
 // Install a release binary:
 //

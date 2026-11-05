@@ -26,13 +26,18 @@
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/qualitymax)
 
-**The open-source QA terminal that can switch inference.** Named after Max, the real cat who inspired it all.
+**Building an open-source standalone IDE with optional, first-class QualityMax connectivity through MCP.** Named after Max, the real cat who inspired it all.
 
-qmax-code can work as a standalone local repository agent with no QualityMax
-account, or connect to QualityMax for hosted QA workflows. In connected mode it
-can manage projects and test cases, crawl sites, generate and run tests, review
-repositories, heal scripts, and prepare CI. It calls the QualityMax API
-directly, so the separate `qmax` CLI is optional.
+qmax-code is evolving into an independent development environment for coding,
+testing, review, and agent workflows. QualityMax is an optional integration,
+with first-class connectivity through MCP as part of that direction.
+
+Today, qmax-code ships as a Go terminal application that works on local
+repositories without a QualityMax account. Connect to QualityMax to manage
+projects and test cases, crawl sites, generate and run tests, review
+repositories, heal scripts, and prepare CI. The current client calls the
+QualityMax API directly and exposes tools to coding-agent backends through
+its embedded MCP server; the separate `qmax` CLI is optional.
 
 Use the built-in agent with Anthropic, Cerebras, or Ollama, or use
 **orchestration mode** to run Claude Code, Codex, Antigravity, or OpenCode with the same qmax
@@ -46,7 +51,8 @@ for styling, and [Glamour](https://github.com/charmbracelet/glamour) for Markdow
 
 ![Five open QualityMax tools and where qmax-code sits among them](docs/img/family.svg)
 
-qmax-code is the terminal agent that drives a QA session. It sits alongside
+qmax-code brings local coding and QA workflows into one agent environment.
+It sits alongside
 [free-qa-skills](https://github.com/Quality-Max/free-qa-skills) (read-only
 audits inside a coding agent), [qmax-mcp](https://github.com/Quality-Max/qmax-mcp)
 (scan a page, generate a repro, run it locally),
@@ -61,11 +67,16 @@ cloud reach a private network). Only hosted QualityMax needs an account.
 
 ## Where it sits
 
-qmax-code is the **QA terminal next to the repo**, not an editor and not a
-faster Claude. Cursor owns the file buffer. Claude Code and Codex own general
-coding in a terminal. qmax-code owns crawls, tests, review, healing, and
-receipts — and can **host** those other agents through `/orch` when the job is
-coding.
+The goal is a **standalone IDE** where local development, coding agents, and
+QA workflows share one environment. QualityMax connectivity through MCP is
+optional and first-class: it extends the environment with hosted QA services
+without making a QualityMax account a requirement for local work.
+
+The current terminal application is the foundation for that IDE. It already
+supports local file editing, commands, tests, and selectable coding backends.
+Connected workflows add crawls, hosted tests, repository review, and healing.
+The standalone IDE is the product direction; the capabilities documented
+below describe the terminal release available today.
 
 Go makes the binary install once. **Cerebras** makes tokens fast (today:
 GPT-OSS 120B, GLM 4.7, Gemma 4 at ~1000–2000+ tok/s; **Qwen 3.8 coming
@@ -80,9 +91,9 @@ in `/orch`; do not run two CLIs and two configs.
 | GLM on a coding plan | `/providers` → Z.AI, then OpenCode in `/orch` |
 | Air-gapped / local weights | Ollama |
 
-Day-to-day: the editor for typing, qmax-code for the agent. Default `/orch`
-to Cerebras or Claude Code depending on whether the next hour is “generate
-and run a lot” or “think hard.”
+In the current terminal release, use `/orch` to select the backend for your
+next task. Local coding works without QualityMax; enable connected mode when
+you need its hosted QA workflows.
 
 ## What qmax-code can do
 
@@ -541,4 +552,4 @@ personality-free response style.
 
 ---
 
-**Open-source QA terminal. Licensed under [Apache 2.0](LICENSE).**
+**Building an open-source standalone IDE. Optional, first-class QualityMax connectivity through MCP. Licensed under [Apache 2.0](LICENSE).**
