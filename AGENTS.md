@@ -4,20 +4,26 @@ Instructions for coding agents working on qmax-code.
 
 ## What this is
 
-qmax-code is a terminal **QA** agent that can also host coding CLIs. It runs
-standalone on a local repository or connected to QualityMax. Through `/orch`
-it can launch Claude Code, Codex, Antigravity, or OpenCode while keeping qmax tools and
-terminal UX — or run the built-in loop on Anthropic, Cerebras, or Ollama.
+qmax-code is evolving into a **standalone IDE with optional, first-class
+QualityMax connectivity through MCP**. The current Go terminal agent is the
+foundation: it works on local repositories without a QualityMax account and
+can connect to QualityMax for hosted QA workflows. Through `/orch` it can
+launch Claude Code, Codex, Antigravity, or OpenCode while keeping qmax tools
+and terminal UX — or run the built-in loop on Anthropic, Cerebras, or Ollama.
 
 This repository is **Go 1.27.3+**, not TypeScript. The thing users install is one
 compiled binary.
 
 ## Positioning
 
-qmax-code is **not** a faster Claude and **not** an IDE. Cursor owns the
-editor. Claude Code and Codex own general coding in a terminal. qmax-code owns
-QA on the repo (crawl, generate/run tests, review, heal, receipts) and borrows
-those other agents when the job is coding.
+The product direction is an independent development environment for coding,
+testing, review, and agent workflows. QualityMax is an optional integration
+with first-class MCP support, rather than a prerequisite for using the IDE.
+QA remains a core strength: crawl, generate/run tests, review, heal, and receipts.
+Claude Code, Codex, Antigravity, and OpenCode are selectable coding backends.
+
+Distinguish the IDE direction from capabilities shipped today. The current
+release is a terminal application; describe planned IDE features as future work.
 
 - **Go** = one-file install and instant TUI. It does not make tokens faster.
 - **Cerebras** = fast inference (~1000–2000+ tok/s). Models today: GPT-OSS
@@ -28,8 +34,9 @@ those other agents when the job is coding.
 - **OpenCode** = opt-in providers (Z.AI GLM, Groq, OpenRouter) via
   `/providers`.
 
-When writing copy or comments, say “the QA terminal that can switch
-inference,” not “faster than Claude.”
+When writing product-direction copy, say “a standalone IDE with optional,
+first-class QualityMax connectivity through MCP.” Describe current terminal
+capabilities accurately and attribute inference speed to the backend.
 
 ## Why Go
 
