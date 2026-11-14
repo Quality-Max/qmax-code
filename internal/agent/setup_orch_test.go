@@ -12,8 +12,11 @@ func TestUpsertCodexMCPEntryAddsQMaxTable(t *testing.T) {
 trust_level = "trusted"
 `
 
-	got := upsertCodexMCPEntry(input, "qmax-code", nil)
+	got, err := upsertCodexMCPEntry(input, "qmax-code", nil)
 
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{
 		`model = "gpt-5.5"`,
 		`[projects."/tmp/app"]`,
@@ -43,8 +46,11 @@ env = { "QMAX_PROJECT_ID" = "7" }
 enabled = true
 `
 
-	got := upsertCodexMCPEntry(input, "qmax-code", map[string]string{"QMAX_PROJECT_ID": "42"})
+	got, err := upsertCodexMCPEntry(input, "qmax-code", map[string]string{"QMAX_PROJECT_ID": "42"})
 
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(got, "/old/qmax-code") || strings.Contains(got, `args = ["serve"]`) {
 		t.Fatalf("stale qmax entry was not replaced:\n%s", got)
 	}
@@ -66,10 +72,10 @@ enabled = true
 }
 
 func TestCodexMCPEntryExists(t *testing.T) {
-	if !codexMCPEntryExists("\n[mcp_servers.qmax]\ncommand = \"qmax-code\"\n") {
+	if !CodexMCPEntryExists("\n[mcp_servers.qmax]\ncommand = \"qmax-code\"\n") {
 		t.Fatal("expected qmax MCP entry to be detected")
 	}
-	if codexMCPEntryExists("\n[mcp_servers.qualitymax]\nenabled = true\n") {
+	if CodexMCPEntryExists("\n[mcp_servers.qualitymax]\nenabled = true\n") {
 		t.Fatal("qualitymax remote entry should not satisfy qmax local entry")
 	}
 }
