@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/Quality-Max/qmax-code/internal/agent"
 	"github.com/Quality-Max/qmax-code/internal/skills"
@@ -283,14 +282,7 @@ func IsOrchInstalled(backend string) bool {
 	}
 
 	if backend == "codex" {
-		// Inline check — avoid exporting codexMCPEntryExists since this is
-		// the only caller outside the agent package.
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.TrimSpace(line) == "[mcp_servers.qmax]" {
-				return true
-			}
-		}
-		return false
+		return agent.CodexMCPEntryExists(string(data))
 	}
 
 	var cfg map[string]interface{}

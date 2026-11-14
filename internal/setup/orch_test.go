@@ -17,6 +17,30 @@ func withTempHome(t *testing.T) string {
 	return tmp
 }
 
+func TestIsOrchInstalledCodexParsesTables(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		config string
+		want   bool
+	}{
+		{`[mcp_servers."qmax"] # user comment`, true},
+		{"notes = '''\n[mcp_servers.qmax]\n'''", false},
+		{"[mcp_servers.qmax]\ninvalid = [", false},
+	} {
+		if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(tc.config), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if got := IsOrchInstalled("codex"); got != tc.want {
+			t.Fatalf("installed = %v, want %v", got, tc.want)
+		}
+	}
+}
+
 func TestInstallCodexWritesConfigTOML(t *testing.T) {
 	home := withTempHome(t)
 
