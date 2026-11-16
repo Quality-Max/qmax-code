@@ -101,9 +101,14 @@ QUA-2406 covers connection, coexistence, scoped tools, and one agent-mediated
 source read. Local tests cover preservation, invalid/custom configuration,
 credential-policy refusal, concurrent disconnect, discovery protocol failures,
 missing authentication/tools, cancellation, and refusal of approval requests.
-Mock discovery is distinct from live qualification. Live expired/revoked-auth
-behavior remains unqualified; QUA-2406 acceptance is incomplete until that
-case is verified.
+Mock discovery is distinct from live qualification. Provider-side OAuth
+revocation and subsequent reconnect were verified on 2026-11-16. After the
+user-authorized revocation, Codex 0.144.5 retained the `oAuth` status but
+returned no Zapier tools; qmax exited nonzero. Its diagnostic includes a
+reconnect instruction because a cached auth label does not establish current
+access. After native OAuth login, status exited zero and discovered exactly
+the two allowed tools alongside qmax and 9lives. No app action ran during this
+cycle. Natural token expiry and automatic refresh were not exercised.
 
 Local live discovery on 2026-11-16 used qmax `dev-qua-2406`, Codex 0.144.5,
 and checksum-verified 9lives 0.6.0 in a separate configuration home. The actual catalog

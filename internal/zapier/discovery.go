@@ -191,7 +191,7 @@ func CheckReadTools(servers []Server) error {
 		if inspect && read {
 			return nil
 		}
-		return errors.New("zapier read tools unavailable; check connection, enabled actions and Codex compatibility")
+		return errors.New("zapier read tools unavailable; check OAuth authorization, enabled actions and Codex compatibility; if access was revoked or expired, run qmax-code zapier connect")
 	}
 	return errors.New("zapier is disabled, unavailable or not configured; run qmax-code zapier connect")
 }

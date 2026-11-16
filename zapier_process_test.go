@@ -124,6 +124,9 @@ func TestZapierCommandFailuresStayScoped(t *testing.T) {
 		{name: "login failure", command: "connect", version: fixtureVersion, login: "exit 1", want: "OAuth was not completed"},
 		{name: "unsafe credential policy", command: "connect", version: fixtureVersion, config: "mcp_oauth_credentials_store='file'\n", want: "existing credential-storage policy was not changed"},
 		{name: "missing auth", command: "status", version: fixtureVersion, inventory: `printf '%s\n' '{"id":2,"result":{"data":[{"name":"zapier","authStatus":"notLoggedIn","tools":{}}]}}'`, want: "authentication required or expired"},
+		// Native Codex 0.144.5 retains oAuth after provider revocation but
+		// returns an empty tool inventory. The failure must explain recovery.
+		{name: "revoked auth with cached OAuth status", command: "status", version: fixtureVersion, inventory: `printf '%s\n' '{"id":2,"result":{"data":[{"name":"zapier","authStatus":"oAuth","tools":{}}]}}'`, want: "if access was revoked or expired, run qmax-code zapier connect"},
 		{name: "missing tool", command: "status", version: fixtureVersion, inventory: `printf '%s\n' '{"id":2,"result":{"data":[{"name":"zapier","authStatus":"oAuth","tools":{"inspect_zapier_actions":{}}}]}}'`, want: "read tools unavailable"},
 		{name: "broken discovery", command: "status", version: fixtureVersion, inventory: "exit 1", want: "discovery failed"},
 	}
