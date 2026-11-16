@@ -44,17 +44,16 @@ func InstallCC() (*InstallResult, error) {
 // so Codex picks up qmax tools whenever the user invokes `codex` directly,
 // in addition to when qmax-code spawns it.
 func InstallCodex() (*InstallResult, error) {
-	home, err := os.UserHomeDir()
+	cfgPath, err := agent.CodexConfigPath()
 	if err != nil {
 		return nil, err
 	}
 
-	codexDir := filepath.Join(home, ".codex")
+	codexDir := filepath.Dir(cfgPath)
 	if err := os.MkdirAll(codexDir, 0700); err != nil {
 		return nil, err
 	}
 
-	cfgPath := filepath.Join(codexDir, "config.toml")
 	return writeCodexMCPEntry(cfgPath, nil)
 }
 
@@ -269,7 +268,10 @@ func IsOrchInstalled(backend string) bool {
 	case "cc":
 		cfgPath = filepath.Join(home, ".claude", "settings.json")
 	case "codex":
-		cfgPath = filepath.Join(home, ".codex", "config.toml")
+		cfgPath, err = agent.CodexConfigPath()
+		if err != nil {
+			return false
+		}
 	case "agy":
 		cfgPath = filepath.Join(home, ".gemini", "config", "mcp_config.json")
 	default:

@@ -16,6 +16,7 @@ import (
 // in cleanup. Local copy of the helper used by other test files in the repo.
 func withTempHome(t *testing.T) string {
 	t.Helper()
+	t.Setenv("CODEX_HOME", "")
 	orig := os.Getenv("HOME")
 	tmp := t.TempDir()
 	os.Setenv("HOME", tmp)

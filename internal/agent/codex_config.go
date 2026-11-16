@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/pelletier/go-toml/v2/unstable"
@@ -19,45 +20,97 @@ import (
 // (cmd/qmax setup) need the same value.
 const QmaxMCPCommand = "qmax-code"
 
+// CodexConfigPath follows the same home selection as the Codex subprocess.
+func CodexConfigPath() (string, error) {
+	if home := os.Getenv("CODEX_HOME"); home != "" {
+		return filepath.Abs(filepath.Join(home, "config.toml"))
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", errors.New("cannot locate Codex home")
+	}
+	return filepath.Join(home, ".codex", "config.toml"), nil
+}
+
 // WriteCodexMCPEntry merges the qmax MCP entry into Codex's TOML config at
 // path. The env map is rendered into the entry's `env = { ... }` block. The
 // returned alreadyHad flag tells the caller whether an entry was already
 // present (used by setup orchestration to phrase its progress message).
 func WriteCodexMCPEntry(path string, env map[string]string) (alreadyHad bool, err error) {
+	err = updateCodexConfig(path, func(config string) (string, error) {
+		alreadyHad = CodexMCPEntryExists(config)
+		return upsertCodexMCPEntry(config, QmaxMCPCommand, env)
+	})
+	return alreadyHad, err
+}
+
+func updateCodexConfig(path string, update func(string) (string, error)) error {
 	// Preserve a user-managed symlink rather than replacing the link itself.
 	if info, statErr := os.Lstat(path); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
 		resolved, resolveErr := filepath.EvalSymlinks(path)
 		if resolveErr != nil {
-			return false, errors.New("cannot resolve Codex config symlink")
+			return errors.New("cannot resolve Codex config symlink")
 		}
 		path = resolved
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return errors.New("cannot create Codex config directory")
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		return errors.New("cannot resolve Codex config directory")
+	}
+	path = filepath.Join(parent, filepath.Base(path))
+	// Keep the sidecar inode: unlinking it could let another process acquire
+	// a different lock while this one is still held. OS locks release on exit.
+	lock, err := os.OpenFile(path+".qmax.lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return errors.New("cannot open Codex config lock")
+	}
+	defer func() { _ = lock.Close() }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		acquired, lockErr := tryCodexConfigLock(lock)
+		if lockErr != nil {
+			return errors.New("cannot lock Codex config")
+		}
+		if acquired {
+			break
+		}
+		if time.Now().After(deadline) {
+			return errors.New("codex config is busy; retry the command")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	defer unlockCodexConfig(lock)
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, errors.New("cannot read Codex config; existing settings were not changed")
+		return errors.New("cannot read Codex config; existing settings were not changed")
 	}
-	alreadyHad = CodexMCPEntryExists(string(data))
-	updated, err := upsertCodexMCPEntry(string(data), QmaxMCPCommand, env)
+	updated, err := update(string(data))
 	if err != nil {
-		return alreadyHad, err
+		return err
+	}
+	if updated == string(data) {
+		return nil
 	}
 	// Replace atomically so a failed write cannot truncate other MCP entries.
 	f, err := os.CreateTemp(filepath.Dir(path), ".qmax-codex-*")
 	if err != nil {
-		return alreadyHad, errors.New("cannot prepare Codex config update")
+		return errors.New("cannot prepare Codex config update")
 	}
 	defer func() { _ = os.Remove(f.Name()) }()
 	if _, err = f.WriteString(updated); err != nil {
 		_ = f.Close()
-		return alreadyHad, errors.New("cannot write Codex config update")
+		return errors.New("cannot write Codex config update")
 	}
 	if err = f.Close(); err != nil {
-		return alreadyHad, errors.New("cannot close Codex config update")
+		return errors.New("cannot close Codex config update")
 	}
 	if err = os.Rename(f.Name(), path); err != nil {
-		return alreadyHad, errors.New("cannot replace Codex config")
+		return errors.New("cannot replace Codex config")
 	}
-	return alreadyHad, nil
+	return nil
 }
 
 // CodexMCPEntryExists reports whether valid TOML defines a qmax MCP entry.
@@ -73,6 +126,10 @@ func CodexMCPEntryExists(config string) bool {
 }
 
 func upsertCodexMCPEntry(config, command string, env map[string]string) (string, error) {
+	return replaceCodexMCPTable(config, "qmax", strings.Join(renderCodexMCPEntry(command, env), "\n")+"\n")
+}
+
+func replaceCodexMCPTable(config, name, entry string) (string, error) {
 	data := []byte(config)
 	var doc map[string]any
 	// Parser diagnostics can contain configuration values. Never return them.
@@ -105,7 +162,7 @@ func upsertCodexMCPEntry(config, command string, env map[string]string) (string,
 			out.Write(data[start:offset])
 		}
 		start = offset
-		skip = len(path) >= 2 && path[0] == "mcp_servers" && path[1] == "qmax"
+		skip = len(path) >= 2 && path[0] == "mcp_servers" && path[1] == name
 	}
 	if parser.Error() != nil {
 		return "", errors.New("cannot parse Codex config")
@@ -116,12 +173,12 @@ func upsertCodexMCPEntry(config, command string, env map[string]string) (string,
 	if out.Len() > 0 && out.Bytes()[out.Len()-1] != '\n' {
 		out.WriteByte('\n')
 	}
-	out.WriteString(strings.Join(renderCodexMCPEntry(command, env), "\n") + "\n")
+	out.WriteString(entry)
 	updated := out.String()
 	// Inline/dotted qmax definitions cannot be safely removed as table ranges.
 	// Refuse the update rather than duplicate or rewrite unrelated settings.
 	if toml.Unmarshal([]byte(updated), &doc) != nil {
-		return "", errors.New("unsupported qmax TOML layout; use a separate [mcp_servers.qmax] table")
+		return "", errors.New("unsupported MCP TOML layout; use separate server tables")
 	}
 	return updated, nil
 }

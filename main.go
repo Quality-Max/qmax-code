@@ -97,8 +97,16 @@ func main() {
 		return
 	}
 
-	// Handle "serve --mcp" subcommand: start MCP server for Claude Code integration.
-	// CC spawns this automatically when qmax-code is listed as an MCP server.
+	// Zapier setup and discovery use Codex's native OAuth and MCP transport.
+	if len(os.Args) > 1 && os.Args[1] == "zapier" {
+		if err := runZapierCommand(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			exitWithReceipt(1)
+		}
+		return
+	}
+
+	// CLI backends spawn this when qmax-code is listed as an MCP server.
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		if len(os.Args) > 2 && os.Args[2] == "--mcp" {
 			mcp.RunServer(Version)
