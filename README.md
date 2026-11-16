@@ -187,6 +187,9 @@ once and run like `curl`, `git`, or `rg`.
 
 ## Quick start
 
+For the opt-in Codex connection to business-app context, see
+[Zapier MCP setup and qualification limits](docs/ZAPIER_MCP.md).
+
 ### Standalone local-only
 
 Run qmax-code without a QualityMax account:

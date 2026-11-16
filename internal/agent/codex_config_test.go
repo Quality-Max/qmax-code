@@ -106,8 +106,13 @@ func TestWriteCodexMCPEntryAtomicReplacement(t *testing.T) {
 		t.Fatal("config is not owner-only")
 	}
 	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) != 1 {
+	if err != nil || len(entries) != 2 {
 		t.Fatal("temporary file left behind")
+	}
+	for _, entry := range entries {
+		if entry.Name() != "config.toml" && entry.Name() != "config.toml.qmax.lock" {
+			t.Fatal("unexpected temporary file left behind")
+		}
 	}
 }
 

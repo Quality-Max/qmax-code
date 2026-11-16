@@ -12,6 +12,7 @@ func withTempHome(t *testing.T) string {
 	t.Helper()
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("CODEX_HOME", "")
 	t.Setenv("PATH", "")
 	t.Setenv("CEREBRAS_API_KEY", "")
 	return tmp
@@ -20,6 +21,7 @@ func withTempHome(t *testing.T) string {
 func TestIsOrchInstalledCodexParsesTables(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
 	dir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
