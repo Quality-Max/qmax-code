@@ -36,7 +36,15 @@ qmax-code zapier connect
 ```
 
 A separate home may also need its own Codex model login. Do not copy credential
-files between homes. If the OS keyring is unavailable, authentication fails;
+files between homes. A separate home isolates configuration, not necessarily
+MCP OAuth credentials. In Codex 0.144.5, keyring entries are keyed by server name
+and URL, independently of `CODEX_HOME`. Logging out or revoking the managed
+`zapier` connection can therefore affect other Codex homes using that entry.
+Use a separate provider/client identity for destructive authentication tests;
+do not treat a fresh home as sufficient credential isolation. See the
+[qualified Codex credential-key implementation](https://github.com/openai/codex/blob/rust-v0.144.5/codex-rs/rmcp-client/src/oauth.rs).
+
+If the OS keyring is unavailable, authentication fails;
 qmax does not fall back to plaintext MCP tokens. OAuth output belongs in your
 terminal, not in receipts or issue comments.
 
@@ -84,6 +92,8 @@ qmax-code zapier disconnect
 Disconnect disables the managed server for new Codex sessions. End active
 sessions to unload their tools. It does not revoke OAuth or disable app actions;
 use `codex mcp logout zapier` in the same home to remove stored OAuth.
+This removes local credentials, rather than proving provider-side revocation
+or token-expiry handling. The shared-keyring limitation above still applies.
 
 ## Qualification and remaining epic work
 
@@ -91,15 +101,25 @@ QUA-2406 covers connection, coexistence, scoped tools, and one agent-mediated
 source read. Local tests cover preservation, invalid/custom configuration,
 credential-policy refusal, concurrent disconnect, discovery protocol failures,
 missing authentication/tools, cancellation, and refusal of approval requests.
-Mock discovery is distinct from live qualification. A live source read through
-qmax-code is still required before claiming QUA-2406 acceptance.
+Mock discovery is distinct from live qualification. Live expired/revoked-auth
+behavior remains unqualified; QUA-2406 acceptance is incomplete until that
+case is verified.
 
 Local live discovery on 2026-11-16 used qmax `dev-qua-2406`, Codex 0.144.5,
-and checksum-verified 9lives 0.6.0 in an isolated home. The actual catalog
+and checksum-verified 9lives 0.6.0 in a separate configuration home. The actual catalog
 contained four standalone qmax MCP tools and seven 9lives tools. Zapier reported
 `notLoggedIn` with no tools, and status exited nonzero with an authentication
-instruction. This proves local coexistence and missing-auth handling, not an
-authenticated read allowlist. `9l doctor` reported missing Playwright workspace
+instruction. After the user completed OAuth, native discovery reported `oAuth`
+and exactly the two permitted Zapier tools alongside qmax and 9lives. A native
+`qmax-code --local --backend codex` agent turn then executed Google Sheets
+`get_data_range` for one selected `Sheet1!A4:K4` range and returned one row.
+No business-app write or new test run was performed. The returned row's
+completed/passed result is historical demo data. Its source identifiers were
+verified directly against the tool result; the agent's final summary omitted
+fields and confused an upstream GitHub revision with a sheet revision, which
+remains unknown. Deterministic provenance is still QUA-2408 work.
+
+`9l doctor` reported missing Playwright workspace
 dependencies at the Go repository root; no test-run readiness is claimed there.
 
 QUA-2407 qualifies 9lives independently. QUA-2408 adds source provenance and
