@@ -4,6 +4,14 @@ All notable changes to qmax-code. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [1.40.2] - 2026-11-16
+
+### Fixed
+- Preserve other MCP servers and settings when updating the Codex qmax entry.
+  Parse quoted and commented TOML headers correctly, reject invalid or
+  unsupported layouts without changing the file, and update atomically while
+  preserving existing symlinks and using owner-only file permissions.
+
 ## [1.40.1] - 2026-10-22
 
 ### Security
