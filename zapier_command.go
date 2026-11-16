@@ -36,7 +36,10 @@ func runZapierCommand(ctx context.Context, args []string, out io.Writer) error {
 		return errors.New("codex CLI required; Zapier is not yet qualified for other backends")
 	}
 	versionCtx, versionCancel := context.WithTimeout(ctx, 10*time.Second)
-	versionOutput, versionErr := exec.CommandContext(versionCtx, bin, "--version").Output()
+	versionCmd := exec.CommandContext(versionCtx, bin, "--version")
+	// Launchers can leave descendants holding stdout after exit or cancellation.
+	versionCmd.WaitDelay = 2 * time.Second
+	versionOutput, versionErr := versionCmd.Output()
 	versionCancel()
 	version := strings.TrimSpace(string(versionOutput))
 	if versionErr != nil || !regexp.MustCompile(`^codex-cli [0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.-]+)?$`).MatchString(version) {

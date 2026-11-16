@@ -35,8 +35,8 @@ func TestZapierDisconnectUsesSelectedHomeAndPreservesOtherServers(t *testing.T) 
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
-	if err != nil || !strings.HasPrefix(string(data), original) || !strings.Contains(string(data), "enabled = false") {
-		t.Fatal("disconnect changed unrelated settings or failed to disable")
+	if err != nil || string(data) != original {
+		t.Fatal("disconnecting an absent server changed settings")
 	}
 	if !strings.Contains(out.String(), "End active sessions") {
 		t.Fatal("missing active-session limitation")

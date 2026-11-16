@@ -26,6 +26,9 @@ func ConfigureCodexZapier(path string, enabled bool) error {
 		if entry, exists := doc.Servers["zapier"]; exists && !managedZapierEntry(entry) {
 			return "", errors.New("existing Zapier configuration is user-managed; use a separate CODEX_HOME or configure its read permissions manually")
 		}
+		if _, exists := doc.Servers["zapier"]; !enabled && !exists {
+			return config, nil
+		}
 		if enabled {
 			if doc.Store != nil && doc.Store != "keyring" {
 				return "", errors.New("zapier requires mcp_oauth_credentials_store = \"keyring\"; existing credential-storage policy was not changed")

@@ -91,6 +91,9 @@ func updateCodexConfig(path string, update func(string) (string, error)) error {
 	if err != nil {
 		return err
 	}
+	if updated == string(data) {
+		return nil
+	}
 	// Replace atomically so a failed write cannot truncate other MCP entries.
 	f, err := os.CreateTemp(filepath.Dir(path), ".qmax-codex-*")
 	if err != nil {
