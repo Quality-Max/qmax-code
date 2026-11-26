@@ -113,6 +113,17 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 		}
 		tracker.CompleteCurrent(ag.Cfg.Context.API, ag.Usage.TotalTokens(), ag.History)
 	}
+	stopCloudSession := func() {
+		tracker.Stop()
+	}
+	reconcileCloudSession := func() {
+		cfg := ag.AppConfig
+		if cfg != nil && cfg.CloudSync != nil && !*cfg.CloudSync {
+			stopCloudSession()
+			return
+		}
+		startCloudSession()
+	}
 	switchCloudProject := func(projectID int) bool {
 		cfg := ag.AppConfig
 		if cfg == nil || cfg.CloudSync == nil || !*cfg.CloudSync {
@@ -540,11 +551,11 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			continue
 		case input == "/set":
 			handleSetCommand(input, ag, term)
-			startCloudSession()
+			reconcileCloudSession()
 			continue
 		case input == "/settings" || strings.HasPrefix(input, "/settings "):
 			runSettingsPicker(ag, term)
-			startCloudSession()
+			reconcileCloudSession()
 			continue
 
 		case input == "/queue":
@@ -856,6 +867,12 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			}
 			v := enabled
 			cfg.CloudSync = &v
+			if !enabled {
+				// Withdraw consent before persisting the preference. If saving fails,
+				// the in-memory opt-out still prevents the active session from ever
+				// uploading pending history later in this run.
+				stopCloudSession()
+			}
 			if err := cfg.Save(); err != nil {
 				term.PrintError(fmt.Sprintf("Failed to save config: %v", err))
 				continue
@@ -1166,7 +1183,7 @@ func Run(ag *agent.Agent, cliAgent agent.CLIAgent, quietMode bool, version strin
 			continue
 		case strings.HasPrefix(input, "/set "):
 			handleSetCommand(input, ag, term)
-			startCloudSession()
+			reconcileCloudSession()
 			continue
 		case input == "/keys":
 			handleKeys(ag, term)
