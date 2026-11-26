@@ -78,6 +78,57 @@ func TestWriteCodexMCPEntryRejectsInvalidOrUnsupportedConfig(t *testing.T) {
 	}
 }
 
+// Pre-v1.40.2 writers replaced only the exact [mcp_servers.qmax] header, so a
+// separate [mcp_servers.qmax.env] table survived elsewhere in the file. The next
+// inline `env = { ... }` then defined env twice and Codex refused to load.
+func TestCodexMCPRemovesNonAdjacentEnvTable(t *testing.T) {
+	head := "[mcp_servers.hf]\nurl = \"https://hf.example.com/mcp\"\n\n"
+	stale := "[mcp_servers.qmax.env]\nQMAX_EXEC_ID_FILE = \"/tmp/.exec-id-1\"\n\n"
+	middle := "[mcp_servers.cloudflare]\nurl = \"https://cf.example.com/mcp\"\n\n[projects.\"/tmp/p\"]\ntrust_level = \"trusted\"\n\n"
+	input := head + stale + middle + "[mcp_servers.qmax]\ncommand = \"qmax-code\"\nargs = [\"serve\", \"--mcp\"]\n"
+
+	got, err := upsertCodexMCPEntry(input, "qmax-code", map[string]string{"QMAX_EXEC_ID_FILE": "/tmp/.exec-id-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, head+middle) {
+		t.Fatalf("unrelated config bytes changed:\n%s", got)
+	}
+	if strings.Contains(got, "exec-id-1") || strings.Count(got, "[mcp_servers.qmax") != 1 {
+		t.Fatalf("stale qmax env table survived:\n%s", got)
+	}
+	var doc map[string]any
+	if err := toml.Unmarshal([]byte(got), &doc); err != nil {
+		t.Fatalf("output is not valid TOML: %v", err)
+	}
+	env := doc["mcp_servers"].(map[string]any)["qmax"].(map[string]any)["env"].(map[string]any)
+	if env["QMAX_EXEC_ID_FILE"] != "/tmp/.exec-id-2" {
+		t.Fatal("qmax env not replaced")
+	}
+	again, err := upsertCodexMCPEntry(got, "qmax-code", map[string]string{"QMAX_EXEC_ID_FILE": "/tmp/.exec-id-2"})
+	if err != nil || again != got {
+		t.Fatal("second write was not idempotent")
+	}
+}
+
+// A file the old writer already broke (env defined as a table and inline) must
+// be left untouched, not rewritten into something else.
+func TestWriteCodexMCPEntryLeavesDuplicateEnvConfigUnchanged(t *testing.T) {
+	input := "[mcp_servers.qmax.env]\nQMAX_EXEC_ID_FILE = \"/tmp/.exec-id-1\"\n\n[mcp_servers.other]\nurl = \"https://mcp.example.com\"\n\n" +
+		"[mcp_servers.qmax]\ncommand = \"qmax-code\"\nenv = { \"QMAX_EXEC_ID_FILE\" = \"/tmp/.exec-id-2\" }\n"
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(input), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteCodexMCPEntry(path, map[string]string{"QMAX_EXEC_ID_FILE": "/tmp/.exec-id-3"}); err == nil {
+		t.Fatal("expected invalid config to be refused")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != input {
+		t.Fatal("refused update changed the original")
+	}
+}
+
 func TestWriteCodexMCPEntryReadFailure(t *testing.T) {
 	// A directory deterministically fails ReadFile even when tests run as root.
 	path := t.TempDir()
