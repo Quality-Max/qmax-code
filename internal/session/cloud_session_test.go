@@ -2,8 +2,11 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/Quality-Max/qmax-code/internal/api"
@@ -72,6 +75,21 @@ func TestApplyCloudSyncChoice_PersistsToDisk(t *testing.T) {
 	loaded := api.LoadQMaxCodeConfig()
 	if loaded.CloudSync == nil || !*loaded.CloudSync {
 		t.Error("CloudSync=true not persisted to disk")
+	}
+}
+
+func TestPromptCloudSyncConsent_ReadErrorDoesNotOptInOrPersist(t *testing.T) {
+	withTempHome(t)
+	cfg := api.DefaultConfig()
+
+	if PromptCloudSyncConsent(cfg, func() (string, error) { return "", errors.New("interrupted") }) {
+		t.Fatal("read error opted in")
+	}
+	if cfg.CloudSync != nil {
+		t.Fatalf("read error persisted cloud sync choice: %v", *cfg.CloudSync)
+	}
+	if loaded := api.LoadQMaxCodeConfig(); loaded.CloudSync != nil {
+		t.Fatalf("read error wrote cloud sync preference: %v", *loaded.CloudSync)
 	}
 }
 
@@ -340,6 +358,66 @@ func TestCloudTracker_CompleteCurrent_SkipsHistoryBeforeTruncatedSession(t *test
 	// Complete may PATCH the session, but must not upload loaded messages.
 	if calls != 1 {
 		t.Errorf("expected 1 HTTP call (PATCH only), got %d", calls)
+	}
+}
+
+func TestCloudTracker_StopThenRestart_ExcludesMessagesTypedWhileSyncWasDisabled(t *testing.T) {
+	var created int
+	uploaded := map[string][]string{}
+	requests := map[string]int{}
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests[r.Method+" "+r.URL.Path]++
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/agent-sessions":
+			created++
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"session_id":"cloud-%d"}`, created)))
+		case r.Method == http.MethodPatch:
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodPost:
+			var body struct {
+				Events []struct {
+					Payload api.Message `json:"payload"`
+				} `json:"events"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode events request: %v", err)
+			}
+			for _, event := range body.Events {
+				content, ok := event.Payload.Content.(string)
+				if !ok {
+					t.Fatalf("event payload content = %T, want string", event.Payload.Content)
+				}
+				uploaded[r.URL.Path] = append(uploaded[r.URL.Path], content)
+			}
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+
+	var tracker CloudSessionTracker
+	tracker.StartWithHistory(client, 1, "model", 0, 0)
+	tracker.Stop() // /cloudsync off
+
+	if tracker.cloudID != "" || tracker.projectID != 0 {
+		t.Fatalf("stopped tracker retained session state: %+v", tracker)
+	}
+
+	// These messages are kept locally while sync is off. Re-enabling after a
+	// project switch must start a new session after this history boundary.
+	history := []api.Message{{Role: "user", Content: "private while sync off"}}
+	tracker.StartWithHistory(client, 2, "model", len(history), 10) // /cloudsync on after /project 2
+	history = append(history, api.Message{Role: "user", Content: "newly consented prompt"})
+	tracker.CompleteCurrent(client, 20, history)
+
+	if got := uploaded["/api/agent-sessions/cloud-1/events"]; len(got) != 0 {
+		t.Errorf("opt-out uploaded private history = %q", got)
+	}
+	if got := requests[http.MethodPatch+" /api/agent-sessions/cloud-1"]; got != 0 {
+		t.Errorf("opt-out finalized cloud session with %d PATCH requests", got)
+	}
+	if got, want := uploaded["/api/agent-sessions/cloud-2/events"], []string{"newly consented prompt"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("re-enabled upload = %q, want %q", got, want)
 	}
 }
 

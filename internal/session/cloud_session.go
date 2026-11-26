@@ -26,7 +26,12 @@ func PromptCloudSyncConsent(cfg *api.Config, readLine func() (string, error)) bo
 	fmt.Println()
 	fmt.Print("  Enable cloud session sync? [Y/n]: ")
 
-	line, _ := readLine()
+	line, err := readLine()
+	if err != nil {
+		fmt.Println("  Cloud session sync unchanged.")
+		fmt.Println()
+		return false
+	}
 
 	enabled := ApplyCloudSyncChoice(cfg, line)
 	if enabled {
@@ -104,12 +109,24 @@ func (t *CloudSessionTracker) SwitchProject(
 	}
 
 	t.CompleteCurrent(client, totalTokens, messages)
+	t.reset()
+	t.StartWithHistory(client, projectID, model, len(messages), totalTokens)
+	return true
+}
+
+// Stop forgets the active cloud session without making a network request. Call
+// this when the user opts out so a later opt-in starts a new history boundary
+// and cannot upload messages entered while syncing was disabled. Opt-out does
+// not finalize or upload pending history: consent has already been withdrawn.
+func (t *CloudSessionTracker) Stop() {
+	t.reset()
+}
+
+func (t *CloudSessionTracker) reset() {
 	t.cloudID = ""
 	t.projectID = 0
 	t.historyStart = 0
 	t.tokenStart = 0
-	t.StartWithHistory(client, projectID, model, len(messages), totalTokens)
-	return true
 }
 
 // CompleteCurrent finalizes the active cloud session using only the portion
